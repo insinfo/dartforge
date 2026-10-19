@@ -99,6 +99,9 @@ fn written_signature(text: &str, a: &ast::Ast, f: &ast::Function) -> String {
     format!("({}) → {}", parts.join(", "), written_type(text, a, f.return_type))
 }
 
+/// Export URI and its ordered show/hide name filters.
+type ExportSummary = (String, Vec<(bool, Vec<String>)>);
+
 /// The summary of a file.
 #[derive(Debug, Clone, Default)]
 struct Summary {
@@ -109,7 +112,7 @@ struct Summary {
     /// The URIs of the parts, as written.
     parts: Vec<String>,
     /// The exported URIs, with the combinators (`true` = `show`).
-    exports: Vec<(String, Vec<(bool, Vec<String>)>)>,
+    exports: Vec<ExportSummary>,
     is_part: bool,
 }
 

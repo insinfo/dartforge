@@ -54,7 +54,7 @@ pub struct Rename {
 
 /// The refactoring class (`RenameRefactoring.create`, §12.2).
 #[derive(Debug, Clone)]
-enum Class {
+enum RenameKind {
     /// `RenameUnitMemberRefactoringImpl`: the top-level element (the top-level
     /// accessor already replaced by the variable) or the prefix of a type.
     UnitMember(Target),
@@ -76,7 +76,7 @@ enum Class {
 /// is (SDK, workspace).
 #[derive(Debug, Clone)]
 struct Request {
-    class: Class,
+    class: RenameKind,
     range: Span,
     old: String,
     kind: String,
@@ -235,7 +235,7 @@ impl Project {
                     _ => (Span { start: offset, end: offset }, String::new()),
                 };
                 return Some(Request {
-                    class: Class::Import { library: lib, index },
+                    class: RenameKind::Import { library: lib, index },
                     range,
                     old,
                     kind: "import directive".to_string(),
@@ -248,7 +248,7 @@ impl Project {
                 let text = cx.node_text(n).trim_end_matches('.').trim().to_string();
                 let symbol = self.query.names.lookup(&text)?;
                 return Some(Request {
-                    class: Class::UnitMember(Target::Prefix { library: u.library, name: symbol }),
+                    class: RenameKind::UnitMember(Target::Prefix { library: u.library, name: symbol }),
                     range: node_range,
                     old: text.clone(),
                     kind: "import prefix".to_string(),
@@ -260,7 +260,7 @@ impl Project {
             "LibraryDirective" => {
                 let name = source[node.start..node.end].trim_start_matches("library").trim().trim_end_matches(';').trim().to_string();
                 return Some(Request {
-                    class: Class::Library(u.library),
+                    class: RenameKind::Library(u.library),
                     range: node_range,
                     old: name.clone(),
                     kind: "library".to_string(),
@@ -299,7 +299,7 @@ impl Project {
                 let field = field.and_then(|c| p.class(c).fields.iter().copied().find(|v| p.variable(*v).name == name.sym));
                 let old = source[name.span.start..name.span.end].to_string();
                 return Some(Request {
-                    class: Class::Parameter { unit, declaration: name.span.start, field },
+                    class: RenameKind::Parameter { unit, declaration: name.span.start, field },
                     range: name.span,
                     old: old.clone(),
                     kind: "parameter".to_string(),
@@ -339,7 +339,7 @@ impl Project {
             if let Some(declaration) = declaration {
                 let name = cx.node_text(n).to_string();
                 return Some(Request {
-                    class: Class::Label { unit, declaration },
+                    class: RenameKind::Label { unit, declaration },
                     range: node_range,
                     old: name.clone(),
                     kind: "label".to_string(),
@@ -369,7 +369,7 @@ impl Project {
             let in_directive = in_directive.or_else(|| self.prefix_import(unit, offset, library, name));
             if let Some(index) = in_directive {
                 return Some(Request {
-                    class: Class::Import { library, index },
+                    class: RenameKind::Import { library, index },
                     range: d.name,
                     old,
                     kind: "import directive".to_string(),
@@ -379,7 +379,7 @@ impl Project {
                 });
             }
             return Some(Request {
-                class: Class::UnitMember(Target::Prefix { library, name }),
+                class: RenameKind::UnitMember(Target::Prefix { library, name }),
                 range: d.name,
                 old: old.clone(),
                 kind: "import prefix".to_string(),
@@ -399,7 +399,7 @@ impl Project {
             Target::Top(el) => {
                 let (kind, name) = self.top_kind(*el)?;
                 Request {
-                    class: Class::UnitMember(target.clone()),
+                    class: RenameKind::UnitMember(target.clone()),
                     range,
                     old: name.clone(),
                     kind,
@@ -414,7 +414,7 @@ impl Project {
                 let name = self.name(fe.name).to_string();
                 let displayed = if name.is_empty() { class } else { format!("{class}.{name}") };
                 Request {
-                    class: Class::Constructor(*f),
+                    class: RenameKind::Constructor(*f),
                     range,
                     old: name,
                     kind: "constructor".to_string(),
@@ -427,11 +427,11 @@ impl Project {
                 let un = p.unit(*lu);
                 let name = word(&un.source, *declaration).map(|s| un.source[s.start..s.end].to_string()).unwrap_or_default();
                 let (class, kind) = if crate::project::parameter_in(&un.ast, *declaration).is_some() {
-                    (Class::Parameter { unit: *lu, declaration: *declaration, field: None }, "parameter")
+                    (RenameKind::Parameter { unit: *lu, declaration: *declaration, field: None }, "parameter")
                 } else if un.ast.functions.iter().any(|f| f.name.is_some_and(|x| x.span.start == *declaration)) {
-                    (Class::Local { unit: *lu, declaration: *declaration }, "function")
+                    (RenameKind::Local { unit: *lu, declaration: *declaration }, "function")
                 } else {
-                    (Class::Local { unit: *lu, declaration: *declaration }, "local variable")
+                    (RenameKind::Local { unit: *lu, declaration: *declaration }, "local variable")
                 };
                 Request {
                     class,
@@ -447,7 +447,7 @@ impl Project {
                 let un = p.unit(*lu);
                 let name = word(&un.source, *declaration).map(|s| un.source[s.start..s.end].to_string()).unwrap_or_default();
                 Request {
-                    class: Class::TypeParameter { unit: *lu, declaration: *declaration },
+                    class: RenameKind::TypeParameter { unit: *lu, declaration: *declaration },
                     range,
                     old: name.clone(),
                     kind: "type parameter".to_string(),
@@ -457,7 +457,7 @@ impl Project {
                 }
             }
             Target::Prefix { library, name } => Request {
-                class: Class::UnitMember(target.clone()),
+                class: RenameKind::UnitMember(target.clone()),
                 range,
                 old: self.name(*name).to_string(),
                 kind: "import prefix".to_string(),
@@ -480,11 +480,11 @@ impl Project {
                 };
                 let (class, qualified) = match owner {
                     Owner::Class(c) => (
-                        Class::ClassMember { target: target.clone(), class: *c, concrete },
+                        RenameKind::ClassMember { target: target.clone(), class: *c, concrete },
                         format!("{}.{name}", self.name(p.class(*c).name)),
                     ),
                     Owner::Extension(x) => (
-                        Class::ExtensionMember { target: target.clone(), concrete },
+                        RenameKind::ExtensionMember { target: target.clone(), concrete },
                         format!("{}.{name}", p.extension(*x).name.map(|s| self.name(s)).unwrap_or("")),
                     ),
                 };
@@ -535,11 +535,11 @@ impl Project {
         if request.library.is_some_and(|l| p.library(l).is_sdk) {
             e.add(Severity::Fatal, format!("The {} '{}' is defined in the SDK, so cannot be renamed.", request.kind, request.qualified));
         }
-        if !matches!(request.class, Class::Import { .. }) && !self.in_workspace(request.unit) {
+        if !matches!(request.class, RenameKind::Import { .. }) && !self.in_workspace(request.unit) {
             e.add(Severity::Fatal, format!("The {} '{}' is defined outside of the project, so cannot be renamed.", request.kind, request.qualified));
         }
         let operator = match &request.class {
-            Class::ClassMember { concrete: Some(Concrete::Function(f)), .. } | Class::ExtensionMember { concrete: Some(Concrete::Function(f)), .. } => {
+            RenameKind::ClassMember { concrete: Some(Concrete::Function(f)), .. } | RenameKind::ExtensionMember { concrete: Some(Concrete::Function(f)), .. } => {
                 p.function(*f).kind == FunctionKind::Operator
             }
             _ => false,
@@ -558,7 +558,7 @@ impl Project {
             e.add(Severity::Fatal, "The new name must be different than the current name.");
         }
         match &request.class {
-            Class::UnitMember(Target::Top(el)) => match el {
+            RenameKind::UnitMember(Target::Top(el)) => match el {
                 Element::Class(c) => {
                     if p.class(*c).kind == ClassKind::ExtensionType {
                         e.absorb(validate_uppercase(new, "Extension type"));
@@ -570,8 +570,8 @@ impl Project {
                 Element::Typedef(_) => e.absorb(validate_uppercase(new, "Type alias")),
                 Element::Extension(_) | Element::Prefix(..) => {}
             },
-            Class::UnitMember(_) => {}
-            Class::Constructor(f) => {
+            RenameKind::UnitMember(_) => {}
+            RenameKind::Constructor(f) => {
                 if !new.is_empty() {
                     e.absorb(validate_lowercase(new, "Constructor", true));
                 }
@@ -589,20 +589,20 @@ impl Project {
                     }
                 }
             }
-            Class::Import { .. } => {
+            RenameKind::Import { .. } => {
                 if !new.is_empty() {
                     e.absorb(validate_identifier(new, "Import prefix name", "a lowercase letter or underscore", false));
                 }
             }
-            Class::Label { .. } => e.absorb(validate_lowercase(new, "Label", true)),
-            Class::Library(_) => e.absorb(validate_library(new)),
-            Class::Parameter { .. } => e.absorb(validate_lowercase(new, "Parameter", true)),
-            Class::Local { unit, declaration } => {
+            RenameKind::Label { .. } => e.absorb(validate_lowercase(new, "Label", true)),
+            RenameKind::Library(_) => e.absorb(validate_library(new)),
+            RenameKind::Parameter { .. } => e.absorb(validate_lowercase(new, "Parameter", true)),
+            RenameKind::Local { unit, declaration } => {
                 let function = p.unit(*unit).ast.functions.iter().any(|f| f.name.is_some_and(|x| x.span.start == *declaration));
                 e.absorb(validate_lowercase(new, if function { "Function" } else { "Variable" }, true));
             }
-            Class::TypeParameter { .. } => e.absorb(validate_uppercase(new, "Type parameter")),
-            Class::ClassMember { concrete, .. } | Class::ExtensionMember { concrete, .. } => match concrete {
+            RenameKind::TypeParameter { .. } => e.absorb(validate_uppercase(new, "Type parameter")),
+            RenameKind::ClassMember { concrete, .. } | RenameKind::ExtensionMember { concrete, .. } => match concrete {
                 Some(Concrete::Function(f)) if matches!(p.function(*f).kind, FunctionKind::Function | FunctionKind::Operator) => {
                     e.absorb(validate_lowercase(new, "Method", true))
                 }
@@ -699,7 +699,7 @@ impl Project {
         let p = self.program();
         let mut e = State::default();
         match &request.class {
-            Class::UnitMember(target) => {
+            RenameKind::UnitMember(target) => {
                 // The prefix (`PrefixElement`) is also a member of the unit.
                 if !matches!(target, Target::Top(_) | Target::Prefix { .. }) {
                     return e;
@@ -746,7 +746,7 @@ impl Project {
                     }
                 }
             }
-            Class::ClassMember { target, class, .. } => {
+            RenameKind::ClassMember { target, class, .. } => {
                 let class = *class;
                 // `_checkClassAlreadyDeclares`.
                 for (kind, _) in self.children_with_name(class, new) {
@@ -806,7 +806,7 @@ impl Project {
                     }
                 }
             }
-            Class::ExtensionMember { target, .. } => {
+            RenameKind::ExtensionMember { target, .. } => {
                 if let Target::Member { owner: Owner::Extension(x), .. } = target {
                     let ext = p.extension(*x);
                     let mut members: Vec<(SymbolId, FunctionElementId)> = ext.instance_members.iter().chain(ext.static_members.iter()).map(|(s, f)| (*s, *f)).collect();
@@ -830,7 +830,7 @@ impl Project {
                     }
                 }
             }
-            Class::Parameter { unit, declaration, .. } => {
+            RenameKind::Parameter { unit, declaration, .. } => {
                 let un = p.unit(*unit);
                 let named = crate::project::parameter_in(&un.ast, *declaration).is_some_and(|(q, _)| q.kind == ast::ParameterKind::Named);
                 if new.starts_with('_') && named {
@@ -839,17 +839,17 @@ impl Project {
                 }
                 e.absorb(self.local_conflicts(*unit, *declaration, new, &request.kind));
             }
-            Class::Local { unit, declaration } => {
+            RenameKind::Local { unit, declaration } => {
                 e.absorb(self.local_conflicts(*unit, *declaration, new, &request.kind));
             }
-            Class::TypeParameter { unit, declaration } => {
+            RenameKind::TypeParameter { unit, declaration } => {
                 let ast = &p.unit(*unit).ast;
                 let siblings = type_parameter_lists(ast).into_iter().find(|l| l.iter().any(|t| t.name.span.start == *declaration)).unwrap_or_default();
                 if siblings.iter().any(|t| self.name(t.name.sym) == new) {
                     e.add(Severity::Error, format!("Duplicate type parameter '{new}'."));
                 }
             }
-            Class::Constructor(_) | Class::Import { .. } | Class::Label { .. } | Class::Library(_) => {}
+            RenameKind::Constructor(_) | RenameKind::Import { .. } | RenameKind::Label { .. } | RenameKind::Library(_) => {}
         }
         e
     }
@@ -1131,9 +1131,9 @@ impl Project {
             }
         };
         match &request.class {
-            Class::Constructor(f) => return self.constructor_edits(*f, new),
-            Class::Import { library, index } => return Ok(self.import_edits(*library, *index, new)),
-            Class::UnitMember(target) | Class::ExtensionMember { target, .. } => {
+            RenameKind::Constructor(f) => return self.constructor_edits(*f, new),
+            RenameKind::Import { library, index } => return Ok(self.import_edits(*library, *index, new)),
+            RenameKind::UnitMember(target) | RenameKind::ExtensionMember { target, .. } => {
                 for (u, a, b) in self.declarations(target) {
                     by(u, Span { start: a, end: b }, new, &mut edits);
                 }
@@ -1141,7 +1141,7 @@ impl Project {
                     by(u, s, new, &mut edits);
                 }
             }
-            Class::ClassMember { target, .. } => {
+            RenameKind::ClassMember { target, .. } => {
                 for (u, a, b) in self.declarations(target) {
                     by(u, Span { start: a, end: b }, new, &mut edits);
                 }
@@ -1167,7 +1167,7 @@ impl Project {
                     by(u, s, new, &mut edits);
                 }
             }
-            Class::Parameter { unit, declaration, field } => {
+            RenameKind::Parameter { unit, declaration, field } => {
                 if let Some(v) = field {
                     // The field: the declaration and all its references.
                     let target = self.variable_member(*v);
@@ -1211,21 +1211,21 @@ impl Project {
                     }
                 }
             }
-            Class::Local { unit, declaration } | Class::TypeParameter { unit, declaration } => {
+            RenameKind::Local { unit, declaration } | RenameKind::TypeParameter { unit, declaration } => {
                 let target = match &request.class {
-                    Class::Local { .. } => Target::Local { unit: *unit, declaration: *declaration },
+                    RenameKind::Local { .. } => Target::Local { unit: *unit, declaration: *declaration },
                     _ => Target::TypeParameter { unit: *unit, declaration: *declaration },
                 };
                 for (u, a, b) in self.occurrences(&target, true)? {
                     by(u, Span { start: a, end: b }, new, &mut edits);
                 }
-                if matches!(&request.class, Class::Local { .. }) {
+                if matches!(&request.class, RenameKind::Local { .. }) {
                     for (span, label) in self.shorthand_pattern_labels(*unit, *declaration) {
                         by(*unit, span, &label, &mut edits);
                     }
                 }
             }
-            Class::Label { unit, declaration } => {
+            RenameKind::Label { unit, declaration } => {
                 let un = p.unit(*unit);
                 let cx = Context::new(self, *unit);
                 let end = word(&un.source, *declaration).map_or(*declaration, |s| s.end);
@@ -1240,7 +1240,7 @@ impl Project {
                     }
                 }
             }
-            Class::Library(l) => {
+            RenameKind::Library(l) => {
                 for &u in p.library(*l).units.iter() {
                     for d in p.unit(u).unit.directives.iter() {
                         let name_: &[ast::Name] = match &d.kind {
@@ -1457,7 +1457,7 @@ impl Project {
     /// The file of the renamed class (§12.1 step 17): only a class, mixin, enum
     /// or extension type whose file is named `toFileName` of the old name.
     fn class_file(&self, request: &Request, new: &str) -> Option<RenameFile> {
-        let Class::UnitMember(Target::Top(Element::Class(c))) = &request.class else { return None };
+        let RenameKind::UnitMember(Target::Top(Element::Class(c))) = &request.class else { return None };
         let d = self.program().class(*c).decl?;
         let path = self.program().unit(d.unit).path.clone()?;
         if path.file_name()?.to_str()? != file_name(&request.old) {

@@ -1246,7 +1246,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// The `ast::Annotation` of an `Annotation` node.
     pub(super) fn real_annotation(&self, n: usize) -> Option<&'a ast::Annotation> {
         let Binding::Annotation(end) = self.link(n) else { return None };
-        let all = self
+        let mut all = self
             .a
             .decls
             .iter()
@@ -1259,12 +1259,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 ast::MemberKind::Constructor(k) => k.parameters.iter().flat_map(|p| p.metadata.iter()).collect::<Vec<_>>(),
                 _ => Vec::new(),
             }));
-        for m in all {
-            if crate::analyzer_tree::address(m) == end {
-                return Some(m);
-            }
-        }
-        None
+        all.find(|m| crate::analyzer_tree::address(*m) == end)
     }
 
     pub(super) fn v_argument_list(&mut self, n: usize) {

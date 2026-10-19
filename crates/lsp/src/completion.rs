@@ -233,18 +233,24 @@ fn scored_text(i: &CompletionItem) -> &str {
     }
 }
 
+/// Document state and completion policy for one editor request.
+pub(crate) struct CompletionInput<'a, 'i> {
+    pub sdk: &'a SdkLayout,
+    pub indices: Indices<'i>,
+    pub documents: &'a DocumentStore,
+    pub uri: &'a str,
+    pub text: &'a str,
+    pub offset: usize,
+    pub features: LibraryFeatures,
+    pub max: usize,
+    pub not_imported: bool,
+}
+
 pub(crate) fn completion(
-    sdk: &SdkLayout,
-    indices: Indices<'_>,
-    documents: &DocumentStore,
-    uri: &str,
-    text: &str,
-    offset: usize,
-    features: LibraryFeatures,
-    max: usize,
-    not_imported: bool,
+    input: CompletionInput<'_, '_>,
     retained: Option<&mut crate::project::Project>,
 ) -> Option<Completion> {
+    let CompletionInput { sdk, indices, documents, uri, text, offset, features, max, not_imported } = input;
     let bytes = text.as_bytes();
     let offset = offset.min(text.len());
     let mut start = offset;

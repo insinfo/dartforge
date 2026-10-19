@@ -2,6 +2,17 @@
 
 ## Atualização de 19/10/2026
 
+- LSP passa no Clippy estrito com todos os alvos, sem supressões: as 16
+  pendências restantes foram resolvidas com tipos para requisições/metadados,
+  opções de imports e consultas de ocorrências, aliases descritivos e duas
+  enumerações de parâmetros. O despacho de renomeação usa `RenameKind`.
+  Passaram os 258 testes regulares/protocolo e 17 doctests, sem alterar as
+  expectativas. Validação macOS; sem nova certificação Windows/Linux ou de
+  paridade completa com o SDK. Fmt global segue pendente; Clippy global falha
+  no emissor nativo (33 biblioteca / 47 testes); docs compilam com avisos.
+  A suíte global da revisão-base `81e6762b` continua ativa nos builders nativos,
+  sem resultado final. Evidências: `bench/results/2026-10-19-lsp-quality/README.md`.
+
 - LSP resolve os caminhos codificados de imports relativos e URIs `file://`
   antes de procurar arquivos, preservando o prefixo digitado nas sugestões.
   As duas regressões falhavam antes; passaram os 258 testes do LSP, incluindo

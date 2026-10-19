@@ -127,6 +127,14 @@ const MAX_CANCELLATIONS: usize = 4096;
 /// analysis. Real clients never send this method.
 const SLEEP_METHOD: &str = "dartforge/sleep";
 
+/// Deferred completion metadata used by `completionItem/resolve`.
+#[derive(Debug, Clone)]
+struct UnimportedCompletion {
+    origin: Option<(std::path::PathBuf, usize)>,
+    import: Option<crate::completion::AutoImport>,
+    detail: Option<String>,
+}
+
 /// The text of a file on disk and its line table.
 type TextWithLines = std::sync::Arc<(String, crate::utf16::LineTable)>;
 
@@ -186,7 +194,7 @@ pub struct Server<A = SyntacticAnalyzer> {
     completion_capabilities: crate::completion_item::Capabilities,
     /// The not-imported items of the last response, by the `data` key (`ref`):
     /// the origin (for the documentation) and the import (for resolve).
-    not_imported: HashMap<String, (Option<(std::path::PathBuf, usize)>, Option<crate::completion::AutoImport>, Option<String>)>,
+    not_imported: HashMap<String, UnimportedCompletion>,
     /// Workspace roots announced in `initialize` (`rootUri`, `workspaceFolders`),
     /// for `workspace/symbol` to scan the disk.
     roots: Vec<std::path::PathBuf>,
@@ -1521,7 +1529,7 @@ impl<A: Analyzer> Server<A> {
                         };
                         let v = crate::completion_item::item(cap, &request, item, doc);
                         if let Some(r) = v.pointer("/data/ref").and_then(Value::as_str) {
-                            self.not_imported.insert(r.to_string(), (item.origin.clone(), item.import.clone(), item.detail.clone()));
+                            self.not_imported.insert(r.to_string(), UnimportedCompletion { origin: item.origin.clone(), import: item.import.clone(), detail: item.detail.clone() });
                         }
                         items.push(v);
                     }
@@ -1572,7 +1580,7 @@ impl<A: Analyzer> Server<A> {
                 // import, the documentation and the `detail`.
                 let key = item.pointer("/data/ref").and_then(Value::as_str).map(str::to_string);
                 if let Some(key) = key
-                    && let Some((origin, import, detail)) = self.not_imported.get(&key).cloned()
+                    && let Some(UnimportedCompletion { origin, import, detail }) = self.not_imported.get(&key).cloned()
                 {
                     let file = item.pointer("/data/file").and_then(Value::as_str).unwrap_or("").to_string();
                     let uri_doc = url::Url::from_file_path(&file).map(|x| x.to_string()).unwrap_or_default();

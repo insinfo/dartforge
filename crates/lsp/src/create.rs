@@ -1477,7 +1477,7 @@ impl Project {
         let type_f = parameter?;
         let declared_names = cx.matching_parameter_names(argument);
         // `Function` counts as `dynamic Function()`.
-        let (ret, positional, optional, named): (TypeId, Vec<TypeId>, Vec<TypeId>, Vec<(dartforge_intern::SymbolId, TypeId, bool)>) = match self.query.table.get(type_f).clone() {
+        let (ret, positional, optional, named) = match self.query.table.get(type_f).clone() {
             Type::Interface { class, .. } if Some(class) == self.query.core.function_class => (self.query.core.dynamic_, Vec::new(), Vec::new(), Vec::new()),
             Type::Function { ret, positional, optional, named, .. } => (ret, positional.to_vec(), optional.to_vec(), named.to_vec()),
             _ => return None,

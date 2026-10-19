@@ -775,7 +775,6 @@ impl<'c, 'p> Extract<'c, 'p> {
             Type::Function { ret, positional, optional, named, .. } => {
                 let Some((buf, names)) = buffer else { return Some("Function".to_string()) };
                 buf.push('(');
-                let mut i = 0usize;
                 let write = |this: &mut Self, buf: &mut String, ty_: TypeId, name: &str| {
                     let source = this.type_source(ty_, None);
                     if buf.len() != 1 {
@@ -785,10 +784,9 @@ impl<'c, 'p> Extract<'c, 'p> {
                     buf.push(' ');
                     buf.push_str(name);
                 };
-                for &p in positional.iter().chain(optional.iter()) {
+                for (i, &p) in positional.iter().chain(optional.iter()).enumerate() {
                     let name = names.get(i).cloned().unwrap_or_default();
                     write(self, buf, p, &name);
-                    i += 1;
                 }
                 let mut named_: Vec<(String, TypeId)> = named.iter().map(|(n, ty, _)| (self.cx.p.name(*n).to_string(), *ty)).collect();
                 named_.sort_by(|a, b| a.0.cmp(&b.0));
@@ -1576,7 +1574,8 @@ pub(crate) fn top_elements(cx: &Context<'_>, u: dartforge_elements::model::UnitI
             _ => {}
         }
     }
-    let kinds: [(&'static str, fn(&ast::DeclKind) -> Option<ast::Name>); 4] = [
+    type DeclarationName = fn(&ast::DeclKind) -> Option<ast::Name>;
+    let kinds: [(&str, DeclarationName); 4] = [
         ("class", |k| match k {
             DeclKind::Class(c) => Some(c.name),
             _ => None,

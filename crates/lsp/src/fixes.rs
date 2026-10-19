@@ -762,13 +762,16 @@ pub(crate) fn supertype_suggestions(project: &mut Project, t: TypeId) -> Vec<Str
     v
 }
 
+/// Parameter kind, required marker, written name and default expression.
+type WrittenParameter = (ParameterKind, bool, Option<String>, Option<String>);
+
 /// `writeParameters(parameters, methodBeingCopied: f)` of `writeOverride`:
 /// the text and the linked groups `TYPE<i>` (with the supertype
 /// suggestions) and `PARAM<i>` (only for unnamed ones), in bytes of the
 /// text.
 fn parameter_list(project: &mut Project, f: FunctionElementId, map: Option<&HashMap<dartforge_types::TypeParamId, TypeId>>) -> (String, Vec<Mark>) {
     let p = project.program();
-    let (unit, ps, tps): (UnitId, Vec<(ParameterKind, bool, Option<String>, Option<String>)>, String) = match p.function(f).node {
+    let (unit, ps, tps): (UnitId, Vec<WrittenParameter>, String) = match p.function(f).node {
         FunctionRef::Function { unit, function } => {
             let u = p.unit(unit);
             let func = u.ast.function(function);

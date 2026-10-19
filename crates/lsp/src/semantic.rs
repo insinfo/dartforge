@@ -746,6 +746,6 @@ impl Analyzer for SemanticAnalyzer {
         } else {
             None
         };
-        crate::completion::completion(sdk, indices, documents, uri, text, offset, features, self_max, not_imported, retained.as_deref_mut())
+        crate::completion::completion(crate::completion::CompletionInput { sdk, indices, documents, uri, text, offset, features, max: self_max, not_imported }, retained.as_deref_mut())
     }
 }

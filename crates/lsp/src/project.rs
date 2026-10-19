@@ -38,6 +38,19 @@ use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 use url::Url;
 
+/// A prefix declaration and its resolved source occurrences.
+type PrefixReferences = (Option<(UnitId, Span)>, Vec<(UnitId, Span)>);
+
+/// Member family and occurrence search policy for one query.
+struct MemberSearch<'a> {
+    owner: Owner,
+    name: &'a str,
+    is_static: bool,
+    refuse_external: bool,
+    family_parameters: bool,
+    filter: Option<&'a HashSet<UnitId>>,
+}
+
 /// Ceiling of `.dart` files scanned at the project root.
 const MAX_FILES: usize = 20_000;
 
@@ -2001,7 +2014,7 @@ impl Project {
                 owner,
                 name,
                 is_static,
-            } => self.member_occurrences(*owner, name, *is_static, refuse_external, family_parameters, filter, &mut by)?,
+            } => self.member_occurrences(MemberSearch { owner: *owner, name, is_static: *is_static, refuse_external, family_parameters, filter }, &mut by)?,
             Target::Constructor(f) => self.constructor_occurrences(*f, filter, &mut by),
             Target::Prefix { library, name } => {
                 self.prefix_occurrences(*library, *name, &mut by)
@@ -2465,14 +2478,10 @@ impl Project {
     /// a field, the `this.x`s, the initializers and the named labels.
     fn member_occurrences(
         &self,
-        owner: Owner,
-        name_: &str,
-        is_static: bool,
-        refuse_external: bool,
-        family_parameters: bool,
-        filter: Option<&HashSet<UnitId>>,
+        search: MemberSearch<'_>,
         by: &mut impl FnMut(UnitId, Span),
     ) -> Result<(), String> {
+        let MemberSearch { owner, name: name_, is_static, refuse_external, family_parameters, filter } = search;
         let family = self.family(owner, name_, is_static, refuse_external)?;
         for f in &family.functions {
             if let Some((u, s)) = self.function_name(*f)
@@ -2841,7 +2850,7 @@ impl Project {
         offset: usize,
         lib: LibraryId,
         name: SymbolId,
-    ) -> Option<(Option<(UnitId, Span)>, Vec<(UnitId, Span)>)> {
+    ) -> Option<PrefixReferences> {
         self.prefix_references_with(unit, offset, lib, name, false)
     }
 
@@ -2862,7 +2871,7 @@ impl Project {
         lib: LibraryId,
         name_: SymbolId,
         only_import: bool,
-    ) -> Option<(Option<(UnitId, Span)>, Vec<(UnitId, Span)>)> {
+    ) -> Option<PrefixReferences> {
         let p = self.program();
         let u = p.unit(unit);
         let ast = &u.ast;

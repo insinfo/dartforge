@@ -1,0 +1,124 @@
+[
+  {
+    "name": "workspace-fmt",
+    "command": [
+      "cargo",
+      "fmt",
+      "--all",
+      "--",
+      "--check"
+    ],
+    "exit": 1,
+    "bytes": 15739557,
+    "sha256": "27413a47c502e0939b31c9e7ee7a1e5ae4d554e753254c9dd5ab4f56a2e5e009",
+    "tail": [
+      "         perm.selectors.insert(0, \"toJson\".into());",
+      "         let m2 = compute(e, &perm);",
+      "-        let same = (0..a.program.functions.len()).all(|i| m.is_live_function(FunctionElementId(i as u32)) == m2.is_live_function(FunctionElementId(i as u32)))",
+      "-            && (0..a.program.classes.len()).all(|i| m.class_level(ClassId(i as u32)) == m2.class_level(ClassId(i as u32)));",
+      "+        let same = (0..a.program.functions.len()).all(|i| {",
+      "+            m.is_live_function(FunctionElementId(i as u32))",
+      "+                == m2.is_live_function(FunctionElementId(i as u32))",
+      "+        }) && (0..a.program.classes.len())",
+      "+            .all(|i| m.class_level(ClassId(i as u32)) == m2.class_level(ClassId(i as u32)));",
+      "         check(same, \"determinism\");",
+      "         Ok(errors)",
+      "     })"
+    ]
+  },
+  {
+    "name": "workspace-clippy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--workspace",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 101,
+    "bytes": 31628,
+    "sha256": "96f2159e1d750594d90fd427568f48fb6b518584b9fb4922007b71038684fea9",
+    "tail": [
+      "",
+      "error: useless use of `vec!`",
+      "   --> crates/emit_native/src/compact_stack_trace.rs:727:32",
+      "    |",
+      "727 |         assert_eq!(convert_elf(&mut vec![0u8; 8]), Ok(false));",
+      "    |                                ^^^^^^^^^^^^^^^^^ help: you can use a slice directly: `&mut [0u8; 8]`",
+      "    |",
+      "    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#useless_vec",
+      "    = note: `-D clippy::useless-vec` implied by `-D warnings`",
+      "    = help: to override `-D warnings` add `#[allow(clippy::useless_vec)]`",
+      "",
+      "error: could not compile `dartforge-emit-native` (lib test) due to 47 previous errors"
+    ]
+  },
+  {
+    "name": "workspace-doc",
+    "command": [
+      "cargo",
+      "doc",
+      "--locked",
+      "--workspace",
+      "--no-deps",
+      "--document-private-items"
+    ],
+    "exit": 0,
+    "bytes": 11277,
+    "sha256": "4bcb9c7bb0930272e0e6799b31fcd029fe2f1d3a921689e1510b8d0b267f2089",
+    "tail": [
+      "   |",
+      "   = help: to escape `[` and `]` characters, add '\\' before them like `\\[` or `\\]`",
+      "",
+      "warning: unresolved link to `crate::display::Displayer::argumentos`",
+      "    --> crates/types/src/inference/mod.rs:1058:41",
+      "     |",
+      "1058 |     /// `ErrorReporter`'s conversion ([`crate::display::Displayer::argumentos`],",
+      "     |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the struct `Displayer` has no field or associated item named `argumentos`",
+      "",
+      "warning: `dartforge-types` (lib doc) generated 18 warnings",
+      "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.87s",
+      "   Generated /Volumes/ssd_dock/MyRustProjects/dartforge/target/doc/dartforge_abi/index.html and 29 other files"
+    ]
+  },
+  {
+    "name": "lsp-clippy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "-p",
+      "dartforge-lsp",
+      "--all-targets",
+      "--no-deps",
+      "--target-dir",
+      "target/impl-a",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 0,
+    "bytes": 162,
+    "sha256": "94298c5846d3bc216c4756f42de2cef96ab1205bb169d0357f576ddfed415148"
+  },
+  {
+    "name": "lsp-tests",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "dartforge-lsp",
+      "--target-dir",
+      "target/impl-a",
+      "--",
+      "--include-ignored"
+    ],
+    "exit": 0,
+    "bytes": 21105,
+    "sha256": "86ec7f808d7aac0b69e6771d2ddca8c99544f72553b239c664a98c1d1e71db60"
+  }
+]

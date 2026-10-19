@@ -17,6 +17,16 @@ use std::path::{Path, PathBuf};
 
 type R = RefactoringResult;
 
+/// Import combinators and URI spelling policy for one requested library.
+#[derive(Default)]
+struct ImportOptions<'a> {
+    prefix: Option<&'a str>,
+    show: Option<&'a str>,
+    use_show: bool,
+    absolute: bool,
+    relative: bool,
+}
+
 /// The lines of a text (`LineInfo`): `\r\n`, `\r` and `\n` end a line.
 struct Lines {
     starts: Vec<usize>,
@@ -267,11 +277,12 @@ impl Constructor {
 
     /// `_importLibrary(uri, prefix, shownName, useShow)`.
     fn import_library(&mut self, cx: &Context<'_>, uri: &str, prefix: Option<&str>, show: Option<&str>, use_show: bool) {
-        self.forced_import(cx, uri, prefix, show, use_show, false, false);
+        self.forced_import(cx, uri, ImportOptions { prefix, show, use_show, ..ImportOptions::default() });
     }
 
     /// `_importLibrary` with `forceAbsolute`/`forceRelative`: the `uriText`.
-    fn forced_import(&mut self, cx: &Context<'_>, uri: &str, prefix: Option<&str>, show: Option<&str>, use_show: bool, absolute: bool, relative: bool) -> String {
+    fn forced_import(&mut self, cx: &Context<'_>, uri: &str, options: ImportOptions<'_>) -> String {
+        let ImportOptions { prefix, show, use_show, absolute, relative } = options;
         if let Some(i) = self.import.iter_mut().find(|i| i.key == uri) {
             if let Some(p) = prefix
                 && !i.prefixes.iter().any(|x| x == p)
@@ -688,7 +699,7 @@ pub(crate) fn import_one(cx: &Context<'_>, uri: &str, relative: bool) -> Option<
     let uri_def = cx.p.unit_uri(defining)?;
     let u = prog.unit(defining);
     let mut b = Constructor::new(uri_def, u.path.clone(), u.source.clone(), Some(defining), None);
-    let text = b.forced_import(cx, uri, None, None, false, !relative, relative);
+    let text = b.forced_import(cx, uri, ImportOptions { absolute: !relative, relative, ..ImportOptions::default() });
     let mut m = Change::default();
     let eol = Text::new(&u.source).eol();
     b.finish(cx, &mut m, eol);

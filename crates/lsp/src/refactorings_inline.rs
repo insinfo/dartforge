@@ -24,6 +24,9 @@ struct ParameterOccurrence {
     in_interpolation: bool,
 }
 
+/// Local declaration offset, name and occurrence ranges in an inline source part.
+type LocalOccurrences = (usize, String, Vec<(usize, usize)>);
+
 /// `_SourcePart`.
 #[derive(Debug, Clone, Default)]
 struct Part {
@@ -33,7 +36,7 @@ struct Part {
     /// By parameter name, in the order of the first occurrence.
     parameters: Vec<(String, Vec<ParameterOccurrence>)>,
     /// By the local's declaration: the name and the ranges.
-    variables: Vec<(usize, String, Vec<(usize, usize)>)>,
+    variables: Vec<LocalOccurrences>,
     explicit_this: Vec<usize>,
     implicit_this: Vec<usize>,
     implicit_classes: Vec<(String, Vec<usize>)>,

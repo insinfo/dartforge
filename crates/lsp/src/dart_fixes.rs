@@ -31,6 +31,9 @@ enum Declared {
     Variable(VariableId),
 }
 
+/// Edits for an async conversion and libraries needed by its written types.
+pub(crate) type AsyncConversion = (Vec<(Span, String)>, std::collections::BTreeSet<dartforge_elements::model::LibraryId>);
+
 impl Context<'_> {
     // -- Tokens and ranges ----------------------------------------------------
 
@@ -629,7 +632,7 @@ impl Context<'_> {
     /// return of the enclosing function or method (a closure has none) becomes
     /// `Future<flatten(T)>`, except `dynamic` and `Future`. The edits and the
     /// libraries to import.
-    pub(crate) fn add_async(&self, error: Span) -> Option<(Vec<(Span, String)>, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
+    pub(crate) fn add_async(&self, error: Span) -> Option<AsyncConversion> {
         use dartforge_types::Type;
         let node = self.tree.locate(error.start, error.end)?;
         let body = self.this_or_ancestor(node, |e| e.ends_with("FunctionBody"))?;
@@ -1664,11 +1667,9 @@ impl Context<'_> {
                     _ => Vec::new(),
                 };
                 let mut parts = Vec::new();
-                let mut i = 0usize;
-                for &q in positional.iter().chain(optional.iter()) {
+                for (i, &q) in positional.iter().chain(optional.iter()).enumerate() {
                     let ty = if matches!(table.get(q), Type::Dynamic) { String::new() } else { format!("{} ", self.p.query.format(q)) };
                     parts.push(format!("{ty}{}", names.get(i).cloned().unwrap_or_default()));
-                    i += 1;
                 }
                 for (n, q, _) in named.iter() {
                     let ty = if matches!(table.get(*q), Type::Dynamic) { String::new() } else { format!("{} ", self.p.query.format(*q)) };
