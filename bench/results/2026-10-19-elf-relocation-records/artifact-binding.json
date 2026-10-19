@@ -1,0 +1,10 @@
+{
+  "path": "target/desktop-matrix/cross-linux-arm64/explorer",
+  "bytes": 37669568,
+  "sha256": "b31a923a500407218a3f8927940065f8b8d54cf3984978138c63669df9747dce",
+  "prior_sha256": "b31a923a500407218a3f8927940065f8b8d54cf3984978138c63669df9747dce",
+  "matches_prior": true,
+  "prior_manifest": "bench/results/2026-10-19-cross-desktop/artifacts.json",
+  "prior_manifest_sha256": "fcda897a517143dc51389e117bec59adf7714e9ab61c57e5de47a12d204a0371",
+  "executed_this_round": false
+}

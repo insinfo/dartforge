@@ -818,3 +818,49 @@ a memória. Permissões, limites realmente passados a `register_image`, resoluç
 de marcadores, opções/entradas do ligador e proveniência das contribuições
 continuam exigindo cobertura própria. Não houve alteração dos gates de classes
 ou do schema do inventário, nem ganho de tamanho/desempenho comprovado.
+
+
+### Auditoria declarativa de relocações ELF
+
+`linked_images::elf_relocations::inspect` lê ELF64 little-endian ARM64/x64 e
+parte das referências de `PT_DYNAMIC`, não dos nomes de seções de relocação.
+Isso evita concluir ausência de relocações quando o iterador genérico de seções
+não as encontra. O leitor exige cabeçalhos suportados, mapeamento único dos
+bytes de metadados por `PT_LOAD`, dados dinâmicos terminados por `DT_NULL` e
+consistência de tamanhos/entradas. A seção de strings é validada novamente e
+seu digest confere com os bytes do mapeamento declarado.
+
+São decodificadas as tabelas REL, RELA, JMPREL e RELR. O teste de sobreposição
+usa toda a largura potencial da escrita, incluindo uma escrita que começa
+antes da seção e a atravessa. Tipos não revisados e COPY ficam sem largura
+conhecida, em contadores separados; tags dinâmicas desconhecidas permanecem
+explícitas. Não há conversão de ausência de classificação em escrita segura.
+Os prefixos rápidos RELCOUNT/RELACOUNT exigem entradas RELATIVE do destino e
+símbolo zero, para não interpretar como inofensivo um NONE no prefixo.
+
+RELR é percorrido sem criar uma lista expandida de endereços. Bitmaps exigem
+endereço anterior, cursores e faixas usam aritmética verificada e endereços
+pares não alinhados a palavra são preservados. Cada tabela tem contadores de
+todas as entradas/escritas e no máximo 16 exemplos por categoria; limitar
+exemplos não interrompe a análise. Metadados de tamanho de entrada sem tabela
+principal também são aceitos para imagens que possuem apenas relocações PLT.
+
+O explorador Linux ARM64 já publicado apresentou 67.445 entradas RELA
+(67.434 RELATIVE e 11 GLOB_DAT) e 133 JMPREL/JUMP_SLOT: 67.578 alvos declarados,
+sem sobreposição conhecida com os 854.760 bytes de strings e sem larguras/tags
+não revisadas nessa amostra. O mapeamento declarado da região tem flags 4
+(leitura); isso não certifica permissões reais. Há tags de inicialização.
+Fixtures PIE novas para ARM64/x64 passaram com RELA e RELR compactado. Alterar
+um alvo para a seção de strings foi detectado nos quatro casos, sem executá-los.
+
+A auditoria descreve registros do arquivo. Não prova validade de todos os alvos,
+estabilidade das próprias tabelas durante o carregamento, escritas implícitas
+como GOT/DT_DEBUG, código chamado por resolução de símbolos/IFUNC, inicializadores,
+dependências, permissões reais ou limites registrados. Não há certificado de
+imutabilidade, gate automático de link ou autorização nova de classes/imagens.
+Mach-O/PE ainda precisam da análise dos respectivos mecanismos de fixup.
+
+Referências normativas: [gABI — estrutura dinâmica](https://gabi.xinuos.com/elf/08-dynamic.html),
+[gABI — REL/RELA/RELR](https://gabi.xinuos.com/elf/06-reloc.html),
+[AAELF64](https://github.com/ARM-software/abi-aa/blob/main/aaelf64/aaelf64.rst) e
+[AMD64 psABI](https://refspecs.linuxfoundation.org/elf/x86_64-abi-0.99.pdf).

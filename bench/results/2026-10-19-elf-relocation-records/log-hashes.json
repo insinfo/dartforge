@@ -1,0 +1,44 @@
+[
+  {
+    "file": "tests.log",
+    "original_bytes": 5882,
+    "original_sha256": "2503113dbd315ffdb05962a1c4ba3ae7d0e1ec242c70687456945bebf901d018",
+    "stored_sha256": "37cd101919e81d367714706e50235b2ec5771468421aee245e6b662d3945d443",
+    "excerpt": false
+  },
+  {
+    "file": "doctest.log",
+    "original_bytes": 682,
+    "original_sha256": "78ba1ccde9db41c119ea20d72f0deb5c5965f2913e672132901b1c7760276f86",
+    "stored_sha256": "78ba1ccde9db41c119ea20d72f0deb5c5965f2913e672132901b1c7760276f86",
+    "excerpt": false
+  },
+  {
+    "file": "clippy.log",
+    "original_bytes": 376,
+    "original_sha256": "10ecc45f9f9102ef2ce2b40d7c4eaf8c9c0ccc8e9e61afb0766806930975f1a7",
+    "stored_sha256": "10ecc45f9f9102ef2ce2b40d7c4eaf8c9c0ccc8e9e61afb0766806930975f1a7",
+    "excerpt": false
+  },
+  {
+    "file": "feature-clippy.log",
+    "original_bytes": 178,
+    "original_sha256": "539c219ee7a697468a5cbb8ea3d7e50092c446befd80de815814565e005bf43a",
+    "stored_sha256": "539c219ee7a697468a5cbb8ea3d7e50092c446befd80de815814565e005bf43a",
+    "excerpt": false
+  },
+  {
+    "file": "doc.log",
+    "original_bytes": 504,
+    "original_sha256": "ade2eab8e247e6e935c9e81cd5517c2fb762e1a0cc9b602aaf6aefb43f64f2a7",
+    "stored_sha256": "ade2eab8e247e6e935c9e81cd5517c2fb762e1a0cc9b602aaf6aefb43f64f2a7",
+    "excerpt": false
+  },
+  {
+    "file": "fmt-excerpt.log",
+    "original_bytes": 15760076,
+    "original_sha256": "2b0a772626248aa07e51bc0aa01c49118fb1c6d9fe18ec6cda0102b3198da2bd",
+    "stored_sha256": "b72814a0f65e5a5539705b89cf410a7e053928a67c578bf29f4102975febdb76",
+    "excerpt": true
+  }
+]

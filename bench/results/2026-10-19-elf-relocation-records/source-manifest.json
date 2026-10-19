@@ -1,0 +1,5 @@
+{
+  "crates/emit_native/src/linked_images.rs": "5a05963110eca983f5cadfe89aa25a6848ab7e85d721cef216cc03ad202bdfe4",
+  "crates/emit_native/src/linked_images/elf_relocations.rs": "a23d8b39ef979c87df945ebe5681da1815dffc597485b8df4ed63a59b5720684",
+  "crates/emit_native/src/linked_images/elf_relocations/tests.rs": "390d4cbee81be6e8b1e702f71e5ffdf4cff84d7ac6155a6d722e537204d83bab"
+}

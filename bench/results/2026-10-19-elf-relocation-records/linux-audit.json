@@ -1,0 +1,41 @@
+{
+  "image_digest": "37b0c607c0f5cadf7d19f53a1e199c2d519ad903469588a99460892df0615396",
+  "managed_address": 2083680,
+  "managed_bytes": 854760,
+  "managed_load_flags": 4,
+  "tables": [
+    {
+      "kind": "rela",
+      "address": 6416,
+      "bytes": 1618680,
+      "digest": "57ee29fa50877d332771a04d666ae7ccf6173a83206a5d214748aceae0d226a1",
+      "encoded_entries": 67445,
+      "potential_writes": 67445,
+      "overlapping_writes": 0,
+      "unclassified_writes": 0,
+      "types": {
+        "1025": 11,
+        "1027": 67434
+      },
+      "overlap_examples": [],
+      "unknown_examples": []
+    },
+    {
+      "kind": "jmprel",
+      "address": 1625096,
+      "bytes": 3192,
+      "digest": "358196010930da81ade93720361cdbb9a4a0932ce5c829444aa3f16c3df3438f",
+      "encoded_entries": 133,
+      "potential_writes": 133,
+      "overlapping_writes": 0,
+      "unclassified_writes": 0,
+      "types": {
+        "1026": 133
+      },
+      "overlap_examples": [],
+      "unknown_examples": []
+    }
+  ],
+  "unreviewed_dynamic_tags": [],
+  "initializer_tags_present": true
+}

@@ -3,6 +3,21 @@
 ## Atualização de 19/10/2026
 
 
+- `linked_images::elf_relocations::inspect` observa REL/RELA/RELR/JMPREL via
+  PT_DYNAMIC e mapeamentos PT_LOAD, incluindo escritas que atravessam a borda
+  da seção. Tags/tipos sem classificação permanecem explícitos; prefixos rápidos,
+  bitmaps RELR, limites e overflow são conferidos. Exemplos são limitados sem
+  interromper contagens. O explorador Linux ARM64 anterior, com SHA-256 conferido,
+  tem 67.578 alvos declarados e nenhum span conhecido sobrepõe seus 854.760 bytes
+  de strings. Há tags de inicialização; efeitos implícitos do carregador seguem
+  sem prova. Fixtures PIE ARM64/x64 passaram com RELA/RELR e alvos alterados para
+  a imagem foram detectados nos quatro casos. Passaram 15 testes de imagens
+  (nove novos), exemplo executável, Clippy e docs estritos. Fmt global e aprovação
+  integral continuam pendentes; sem nova execução desktop/JIT, rebuild do SDK,
+  autorização de poda, certificado de imutabilidade ou ganho de binário medido.
+  Evidências: `bench/results/2026-10-19-elf-relocation-records/README.md`.
+
+
 - A nova API `linked_images::inspect` confere todos os bytes das seções de
   strings em arquivos ligados Mach-O/ELF/PE 64-bit LE. Compartilha a validação
   canônica com o inventário LLVM e registra palavras zeradas como padding,
