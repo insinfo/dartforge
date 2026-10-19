@@ -1,0 +1,17 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running tests/native_executor.rs (target/impl-a/debug/deps/native_executor-495c3c83521069bf)
+
+running 1 test
+test corpus_builders_through_the_native_executor has been running for over 60 seconds
+| cadeia_configuracao | 22 | 0 | 0 | 210800 | 0.2 |  |
+cadeia_configuracao/01-entrada-alterada: 27 ms, 7 actions run
+cadeia_configuracao/02-arquivo-novo: 29 ms, 8 actions run
+cadeia_configuracao/03-opcao-global-alterada: 161 ms, 29 actions run
+### corpus/builders through the native executor — equal/pending/different
+
+| case | equal | pending | different | clean (ms) | no change (ms) | reasons |
+|---|---|---|---|---|---|---|
+| cadeia_configuracao | 22 | 0 | 0 | 210800 | 0.2 |  |
+test corpus_builders_through_the_native_executor ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 211.51s

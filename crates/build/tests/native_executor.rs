@@ -13,6 +13,9 @@
 //! which is deleted at the end of the case — they fit on disk one at a time.
 //! `DARTFORGE_CORPUS_BUILDERS` changes the corpus root; `DARTFORGE_CASES`
 //! (comma-separated names) limits the cases.
+#[path = "support/corpus_cases.rs"]
+mod corpus_cases;
+
 use dartforge_build::query::NoDb;
 use dartforge_build::native_executor::{NativeConfig, NativeExecutor};
 use dartforge_build::graph::AssetId;
@@ -130,7 +133,7 @@ fn update(m: &mut Engine, changed: &[PathBuf]) -> (EngineReport, f64) {
     (at.rel, t0.elapsed().as_secs_f64() * 1000.0)
 }
 
-/// The scoreboard of all cases through the native executor: zero different
+/// The scoreboard of all cases through the native executor: zero pending/different
 /// and incremental = from scratch on every edit.
 #[test]
 #[ignore = "requires dartforge with the native feature and `dart pub get` in each case of corpus/builders"]
@@ -139,16 +142,8 @@ fn corpus_builders_through_the_native_executor() {
     let filter: Option<Vec<String>> = std::env::var("DARTFORGE_CASES")
         .ok()
         .map(|s| s.split(',').map(|x| x.trim().to_string()).collect());
-    let mut cases: Vec<PathBuf> = std::fs::read_dir(corpus_root())
-        .unwrap()
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.join("oraculo/plano.dart").is_file() && p.join(".dart_tool/package_config.json").is_file())
-        .filter(|p| {
-            filter.as_ref().is_none_or(|f| f.iter().any(|n| p.file_name().is_some_and(|x| x == n.as_str())))
-        })
-        .collect();
-    cases.sort();
+    let cases = corpus_cases::planned_cases(&corpus_root(), filter.as_deref())
+        .expect("builder corpus prerequisites");
     let mut lines = vec![
         "### corpus/builders through the native executor — equal/pending/different".to_string(),
         String::new(),
@@ -186,11 +181,8 @@ fn corpus_builders_through_the_native_executor() {
                 println!("{name}: {n}× full reason:\n{k}");
             }
         }
-        for (id, reason) in &p.different {
-            different.push(format!("{name}: {} ({reason})", id.text()));
-        }
-        if !p.pending.is_empty() {
-            different.push(format!("{name}: {} pending ({})", p.pending.len(), reasons.join("; ")));
+        if let Err(error) = corpus_cases::require_complete_outputs(&name, &p) {
+            different.push(error);
         }
         let mut steps: Vec<PathBuf> = std::fs::read_dir(origin.join("edicoes"))
             .map(|l| l.flatten().map(|e| e.path()).collect())

@@ -1,0 +1,26 @@
+{
+  "fmt": {
+    "exit": 1,
+    "local_full_log": "/tmp/forge-builder-selection-root-local/fmt.log",
+    "bytes": 15733707,
+    "sha256": "00f8e50401559d6327215212416843e1714c7ccc75971a670b56654016e995e7"
+  },
+  "clippy": {
+    "exit": 101,
+    "local_full_log": "/tmp/forge-builder-selection-root-local/clippy.log",
+    "bytes": 39989,
+    "sha256": "57dc19a45caa9825ecf744596ad39c5eabf00302be42871049f14090f173cbda"
+  },
+  "test": {
+    "exit": 101,
+    "local_full_log": "/tmp/forge-builder-selection-root-local/test.log",
+    "bytes": 473086,
+    "sha256": "b49dabc7e72080dd052aa0a4be86a0c49441e401cc04ad813d33940fe1bf7146"
+  },
+  "doc": {
+    "exit": 0,
+    "local_full_log": "/tmp/forge-builder-selection-root-local/doc.log",
+    "bytes": 11822,
+    "sha256": "4b0e010b765267aa8f8a4a062c4d2b5b6607fd558a439a0678d6988b9f8be3b2"
+  }
+}

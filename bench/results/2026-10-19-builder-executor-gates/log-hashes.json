@@ -1,0 +1,65 @@
+{
+  "empty-native-before.log": {
+    "local_full_log": "/tmp/forge-builder-empty-before.log",
+    "bytes": 619,
+    "sha256": "b27ee3b300a6d12bdbaba640bdad881515cdc9282e08c38f67f75e68796906a7"
+  },
+  "empty-native-after.log": {
+    "local_full_log": "/tmp/forge-builder-empty-after.log",
+    "bytes": 858,
+    "sha256": "89fbc8b602173b17e12b6179d6586cdbc9908d3ec02ea865f4823e602b14691a"
+  },
+  "unavailable-vm-before.log": {
+    "local_full_log": "/tmp/forge-builder-vm-unavailable-before.log",
+    "bytes": 2810,
+    "sha256": "f1dc90bbd42e5a3a332bd778cdb94cb3f01d71f3af53ddfd2bc48826f8231243"
+  },
+  "unavailable-vm-after.log": {
+    "local_full_log": "/tmp/forge-builder-vm-unavailable-after.log",
+    "bytes": 14115,
+    "sha256": "301f2551f2c07eb8b30cf8d4fe0f9af57cae16976f541ac5bb4da915c5de606a"
+  },
+  "selection-tests.log": {
+    "local_full_log": "/tmp/forge-builder-selection-tests.log",
+    "bytes": 714,
+    "sha256": "70dac83b4b22a0de2593066c5b4a420fa1d2b7c121cd42a98b85d5e08c5be643"
+  },
+  "build-tests.log": {
+    "local_full_log": "/tmp/forge-builder-selection-all-final.log",
+    "bytes": 8377,
+    "sha256": "71499ae9c5992a73f856bae03763249afcdc5b1acfea4cda62322dfb17967c0d"
+  },
+  "build-clippy.log": {
+    "local_full_log": "/tmp/forge-builder-selection-clippy-final.log",
+    "bytes": 166,
+    "sha256": "446d3e48bc5d9a61d6d6ca6217c1576bfc4b214b08d8c534c6f8396a542d7406"
+  },
+  "doctests.log": {
+    "local_full_log": "/tmp/forge-builder-selection-doc.log",
+    "bytes": 1567,
+    "sha256": "18c00babad893bbf8d2f77819f81f6e385b23666105d44ffa4bae998352dbcfe"
+  },
+  "vm.log": {
+    "local_full_log": "/tmp/forge-build-vm-final.log",
+    "bytes": 3580,
+    "sha256": "6071268f643058ac758d11f9d07d27fccbbb73df263f8b1cdf2f75e370ce9d53"
+  },
+  "native-initial.log": {
+    "local_full_log": "/tmp/forge-build-native-selected.log",
+    "bytes": 912,
+    "sha256": "1094f94b52118b2a28c6993f08acca1fe7e7d793a73874da01f668f8b57e578d"
+  },
+  "missing-config-after.log": {
+    "local_full_log": "/tmp/forge-builder-missing-config-after.log",
+    "bytes": 878,
+    "sha256": "9163bbb031918d692d7a3a55659f627aa13facb94e664e98aa21d9d97c8f0493",
+    "exit": 101,
+    "expected": "rejection"
+  },
+  "native.log": {
+    "local_full_log": "/tmp/forge-build-native-final.log",
+    "bytes": 912,
+    "sha256": "a7616282382aadf64ffd60efaddf454be2e7081eda4a6b2d3b8eb378591784c6",
+    "exit": 0
+  }
+}

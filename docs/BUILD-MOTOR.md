@@ -297,9 +297,16 @@ Por ação, na ordem, o primeiro que aceita:
    em curso vira `Origem::Falha` com o motivo, e as seguintes seguem a
    política de executor indisponível (`dfexec::CanalDeProcesso::com_prazo`,
    `cliente::prazo_do_executor`). No
-   `corpus/builders` pela VM: **57 iguais / 0 pendentes / 0 diferentes**
-   (`crates/build/tests/executor_vm.rs`, com a saída do pós-processador do
-   `cadeia_configuracao`), e incremental = do zero nas 12 edições.
+   `corpus/builders` pela VM, na rodada de 19/10/2026: **60 iguais / 0
+   pendentes / 0 diferentes** em dez projetos (`crates/build/tests/vm_executor.rs`),
+   e incremental = do zero nas 12 edições. A seleção dos testes VM/nativo falha
+   se não houver casos planejados ou se faltar `package_config.json` em um caso
+   selecionado. O filtro nativo `DARTFORGE_CASES` também recusa nomes vazios ou
+   desconhecidos, inclusive quando outros nomes são válidos; não há aprovação
+   com uma seleção vazia. Nos testes de execução, saídas pendentes também
+   reprovam, mesmo quando nenhuma saída diverge. O teste separado de planejamento
+   mantém seu placar informativo de pendências sem executor. Evidências: `bench/results/2026-10-19-builder-executor-gates/`.
+   Esse placar usa a VM Dart 3.6.2 e não certifica o executor nativo.
 3. **Apoio**: o que o `build_runner` deixou no disco — saída `source` na
    árvore, saída `cache` em `.dart_tool/build/generated/<pkg>/<caminho>`.
    Se a entrada primária é mais nova que o apoio: **aviso** único no

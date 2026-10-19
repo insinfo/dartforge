@@ -1,0 +1,46 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running tests/vm_executor.rs (target/impl-a/debug/deps/vm_executor-51c5ff17294967c8)
+
+running 4 tests
+test post_processor_through_the_vm ... ok
+first process: 7393 ms — engine: 6 actions checked, 5 run (0 native, 5 Dart, 0 fallback, 0 units regenerated), 0 queries reevaluated, 0 generator queries, 2 outputs changed, 7392.7 ms (revalidation 0.0 ms, per-package native 0.0 ms)
+clean: 7458 ms — engine: 6 actions checked, 5 run (0 native, 5 Dart, 0 fallback, 0 units regenerated), 0 queries reevaluated, 0 generator queries, 2 outputs changed, 7457.3 ms (revalidation 0.0 ms, per-package native 0.0 ms)
+no change: 0.3 ms — engine: 6 actions checked, 0 run (0 native, 0 Dart, 0 fallback, 0 units regenerated), 0 queries reevaluated, 0 generator queries, 0 outputs changed, 0.1 ms (revalidation 0.0 ms, per-package native 0.0 ms)
+01-corpo-de-metodo: 69 ms — engine: 6 actions checked, 3 run (0 native, 3 Dart, 0 fallback, 0 units regenerated), 6 queries reevaluated, 0 generator queries, 0 outputs changed, 68.6 ms (revalidation 0.0 ms, per-package native 0.0 ms)
+second process: 156 ms — engine: 6 actions checked, 0 run (0 native, 0 Dart, 0 fallback, 0 units regenerated), 135 queries reevaluated, 0 generator queries, 0 outputs changed, 155.7 ms (revalidation 0.0 ms, per-package native 0.0 ms)
+01-corpo-de-metodo: from scratch with the reused kernel: 980 ms
+02-campo-novo: 58 ms — engine: 6 actions checked, 4 run (0 native, 4 Dart, 0 fallback, 0 units regenerated), 8 queries reevaluated, 0 generator queries, 2 outputs changed, 58.1 ms (revalidation 0.0 ms, per-package native 0.0 ms)
+test state_saved_through_the_vm ... ok
+02-campo-novo: from scratch with the reused kernel: 902 ms
+03-arquivo-novo: 37 ms — engine: 9 actions checked, 3 run (0 native, 3 Dart, 0 fallback, 0 units regenerated), 2 queries reevaluated, 0 generator queries, 2 outputs changed, 36.5 ms (revalidation 0.0 ms, per-package native 0.0 ms)
+cadeia_configuracao/01-entrada-alterada: 41 ms, 7 actions run
+03-arquivo-novo: from scratch with the reused kernel: 966 ms
+cadeia_configuracao/02-arquivo-novo: 43 ms, 8 actions run
+cadeia_configuracao/03-opcao-global-alterada: 325 ms, 29 actions run
+test json_serializable_through_the_vm_equals_build_runner_and_is_incremental ... ok
+freezed/01-corpo-de-getter: 157 ms, 4 actions run
+freezed/02-campo-novo: 162 ms, 6 actions run
+freezed/03-arquivo-novo: 94 ms, 6 actions run
+json_serializable/01-corpo-de-metodo: 34 ms, 3 actions run
+json_serializable/02-campo-novo: 32 ms, 4 actions run
+json_serializable/03-arquivo-novo: 20 ms, 3 actions run
+sass_builder/01-parcial-alterada: 2 ms, 3 actions run
+sass_builder/02-propriedade-alterada: 1 ms, 2 actions run
+sass_builder/03-arquivo-novo: 3 ms, 2 actions run
+### corpus/builders through the VM — equal/pending/different
+
+| case | equal | pending | different | clean (ms) | no change (ms) | reasons |
+|---|---|---|---|---|---|---|
+| built_value | 2 | 0 | 0 | 7935 | 0.4 |  |
+| cadeia_configuracao | 22 | 0 | 0 | 2090 | 0.2 |  |
+| drift | 12 | 0 | 0 | 6745 | 0.3 |  |
+| freezed | 3 | 0 | 0 | 4343 | 0.2 |  |
+| i18n | 3 | 0 | 0 | 2 | 0.1 |  |
+| json_serializable | 2 | 0 | 0 | 3860 | 0.1 |  |
+| mockito | 2 | 0 | 0 | 4473 | 0.2 |  |
+| riverpod_generator | 2 | 0 | 0 | 4681 | 0.2 |  |
+| sass_builder | 6 | 0 | 0 | 1890 | 0.2 |  |
+| sass_builder_compressed | 6 | 0 | 0 | 2092 | 0.2 |  |
+test corpus_builders_through_the_vm ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 46.39s

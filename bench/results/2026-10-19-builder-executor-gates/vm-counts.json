@@ -1,0 +1,69 @@
+{
+  "cases": [
+    {
+      "case": "built_value",
+      "equal": 2,
+      "pending": 0,
+      "different": 0
+    },
+    {
+      "case": "cadeia_configuracao",
+      "equal": 22,
+      "pending": 0,
+      "different": 0
+    },
+    {
+      "case": "drift",
+      "equal": 12,
+      "pending": 0,
+      "different": 0
+    },
+    {
+      "case": "freezed",
+      "equal": 3,
+      "pending": 0,
+      "different": 0
+    },
+    {
+      "case": "i18n",
+      "equal": 3,
+      "pending": 0,
+      "different": 0
+    },
+    {
+      "case": "json_serializable",
+      "equal": 2,
+      "pending": 0,
+      "different": 0
+    },
+    {
+      "case": "mockito",
+      "equal": 2,
+      "pending": 0,
+      "different": 0
+    },
+    {
+      "case": "riverpod_generator",
+      "equal": 2,
+      "pending": 0,
+      "different": 0
+    },
+    {
+      "case": "sass_builder",
+      "equal": 6,
+      "pending": 0,
+      "different": 0
+    },
+    {
+      "case": "sass_builder_compressed",
+      "equal": 6,
+      "pending": 0,
+      "different": 0
+    }
+  ],
+  "totals": {
+    "equal": 60,
+    "pending": 0,
+    "different": 0
+  }
+}

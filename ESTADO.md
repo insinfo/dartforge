@@ -2,6 +2,20 @@
 
 ## Atualização de 19/10/2026
 
+- Os testes de execução de builders deixam de aprovar seleção vazia, nomes de
+  casos desconhecidos ou pré-requisitos ausentes. A execução pela VM também
+  exige zero saídas pendentes: com um Dart inexistente, antes aprovava com 45
+  pendências; agora reprova. Seis testes regulares cobrem os critérios. A rodada
+  real com Dart 3.6.2 passou nos quatro testes VM, com 60 saídas idênticas em dez
+  projetos, zero pendências e equivalência incremental/do zero nas 12 edições.
+  O executor nativo próprio passou em `cadeia_configuracao`: 22 saídas iguais,
+  zero pendências e três edições incrementais; não certifica os demais builders
+  nativos. Passaram 66 testes regulares do motor, 16 doctests e Clippy estrito
+  com todos os alvos (`--no-deps`); 18 testes continuam ignorados na seleção
+  regular. Checks globais mantêm falhas de fmt/Clippy/link Apple/LLVM 22;
+  documentação gera avisos. Evidências:
+  `bench/results/2026-10-19-builder-executor-gates/README.md`.
+
 - A detecção de builders agora usa o leitor YAML da configuração, reconhece
   chaves entre aspas/mapas em uma linha e não aciona o motor para definições
   vazias ou documentos posteriores ignorados pelo leitor. Arquivos ilegíveis,

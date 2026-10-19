@@ -1,0 +1,89 @@
+   Compiling dartforge-build v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/build)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.49s
+     Running tests/vm_executor.rs (target/impl-a/debug/deps/vm_executor-51c5ff17294967c8)
+
+running 1 test
+cadeia_configuracao/01-entrada-alterada: 27 ms, 2 actions run
+cadeia_configuracao/02-arquivo-novo: 27 ms, 5 actions run
+cadeia_configuracao/03-opcao-global-alterada: 79 ms, 20 actions run
+freezed/01-corpo-de-getter: 1 ms, 3 actions run
+freezed/02-campo-novo: 1 ms, 3 actions run
+freezed/03-arquivo-novo: 4 ms, 5 actions run
+json_serializable/01-corpo-de-metodo: 0 ms, 2 actions run
+json_serializable/02-campo-novo: 1 ms, 2 actions run
+json_serializable/03-arquivo-novo: 2 ms, 2 actions run
+sass_builder/01-parcial-alterada: 2 ms, 3 actions run
+sass_builder/02-propriedade-alterada: 1 ms, 1 actions run
+sass_builder/03-arquivo-novo: 3 ms, 1 actions run
+### corpus/builders through the VM — equal/pending/different
+
+| case | equal | pending | different | clean (ms) | no change (ms) | reasons |
+|---|---|---|---|---|---|---|
+| built_value | 0 | 2 | 0 | 3 | 0.1 | 2× no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build') |
+| cadeia_configuracao | 0 | 22 | 0 | 3 | 0.1 | 21× no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'); 1× post-processor: output only with the Dart executor |
+| drift | 0 | 12 | 0 | 9 | 0.3 | 12× no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build') |
+| freezed | 0 | 3 | 0 | 8 | 0.1 | 3× no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build') |
+| i18n | 3 | 0 | 0 | 2 | 0.1 |  |
+| json_serializable | 0 | 2 | 0 | 3 | 0.1 | 2× no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build') |
+| mockito | 0 | 2 | 0 | 6 | 0.2 | 2× no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build') |
+| riverpod_generator | 0 | 2 | 0 | 3 | 0.1 | 2× no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build') |
+| sass_builder | 6 | 0 | 0 | 6 | 0.2 |  |
+| sass_builder_compressed | 6 | 0 | 0 | 5 | 0.3 |  |
+
+thread 'corpus_builders_through_the_vm' (1563734) panicked at crates/build/tests/vm_executor.rs:331:5:
+built_value: pending corpus_built_value|lib/modelos.built_value.g.part (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+built_value: pending corpus_built_value|lib/modelos.g.dart (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending apoio_cadeia|lib/pronto.linhas.txt (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending apoio_cadeia|lib/pronto.palavras.txt (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/cadeia.carimbo.txt (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/entrada/alfa.linhas.txt (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/entrada/alfa.maiusculas.txt (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/entrada/alfa.palavras.txt (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/entrada/ignorar_gama.linhas.txt (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/entrada/ignorar_gama.maiusculas.txt (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/entrada/ignorar_gama.palavras.txt (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/entrada/notas.rascunho.resumo (post-processor: output only with the Dart executor)
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/entrada/sub/beta.linhas.txt (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/entrada/sub/beta.maiusculas.txt (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/entrada/sub/beta.palavras.txt (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/espelho/alfa.espelho.linhas.txt (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/espelho/alfa.espelho.maiusculas.txt (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/espelho/alfa.espelho.palavras.txt (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/espelho/alfa.espelho.txt (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/espelho/sub/beta.espelho.linhas.txt (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/espelho/sub/beta.espelho.maiusculas.txt (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/espelho/sub/beta.espelho.palavras.txt (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/espelho/sub/beta.espelho.txt (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/indice.g.txt (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+drift: pending corpus_drift|lib/banco.dart.drift_elements.json (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+drift: pending corpus_drift|lib/banco.dart.drift_module.json (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+drift: pending corpus_drift|lib/banco.dart.types.temp.dart (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+drift: pending corpus_drift|lib/banco.drift.g.part (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+drift: pending corpus_drift|lib/banco.g.dart (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+drift: pending corpus_drift|lib/consultas.drift.drift_elements.json (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+drift: pending corpus_drift|lib/consultas.drift.drift_module.json (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+drift: pending corpus_drift|lib/consultas.drift.types.temp.dart (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+drift: pending corpus_drift|lib/consultas.drift_prep.json (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+drift: pending corpus_drift|lib/consultas.expr.temp.dart (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+drift: pending corpus_drift|lib/consultas.expr.temp.dart.drift_elements.json (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+drift: pending corpus_drift|lib/consultas.expr.temp.dart.drift_module.json (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+freezed: pending corpus_freezed|lib/modelos.freezed.dart (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+freezed: pending corpus_freezed|lib/modelos.g.dart (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+freezed: pending corpus_freezed|lib/modelos.json_serializable.g.part (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+json_serializable: pending corpus_json_serializable|lib/modelos.g.dart (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+json_serializable: pending corpus_json_serializable|lib/modelos.json_serializable.g.part (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+mockito: pending corpus_mockito|test/mocks/servico_test.mocks.dart (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+mockito: pending corpus_mockito|test/mocks/sub/repositorio_test.mocks.dart (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+riverpod_generator: pending corpus_riverpod_generator|lib/provedores.g.dart (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+riverpod_generator: pending corpus_riverpod_generator|lib/provedores.riverpod.g.part (no fallback: could not run /nonexistent/dartforge-test-dart: No such file or directory (os error 2) (there is no .dart_tool/build; run 'dart run build_runner build'))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test corpus_builders_through_the_vm ... FAILED
+
+failures:
+
+failures:
+    corpus_builders_through_the_vm
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 1.13s
+
+error: test failed, to rerun pass `-p dartforge-build --test vm_executor`

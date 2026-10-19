@@ -1,0 +1,6 @@
+{
+  "crates/build/tests/vm_executor.rs": "6b09aeb1115d15146bff92e3ae78fbf0bc3b248ff1438b2053328d6e9f3d4134",
+  "crates/build/tests/native_executor.rs": "697cf778f65a04bc0efa2a5b71d73bbd5f480951f6a5db8004f1bdfd944c1c04",
+  "crates/build/tests/support/corpus_cases.rs": "fb2da7882a2138d5603ddf7e2c5210472cff57359f1596a9f837ffb69b1df08f",
+  "crates/build/tests/corpus_selection.rs": "b3ada82c4c2863bd9e958c05e87f36039c73dfe0d99c2b2877b78e92276b52e6"
+}

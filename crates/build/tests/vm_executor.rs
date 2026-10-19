@@ -7,6 +7,9 @@
 //! `DARTFORGE_DART_SDK/bin/dart` or `dart` on the `PATH`) and `dart pub get
 //! --enforce-lockfile` in each case (the `package_config.json`), as `ci.yml`
 //! does for the other corpus tests.
+#[path = "support/corpus_cases.rs"]
+mod corpus_cases;
+
 use dartforge_build::query::NoDb;
 use dartforge_build::graph::AssetId;
 use dartforge_build::engine::Origin;
@@ -256,21 +259,13 @@ fn json_serializable_through_the_vm_equals_build_runner_and_is_incremental() {
 
 /// The scoreboard of all cases through the VM (with the table in the CI
 /// summary): the same yardstick as `corpus.rs`, with the real Dart executor
-/// and no `build_runner` support on disk — zero different, and incremental =
+/// and no `build_runner` support on disk — zero pending/different, and incremental =
 /// from scratch on every edit of the case.
 #[test]
 #[ignore = "requires the Dart VM and `dart pub get` in each case of corpus/builders"]
 fn corpus_builders_through_the_vm() {
-    let mut cases: Vec<PathBuf> = std::fs::read_dir(corpus_root())
-        .unwrap()
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| {
-            p.join("oraculo/plano.dart").is_file()
-                && p.join(".dart_tool/package_config.json").is_file()
-        })
-        .collect();
-    cases.sort();
+    let cases = corpus_cases::planned_cases(&corpus_root(), None)
+        .expect("builder corpus prerequisites");
     let mut lines = vec![
         "### corpus/builders through the VM — equal/pending/different".to_string(),
         String::new(),
@@ -300,8 +295,8 @@ fn corpus_builders_through_the_vm() {
             p.different.len(),
             reasons.join("; ")
         ));
-        for (id, reason) in &p.different {
-            different.push(format!("{name}: {} ({reason})", id.text()));
+        if let Err(error) = corpus_cases::require_complete_outputs(&name, &p) {
+            different.push(error);
         }
         // Incremental = from scratch on the case's edits, with the real
         // executor.

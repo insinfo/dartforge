@@ -1,0 +1,19 @@
+   Compiling dartforge-build v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/build)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.40s
+     Running tests/native_executor.rs (target/impl-a/debug/deps/native_executor-495c3c83521069bf)
+
+running 1 test
+
+thread 'corpus_builders_through_the_native_executor' (1553588) panicked at crates/build/tests/native_executor.rs:146:10:
+builder corpus prerequisites: "unknown builder case: does_not_exist"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test corpus_builders_through_the_native_executor ... FAILED
+
+failures:
+
+failures:
+    corpus_builders_through_the_native_executor
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p dartforge-build --test native_executor`

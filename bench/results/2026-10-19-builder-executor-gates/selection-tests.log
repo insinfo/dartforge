@@ -1,0 +1,13 @@
+   Compiling dartforge-build v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/build)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.80s
+     Running tests/corpus_selection.rs (target/impl-a/debug/deps/corpus_selection-3b90d0344b55d7ff)
+
+running 6 tests
+test execution_requires_no_pending_or_different_outputs ... ok
+test missing_or_empty_corpus_fails ... ok
+test unknown_or_partially_unknown_filters_fail ... ok
+test empty_filters_fail ... ok
+test missing_configuration_fails_instead_of_skipping_a_case ... ok
+test selects_sorted_planned_cases_and_excludes_the_no_builder_control ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

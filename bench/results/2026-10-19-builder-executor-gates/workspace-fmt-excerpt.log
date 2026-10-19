@@ -1,0 +1,41 @@
+Diff in /Volumes/ssd_dock/MyRustProjects/dartforge/crates/sass/examples/check.rs:11:
+ //! `i.compressed.css.map` (the `.css` as `sass_builder` writes it, with the
+ //! `sourceMappingURL` comment), or `i.<style>.err` when dart-sass refuses.
+ use dartforge_sass::sass_builder::{compile, Asset, Disk, Packages};
+-use dartforge_sass::{OutputStyle, DartSassVersion};
++use dartforge_sass::{DartSassVersion, OutputStyle};
+
+ /// The imitated version: `SASS_VERSION` (`1.66.0` or `1.102.0`, the
+ /// default).
+Diff in /Volumes/ssd_dock/MyRustProjects/dartforge/crates/sass/examples/compile.rs:2:
+ //! and the source map (as `asset:p/web/a.scss`), to compare by hand with
+ //! dart-sass.
+ use dartforge_sass::sass_builder::{compile, Asset, Disk, Packages};
+-use dartforge_sass::{OutputStyle, DartSassVersion};
++use dartforge_sass::{DartSassVersion, OutputStyle};
+
+ /// The imitated version: `SASS_VERSION` (`1.66.0` or `1.102.0`, the
+ /// default).
+Diff in /Volumes/ssd_dock/MyRustProjects/dartforge/crates/sass/src/lib.rs:96:
+ };
+[... excerpt ...]
++            c.level("Flauta") == ClassLevel::Instantiated,
++            "Flauta instantiated even with its members pruned",
++        );
+         // dry-run check and determinism
+         let inc = check_consistency(e, &roots, &m);
+         check(inc.is_empty(), &format!("consistency check: {inc:?}"));
+Diff in /Volumes/ssd_dock/MyRustProjects/dartforge/crates/world/tests/world.rs:133:
+         let mut perm = roots.clone();
+         perm.selectors.insert(0, "toJson".into());
+         let m2 = compute(e, &perm);
+-        let same = (0..a.program.functions.len()).all(|i| m.is_live_function(FunctionElementId(i as u32)) == m2.is_live_function(FunctionElementId(i as u32)))
+-            && (0..a.program.classes.len()).all(|i| m.class_level(ClassId(i as u32)) == m2.class_level(ClassId(i as u32)));
++        let same = (0..a.program.functions.len()).all(|i| {
++            m.is_live_function(FunctionElementId(i as u32))
++                == m2.is_live_function(FunctionElementId(i as u32))
++        }) && (0..a.program.classes.len())
++            .all(|i| m.class_level(ClassId(i as u32)) == m2.class_level(ClassId(i as u32)));
+         check(same, "determinism");
+         Ok(errors)
+     })
