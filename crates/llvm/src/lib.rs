@@ -824,7 +824,12 @@ mod tests_mod {
             );
         }
         let bc = generate("soma", IR, &Options { optimize: true, format: Format::Bitcode, cpu: None }).unwrap();
-        assert_eq!(&bc[..4], b"BC\xc0\xde");
+        // Darwin may emit a bitcode wrapper instead of the raw bitstream.
+        // Verify both the binary container and LLVM's ability to read its IR.
+        assert!(bc.starts_with(b"BC\xc0\xde") || bc.starts_with(&[0xde, 0xc0, 0x17, 0x0b]));
+        let context = Context::new();
+        let module = context.read_bytes("roundtrip", &bc).unwrap();
+        assert!(module.text().contains("define i32 @soma("));
     }
 
     #[test]

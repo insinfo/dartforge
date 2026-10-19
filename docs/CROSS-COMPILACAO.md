@@ -23,6 +23,30 @@ O JIT Windows requer a instalação LLVM completa (headers C++, `clang-cl` e
 `llvm-lib`) e os headers C++ do MSVC. Um bridge pequeno preserva as políticas
 COFF do LLJIT quando o alocador delimitado de código/dados é instalado.
 
+### Construir o compilador no macOS com LLVM estático
+
+Se o linker Apple recusar bitcode LLVM 22 com `Unknown attribute kind`, use o
+linker da mesma instalação LLVM para montar o compilador Rust:
+
+```sh
+export DARTFORGE_LLVM_DIR=/caminho/para/LLVM-22.1.8
+python3 scripts/cargo-macos-llvm.py build --locked --release -p dartforge-cli --features jit
+python3 scripts/cargo-macos-llvm.py test --locked -p dartforge-llvm
+```
+
+O comando testa uma ligação C mínima antes de executar o Cargo. Sem `SDKROOT`,
+tenta o SDK ativo e os SDKs instalados ao lado dele até encontrar um compatível.
+Um `SDKROOT` explícito é respeitado: se incompatível, o comando falha sem trocá-lo.
+O Python da Apple pode preencher essa variável automaticamente; nesse caso,
+informe o SDK desejado ao iniciar o comando. Nesta máquina, LLVM 22 aceita
+`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk`; os stubs do SDK
+27 instalado foram recusados. Os caminhos dependem da instalação local.
+
+As flags Rust existentes são preservadas e a configuração só vale para o
+processo filho. Não altera preferências do Xcode, o SDK global ou o Cargo do
+usuário. Esse comando monta o compilador no macOS; a escolha do destino do
+programa Dart continua sendo feita por `--target` e `--target-bundle`.
+
 Windows ARM64 executa o destino x64 por compatibilidade; não há destino nativo
 Windows ARM64 nesta implementação. Os triples da tabela também são aceitos.
 Sem `--target`, o comportamento continua sendo compilar para o host.

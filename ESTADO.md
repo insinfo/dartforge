@@ -2,6 +2,13 @@
 
 ## Atualização de 19/10/2026
 
+- `scripts/cargo-macos-llvm.py` monta/testa o compilador Rust no macOS com o
+  `ld64.lld` do LLVM selecionado e verifica o SDK antes de iniciar o Cargo.
+  Contorna a incompatibilidade entre o linker Apple e o bitcode LLVM 22 sem
+  alterar configurações globais. Quatro testes do comando passaram. O teste de
+  bitcode agora também valida o formato encapsulado do Darwin por leitura de
+  volta no LLVM; a suíte de `dartforge-llvm` passou com o comando. Uso e limites
+  em `docs/CROSS-COMPILACAO.md`.
 - Compilação cruzada com `--target`/`--target-bundle` e `export-target`; o
   explorador real executou em AOT e JIT no macOS ARM64, Ubuntu ARM64 e Windows
   x64 na VM ARM64. Executáveis cruzados também rodaram nos destinos. Escopo,
