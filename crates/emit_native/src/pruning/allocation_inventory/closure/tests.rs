@@ -141,3 +141,79 @@ define i64 @wrapper(ptr %context) {
     assert!(bump.exposures.contains("raw_memory_or_pointer_operation"));
     assert!(bump.calls.is_empty(), "no allocator call may hide the direct heap allocation");
 }
+
+#[test]
+fn quoted_section_operands_keep_the_direct_registration_call_visible() {
+    let ir = "define void @df.register.sdk() {\n call void @dartforge_register_map_llvm(ptr @\"\\01section$start$__LLVM_STACKMAPS$__llvm_stackmaps\", ptr @\"\\01section$end$__LLVM_STACKMAPS$__llvm_stackmaps\")\n ret void\n}\n";
+    let bundle = audit(&[("sdk", ir)]);
+    let function = &bundle.to_json()["functions"][0];
+    assert_eq!(function["calls"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        function["calls"][0]["symbol"],
+        "dartforge_register_map_llvm"
+    );
+    assert_eq!(
+        function["calls"][0]["arguments"][0],
+        "ptr @\"\\01section$start$__LLVM_STACKMAPS$__llvm_stackmaps\""
+    );
+    assert!(
+        state(&bundle, "df.register.sdk").is_none(),
+        "observing registration is not authorization"
+    );
+}
+
+#[test]
+fn direct_calls_publish_typed_operands_without_changing_allocation_facts() {
+    let ir = "define i64 @allocate() {\n %v = call i64 @dartforge_object_new(i64 300, i64 2)\n ret i64 %v\n}\n";
+    let bundle = audit(&[("sdk", ir)]);
+    let function = &bundle.to_json()["functions"][0];
+    assert_eq!(
+        function["calls"][0]["arguments"],
+        serde_json::json!(["i64 300", "i64 2"])
+    );
+    assert_eq!(state(&bundle, "allocate"), Some(vec![300]));
+}
+
+#[test]
+fn quoted_operand_delimiters_escapes_and_comments_do_not_change_the_call_abi() {
+    for operand in [
+        "ptr @\"a),[b]{c}<d>\"",
+        "ptr @\"escaped\\22quote\\5Cslash\"",
+        "ptr @\"semi;colon\"",
+        "ptr getelementptr ([4 x i8], ptr @\"a,(b)\", i64 0, i64 1)",
+    ] {
+        let instruction = format!("call void @opaque({operand}, i64 7)");
+        let (_, abi, values) = signature(&instruction).unwrap();
+        assert_eq!(abi.parameters, ["ptr", "i64"]);
+        assert_eq!(values, [operand, "i64 7"]);
+        let ir = format!(
+            "define void @body() {{\n {instruction} ; an ignored comment with an unmatched quote \"\n ret void\n}}\n"
+        );
+        let bundle = audit(&[("sdk", &ir)]);
+        assert_eq!(bundle.definitions[0].calls.len(), 1, "{operand}");
+        assert!(state(&bundle, "body").is_none());
+    }
+}
+
+#[test]
+fn malformed_lists_and_unreviewed_abis_stay_unproved() {
+    for instruction in [
+        "call void @opaque(ptr @\"open)",
+        "call void @opaque(ptr @\"bad\\ZZescape\")",
+        "call void @opaque(ptr @\"short\\1\")",
+        "call void @opaque(ptr getelementptr ([1 x i8}, ptr @buffer, i64 0))",
+        "call void @opaque(i64 0,)",
+        "call void @opaque(,i64 0)",
+        "call void @opaque(ptr noundef @buffer)",
+        "call void @\"quoted_callee\"()",
+        "call fastcc void @opaque()",
+        "call void %indirect()",
+    ] {
+        assert!(signature(instruction).is_none(), "{instruction}");
+        let ir = format!("define void @body() {{\n {instruction}\n ret void\n}}\n");
+        assert!(
+            state(&audit(&[("sdk", &ir)]), "body").is_none(),
+            "{instruction}"
+        );
+    }
+}

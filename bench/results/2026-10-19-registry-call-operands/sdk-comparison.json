@@ -1,0 +1,419 @@
+{
+  "old_snapshot": "target/native_cache/sdk/9458e1ea5a91abd973026f1b226173e5/allocation-inventory.json",
+  "new_snapshot": "target/native_cache/sdk/70fa2bfc89778cd49449db81b78789c4/allocation-inventory.json",
+  "old_schema": 1,
+  "new_schema": 2,
+  "new_sha256": "60e15b46f3fe151f6145641c89a9cad35b4c53d5a5458e304b36d578f2c691a8",
+  "old_bytes": 57251557,
+  "new_bytes": 66874532,
+  "startups": [
+    {
+      "symbol": "df.register.dart$3a_internal",
+      "body_digest_unchanged": true,
+      "before_calls": {
+        "dartforge_register_class_name": 85,
+        "dartforge_register_subclass": 207,
+        "dartforge_register_helper": 3,
+        "dartforge_register_argument_name": 4
+      },
+      "after_calls": {
+        "dartforge_register_class_name": 85,
+        "dartforge_register_subclass": 207,
+        "dartforge_register_image": 1,
+        "dartforge_register_helper": 3,
+        "dartforge_register_argument_name": 4
+      },
+      "unknown_obligations": [
+        "global_or_function_address_argument:\\01section$end$__DATA_CONST$__dfimg",
+        "global_or_function_address_argument:\\01section$start$__DATA_CONST$__dfimg",
+        "global_or_function_address_argument:df.dart$3a_internal.._dartforgeIndexError",
+        "global_or_function_address_argument:df.dart$3a_internal.._dartforgeLateError",
+        "global_or_function_address_argument:df.dart$3a_internal.._dartforgeStackOverflowError",
+        "image_registry_or_helper_binding:dartforge_register_argument_name",
+        "image_registry_or_helper_binding:dartforge_register_class_name",
+        "image_registry_or_helper_binding:dartforge_register_helper",
+        "image_registry_or_helper_binding:dartforge_register_image",
+        "image_registry_or_helper_binding:dartforge_register_subclass"
+      ],
+      "observed_operand_calls": 300
+    },
+    {
+      "symbol": "df.register.dart$3acore",
+      "body_digest_unchanged": true,
+      "before_calls": {
+        "dartforge_register_class_name": 114,
+        "dartforge_register_subclass": 278,
+        "dartforge_register_table": 1,
+        "dartforge_register_helper": 11,
+        "dartforge_register_argument_name": 1
+      },
+      "after_calls": {
+        "dartforge_register_class_name": 114,
+        "dartforge_register_subclass": 278,
+        "dartforge_register_image": 1,
+        "dartforge_register_table": 1,
+        "dartforge_register_helper": 11,
+        "dartforge_register_argument_name": 1
+      },
+      "unknown_obligations": [
+        "global_or_function_address_argument:\\01section$end$__DATA_CONST$__dfimg",
+        "global_or_function_address_argument:\\01section$start$__DATA_CONST$__dfimg",
+        "global_or_function_address_argument:df.dart$3acore.._dartforgeArgumentError",
+        "global_or_function_address_argument:df.dart$3acore.._dartforgeAssertionError",
+        "global_or_function_address_argument:df.dart$3acore.._dartforgeCallError",
+        "global_or_function_address_argument:df.dart$3acore.._dartforgeEmptyStackTrace",
+        "global_or_function_address_argument:df.dart$3acore.._dartforgeFormatError",
+        "global_or_function_address_argument:df.dart$3acore.._dartforgeNoSuchMethod",
+        "global_or_function_address_argument:df.dart$3acore.._dartforgeRangeError",
+        "global_or_function_address_argument:df.dart$3acore.._dartforgeSetBaseUri",
+        "global_or_function_address_argument:df.dart$3acore.._dartforgeStateError",
+        "global_or_function_address_argument:df.dart$3acore.._dartforgeTypeError",
+        "global_or_function_address_argument:df.dart$3acore.._dartforgeUnsupportedError",
+        "global_or_function_address_argument:df.mt.dart$3acore._StackTrace",
+        "image_registry_or_helper_binding:dartforge_register_argument_name",
+        "image_registry_or_helper_binding:dartforge_register_class_name",
+        "image_registry_or_helper_binding:dartforge_register_helper",
+        "image_registry_or_helper_binding:dartforge_register_image",
+        "image_registry_or_helper_binding:dartforge_register_subclass",
+        "image_registry_or_helper_binding:dartforge_register_table"
+      ],
+      "observed_operand_calls": 406
+    },
+    {
+      "symbol": "df.register.dart$3a_compact_hash",
+      "body_digest_unchanged": true,
+      "before_calls": {
+        "dartforge_register_class_name": 30,
+        "dartforge_register_subclass": 102,
+        "dartforge_register_helper": 4
+      },
+      "after_calls": {
+        "dartforge_register_class_name": 30,
+        "dartforge_register_subclass": 102,
+        "dartforge_register_image": 1,
+        "dartforge_register_helper": 4
+      },
+      "unknown_obligations": [
+        "global_or_function_address_argument:\\01section$end$__DATA_CONST$__dfimg",
+        "global_or_function_address_argument:\\01section$start$__DATA_CONST$__dfimg",
+        "global_or_function_address_argument:df.dart$3a_compact_hash.._dartforgeFillList",
+        "global_or_function_address_argument:df.dart$3a_compact_hash.._dartforgeFillMap",
+        "global_or_function_address_argument:df.dart$3a_compact_hash.._dartforgeFillSet",
+        "global_or_function_address_argument:df.dart$3a_compact_hash.._dartforgeRebuildCopiedIndex",
+        "image_registry_or_helper_binding:dartforge_register_class_name",
+        "image_registry_or_helper_binding:dartforge_register_helper",
+        "image_registry_or_helper_binding:dartforge_register_image",
+        "image_registry_or_helper_binding:dartforge_register_subclass"
+      ],
+      "observed_operand_calls": 137
+    },
+    {
+      "symbol": "df.register.dart$3acollection",
+      "body_digest_unchanged": true,
+      "before_calls": {
+        "dartforge_register_class_name": 60,
+        "dartforge_register_subclass": 153,
+        "dartforge_register_argument_name": 2
+      },
+      "after_calls": {
+        "dartforge_register_class_name": 60,
+        "dartforge_register_subclass": 153,
+        "dartforge_register_image": 1,
+        "dartforge_register_argument_name": 2
+      },
+      "unknown_obligations": [
+        "global_or_function_address_argument:\\01section$end$__DATA_CONST$__dfimg",
+        "global_or_function_address_argument:\\01section$start$__DATA_CONST$__dfimg",
+        "image_registry_or_helper_binding:dartforge_register_argument_name",
+        "image_registry_or_helper_binding:dartforge_register_class_name",
+        "image_registry_or_helper_binding:dartforge_register_image",
+        "image_registry_or_helper_binding:dartforge_register_subclass"
+      ],
+      "observed_operand_calls": 216
+    },
+    {
+      "symbol": "df.register.dart$3amath",
+      "body_digest_unchanged": true,
+      "before_calls": {
+        "dartforge_register_class_name": 8,
+        "dartforge_register_subclass": 17
+      },
+      "after_calls": {
+        "dartforge_register_class_name": 8,
+        "dartforge_register_subclass": 17,
+        "dartforge_register_image": 1
+      },
+      "unknown_obligations": [
+        "global_or_function_address_argument:\\01section$end$__DATA_CONST$__dfimg",
+        "global_or_function_address_argument:\\01section$start$__DATA_CONST$__dfimg",
+        "image_registry_or_helper_binding:dartforge_register_class_name",
+        "image_registry_or_helper_binding:dartforge_register_image",
+        "image_registry_or_helper_binding:dartforge_register_subclass"
+      ],
+      "observed_operand_calls": 26
+    },
+    {
+      "symbol": "df.register.dart$3aconvert",
+      "body_digest_unchanged": true,
+      "before_calls": {
+        "dartforge_register_class_name": 82,
+        "dartforge_register_subclass": 177
+      },
+      "after_calls": {
+        "dartforge_register_class_name": 82,
+        "dartforge_register_subclass": 177,
+        "dartforge_register_image": 1
+      },
+      "unknown_obligations": [
+        "global_or_function_address_argument:\\01section$end$__DATA_CONST$__dfimg",
+        "global_or_function_address_argument:\\01section$start$__DATA_CONST$__dfimg",
+        "image_registry_or_helper_binding:dartforge_register_class_name",
+        "image_registry_or_helper_binding:dartforge_register_image",
+        "image_registry_or_helper_binding:dartforge_register_subclass"
+      ],
+      "observed_operand_calls": 260
+    },
+    {
+      "symbol": "df.register.dart$3aasync",
+      "body_digest_unchanged": true,
+      "before_calls": {
+        "dartforge_register_class_name": 100,
+        "dartforge_register_subclass": 239,
+        "dartforge_register_helper": 1,
+        "dartforge_register_argument_name": 7
+      },
+      "after_calls": {
+        "dartforge_register_class_name": 100,
+        "dartforge_register_subclass": 239,
+        "dartforge_register_image": 1,
+        "dartforge_register_helper": 1,
+        "dartforge_register_argument_name": 7
+      },
+      "unknown_obligations": [
+        "global_or_function_address_argument:\\01section$end$__DATA_CONST$__dfimg",
+        "global_or_function_address_argument:\\01section$start$__DATA_CONST$__dfimg",
+        "global_or_function_address_argument:df.dart$3aasync.._dartforgeLoadLibrary",
+        "image_registry_or_helper_binding:dartforge_register_argument_name",
+        "image_registry_or_helper_binding:dartforge_register_class_name",
+        "image_registry_or_helper_binding:dartforge_register_helper",
+        "image_registry_or_helper_binding:dartforge_register_image",
+        "image_registry_or_helper_binding:dartforge_register_subclass"
+      ],
+      "observed_operand_calls": 348
+    },
+    {
+      "symbol": "df.register.dart$3atyped_data",
+      "body_digest_unchanged": true,
+      "before_calls": {
+        "dartforge_register_class_name": 99,
+        "dartforge_register_subclass": 342,
+        "dartforge_register_argument_name": 1
+      },
+      "after_calls": {
+        "dartforge_register_class_name": 99,
+        "dartforge_register_subclass": 342,
+        "dartforge_register_image": 1,
+        "dartforge_register_argument_name": 1
+      },
+      "unknown_obligations": [
+        "global_or_function_address_argument:\\01section$end$__DATA_CONST$__dfimg",
+        "global_or_function_address_argument:\\01section$start$__DATA_CONST$__dfimg",
+        "image_registry_or_helper_binding:dartforge_register_argument_name",
+        "image_registry_or_helper_binding:dartforge_register_class_name",
+        "image_registry_or_helper_binding:dartforge_register_image",
+        "image_registry_or_helper_binding:dartforge_register_subclass"
+      ],
+      "observed_operand_calls": 443
+    },
+    {
+      "symbol": "df.register.dart$3aisolate",
+      "body_digest_unchanged": true,
+      "before_calls": {
+        "dartforge_register_class_name": 16,
+        "dartforge_register_subclass": 37,
+        "dartforge_register_helper": 5,
+        "dartforge_register_argument_name": 3
+      },
+      "after_calls": {
+        "dartforge_register_class_name": 16,
+        "dartforge_register_subclass": 37,
+        "dartforge_register_image": 1,
+        "dartforge_register_helper": 5,
+        "dartforge_register_argument_name": 3
+      },
+      "unknown_obligations": [
+        "global_or_function_address_argument:\\01section$end$__DATA_CONST$__dfimg",
+        "global_or_function_address_argument:\\01section$start$__DATA_CONST$__dfimg",
+        "global_or_function_address_argument:df.dart$3aisolate.._dartforgeDescribeError",
+        "global_or_function_address_argument:df.dart$3aisolate.._dartforgePortAndCapabilities",
+        "global_or_function_address_argument:df.dart$3aisolate.._dartforgeReadyMessage",
+        "global_or_function_address_argument:df.dart$3aisolate.._dartforgeSendPort",
+        "global_or_function_address_argument:df.dart$3aisolate.._dartforgeStartIsolate",
+        "image_registry_or_helper_binding:dartforge_register_argument_name",
+        "image_registry_or_helper_binding:dartforge_register_class_name",
+        "image_registry_or_helper_binding:dartforge_register_helper",
+        "image_registry_or_helper_binding:dartforge_register_image",
+        "image_registry_or_helper_binding:dartforge_register_subclass"
+      ],
+      "observed_operand_calls": 62
+    },
+    {
+      "symbol": "df.register.dart$3adeveloper",
+      "body_digest_unchanged": true,
+      "before_calls": {
+        "dartforge_register_class_name": 13,
+        "dartforge_register_subclass": 23,
+        "dartforge_register_argument_name": 2
+      },
+      "after_calls": {
+        "dartforge_register_class_name": 13,
+        "dartforge_register_subclass": 23,
+        "dartforge_register_image": 1,
+        "dartforge_register_argument_name": 2
+      },
+      "unknown_obligations": [
+        "global_or_function_address_argument:\\01section$end$__DATA_CONST$__dfimg",
+        "global_or_function_address_argument:\\01section$start$__DATA_CONST$__dfimg",
+        "image_registry_or_helper_binding:dartforge_register_argument_name",
+        "image_registry_or_helper_binding:dartforge_register_class_name",
+        "image_registry_or_helper_binding:dartforge_register_image",
+        "image_registry_or_helper_binding:dartforge_register_subclass"
+      ],
+      "observed_operand_calls": 39
+    },
+    {
+      "symbol": "df.register.dart$3anativewrappers",
+      "body_digest_unchanged": true,
+      "before_calls": {
+        "dartforge_register_class_name": 5,
+        "dartforge_register_subclass": 8
+      },
+      "after_calls": {
+        "dartforge_register_class_name": 5,
+        "dartforge_register_subclass": 8,
+        "dartforge_register_image": 1
+      },
+      "unknown_obligations": [
+        "global_or_function_address_argument:\\01section$end$__DATA_CONST$__dfimg",
+        "global_or_function_address_argument:\\01section$start$__DATA_CONST$__dfimg",
+        "image_registry_or_helper_binding:dartforge_register_class_name",
+        "image_registry_or_helper_binding:dartforge_register_image",
+        "image_registry_or_helper_binding:dartforge_register_subclass"
+      ],
+      "observed_operand_calls": 14
+    },
+    {
+      "symbol": "df.register.dart$3affi",
+      "body_digest_unchanged": true,
+      "before_calls": {
+        "dartforge_register_class_name": 67,
+        "dartforge_register_subclass": 157,
+        "dartforge_register_helper": 7
+      },
+      "after_calls": {
+        "dartforge_register_class_name": 67,
+        "dartforge_register_subclass": 157,
+        "dartforge_register_image": 1,
+        "dartforge_register_helper": 7
+      },
+      "unknown_obligations": [
+        "global_or_function_address_argument:\\01section$end$__DATA_CONST$__dfimg",
+        "global_or_function_address_argument:\\01section$start$__DATA_CONST$__dfimg",
+        "global_or_function_address_argument:df.dart$3affi.._dartforgeArray",
+        "global_or_function_address_argument:df.dart$3affi.._dartforgeCallableListener",
+        "global_or_function_address_argument:df.dart$3affi.._dartforgeCallableLocal",
+        "global_or_function_address_argument:df.dart$3affi.._dartforgeCallableSync",
+        "global_or_function_address_argument:df.dart$3affi.._dartforgeCompoundCreated",
+        "global_or_function_address_argument:df.dart$3affi.._dartforgeFromFunction",
+        "global_or_function_address_argument:df.dart$3affi.._dartforgePointer",
+        "image_registry_or_helper_binding:dartforge_register_class_name",
+        "image_registry_or_helper_binding:dartforge_register_helper",
+        "image_registry_or_helper_binding:dartforge_register_image",
+        "image_registry_or_helper_binding:dartforge_register_subclass"
+      ],
+      "observed_operand_calls": 232
+    },
+    {
+      "symbol": "df.register.dart$3a_http",
+      "body_digest_unchanged": true,
+      "before_calls": {
+        "dartforge_register_class_name": 98,
+        "dartforge_register_subclass": 239,
+        "dartforge_register_argument_name": 5
+      },
+      "after_calls": {
+        "dartforge_register_class_name": 98,
+        "dartforge_register_subclass": 239,
+        "dartforge_register_image": 1,
+        "dartforge_register_argument_name": 5
+      },
+      "unknown_obligations": [
+        "global_or_function_address_argument:\\01section$end$__DATA_CONST$__dfimg",
+        "global_or_function_address_argument:\\01section$start$__DATA_CONST$__dfimg",
+        "image_registry_or_helper_binding:dartforge_register_argument_name",
+        "image_registry_or_helper_binding:dartforge_register_class_name",
+        "image_registry_or_helper_binding:dartforge_register_image",
+        "image_registry_or_helper_binding:dartforge_register_subclass"
+      ],
+      "observed_operand_calls": 343
+    },
+    {
+      "symbol": "df.register.dart$3aio",
+      "body_digest_unchanged": true,
+      "before_calls": {
+        "dartforge_register_class_name": 162,
+        "dartforge_register_subclass": 381,
+        "dartforge_register_helper": 10,
+        "dartforge_register_argument_name": 15
+      },
+      "after_calls": {
+        "dartforge_register_class_name": 162,
+        "dartforge_register_subclass": 381,
+        "dartforge_register_image": 1,
+        "dartforge_register_helper": 10,
+        "dartforge_register_argument_name": 15
+      },
+      "unknown_obligations": [
+        "global_or_function_address_argument:\\01section$end$__DATA_CONST$__dfimg",
+        "global_or_function_address_argument:\\01section$start$__DATA_CONST$__dfimg",
+        "global_or_function_address_argument:df.dart$3aio.._dartforgeDatagram",
+        "global_or_function_address_argument:df.dart$3aio.._dartforgeListingEntry",
+        "global_or_function_address_argument:df.dart$3aio.._dartforgeListingError",
+        "global_or_function_address_argument:df.dart$3aio.._dartforgeMessageResources",
+        "global_or_function_address_argument:df.dart$3aio.._dartforgeOSError",
+        "global_or_function_address_argument:df.dart$3aio.._dartforgeResourceDescriptor",
+        "global_or_function_address_argument:df.dart$3aio.._dartforgeResourceFile",
+        "global_or_function_address_argument:df.dart$3aio.._dartforgeResourcesMessage",
+        "global_or_function_address_argument:df.dart$3aio.._dartforgeStartFailure",
+        "global_or_function_address_argument:df.dart$3aio.._dartforgeStartIo",
+        "image_registry_or_helper_binding:dartforge_register_argument_name",
+        "image_registry_or_helper_binding:dartforge_register_class_name",
+        "image_registry_or_helper_binding:dartforge_register_helper",
+        "image_registry_or_helper_binding:dartforge_register_image",
+        "image_registry_or_helper_binding:dartforge_register_subclass"
+      ],
+      "observed_operand_calls": 569
+    },
+    {
+      "symbol": "df.register.dart$3amirrors",
+      "body_digest_unchanged": true,
+      "before_calls": {
+        "dartforge_register_class_name": 24,
+        "dartforge_register_subclass": 66
+      },
+      "after_calls": {
+        "dartforge_register_class_name": 24,
+        "dartforge_register_subclass": 66,
+        "dartforge_register_image": 1
+      },
+      "unknown_obligations": [
+        "global_or_function_address_argument:\\01section$end$__DATA_CONST$__dfimg",
+        "global_or_function_address_argument:\\01section$start$__DATA_CONST$__dfimg",
+        "image_registry_or_helper_binding:dartforge_register_class_name",
+        "image_registry_or_helper_binding:dartforge_register_image",
+        "image_registry_or_helper_binding:dartforge_register_subclass"
+      ],
+      "observed_operand_calls": 91
+    }
+  ]
+}

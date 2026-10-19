@@ -29,22 +29,88 @@ pub(crate) struct Bundle {
 fn primitive(token: &str) -> bool {
     matches!(token, "void" | "i1" | "i8" | "i16" | "i32" | "i64" | "float" | "double" | "ptr")
 }
-/// Delimiter-aware splitting avoids treating commas in constant expressions as
-/// ABI parameter boundaries. Unsupported vectors/aggregate types stay unknown.
-fn arguments(text: &str) -> Option<Vec<String>> {
-    let mut depth = 0i32; let mut start = 0; let mut output = Vec::new();
-    for (index, byte) in text.bytes().enumerate() {
-        match byte {
-            b'(' | b'[' | b'{' | b'<' => depth += 1,
-            b')' | b']' | b'}' | b'>' => { depth -= 1; if depth < 0 { return None } },
-            b',' if depth == 0 => { output.push(text[start..index].trim().to_string()); start = index + 1; },
-            b'"' => return None,
-            _ => {}
+/// Skip a quoted LLVM identifier/string, accepting only LLVM hex escapes.
+fn quoted_end(text: &[u8], start: usize) -> Option<usize> {
+    let mut index = start + 1;
+    while index < text.len() {
+        match text[index] {
+            b'"' => return Some(index + 1),
+            b'\\' => {
+                if !text
+                    .get(index + 1..index + 3)?
+                    .iter()
+                    .all(u8::is_ascii_hexdigit)
+                {
+                    return None;
+                }
+                index += 3;
+            }
+            _ => index += 1,
         }
     }
-    if depth != 0 { return None }
-    if !text.trim().is_empty() { output.push(text[start..].trim().to_string()); }
-    Some(output)
+    None
+}
+
+/// Split an outer parameter list without inspecting delimiters inside quotes.
+/// Mismatched aggregates, empty arguments and malformed escapes stay unproved.
+fn arguments(text: &str) -> Option<(Vec<String>, usize)> {
+    let bytes = text.as_bytes();
+    let mut stack = Vec::new();
+    let mut output = Vec::new();
+    let mut start = 0;
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' => {
+                index = quoted_end(bytes, index)?;
+                continue;
+            }
+            b'(' => stack.push(b')'),
+            b'[' => stack.push(b']'),
+            b'{' => stack.push(b'}'),
+            b'<' => stack.push(b'>'),
+            b')' if stack.is_empty() => {
+                let value = text[start..index].trim();
+                if value.is_empty() && !output.is_empty() {
+                    return None;
+                }
+                if !value.is_empty() {
+                    output.push(value.to_string());
+                }
+                return Some((output, index));
+            }
+            byte @ (b')' | b']' | b'}' | b'>') => {
+                if stack.pop() != Some(byte) {
+                    return None;
+                }
+            }
+            b',' if stack.is_empty() => {
+                let value = text[start..index].trim();
+                if value.is_empty() {
+                    return None;
+                }
+                output.push(value.to_string());
+                start = index + 1;
+            }
+            b'\\' => return None,
+            _ => {}
+        }
+        index += 1;
+    }
+    None
+}
+
+fn uncomment(text: &str) -> Option<&str> {
+    let bytes = text.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' => index = quoted_end(bytes, index)?,
+            b';' => return Some(&text[..index]),
+            _ => index += 1,
+        }
+    }
+    Some(text)
 }
 fn signature(text: &str) -> Option<(String, Abi, Vec<String>)> {
     let (prefix, after) = text.split_once('@')?;
@@ -58,14 +124,8 @@ fn signature(text: &str) -> Option<(String, Abi, Vec<String>)> {
         | "linkonce_odr" | "linkonce" | "weak" | "weak_odr" | "available_externally" | "hidden" | "protected")) { return None }
     let (symbol, tail) = after.split_once('(')?;
     if symbol.is_empty() || !symbol.bytes().all(|b| b.is_ascii_alphanumeric() || b"_$.-".contains(&b)) { return None }
-    let mut depth = 1; let mut end = None;
-    for (index, byte) in tail.bytes().enumerate() {
-        if byte == b'(' { depth += 1; }
-        if byte == b')' { depth -= 1; if depth == 0 { end = Some(index); break } }
-    }
-    let end = end?;
+    let (values, end) = arguments(tail)?;
     if prefix.starts_with("call ") && !tail[end + 1..].trim().is_empty() { return None }
-    let values = arguments(&tail[..end])?;
     let parameters = values.iter().map(|arg| {
         let mut words = arg.split_whitespace();
         let ty = words.next()?;
@@ -79,6 +139,14 @@ fn signature(text: &str) -> Option<(String, Abi, Vec<String>)> {
     }).collect::<Option<Vec<_>>>()?;
     Some((symbol.into(), Abi { result: result.into(), parameters }, values))
 }
+/// Check observational operands against their published ABI, without granting
+/// allocation or registry capabilities to the call.
+pub(super) fn arguments_match(result: &str, parameters: &[String], values: &[String]) -> bool {
+    let text = format!("call {result} @df.inventory.arguments({})", values.join(", "));
+    signature(&text).is_some_and(|(_, abi, actual)|
+        abi.result == result && abi.parameters == parameters && actual == values)
+}
+
 fn global_references(text: &str) -> Vec<String> {
     super::super::cited(text).map(str::to_owned).collect()
 }
@@ -100,7 +168,11 @@ fn native_bytes(line: &str) -> bool {
 
 fn analyze_body(definition: &mut Definition, body: &[&str], byte_globals: &BTreeSet<String>) {
     for raw in body {
-        let line = raw.split(';').next().unwrap_or_default().trim();
+        let Some(line) = uncomment(raw) else {
+            definition.unknown.insert("malformed_quoted_operand".into());
+            continue;
+        };
+        let line = line.trim();
         if line.is_empty() || line.ends_with(':') { continue }
         let operation = line.split_once(" = ").map_or(line, |(_, value)| value.trim());
         let operation = operation.strip_prefix("tail ").or_else(|| operation.strip_prefix("musttail ")).or_else(|| operation.strip_prefix("notail ")).unwrap_or(operation);
@@ -264,7 +336,7 @@ impl Bundle {
             "body_digest":definition.body_digest,"local":definition.local,"unique_linkage":definition.unique_linkage,"complete_body":definition.complete,
             "abi":definition.abi.as_ref().map(|abi| json!({"result":abi.result,"parameters":abi.parameters})),
             "direct_classes":definition.direct,"unknown_obligations":definition.unknown,"exposure_obligations":definition.exposures,
-            "calls":definition.calls.iter().map(|call| json!({"symbol":call.symbol,"abi":{"result":call.abi.result,"parameters":call.abi.parameters}})).collect::<Vec<_>>(),
+            "calls":definition.calls.iter().map(|call| json!({"symbol":call.symbol,"abi":{"result":call.abi.result,"parameters":call.abi.parameters},"arguments":call.arguments})).collect::<Vec<_>>(),
             "dependencies":self.dependencies[index].iter().map(|&target| self.definitions[target].key.clone()).collect::<Vec<_>>(),
             "transitive_classes":self.closures[index],
         })).collect();

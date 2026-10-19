@@ -1,0 +1,19 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.98s
+     Running unittests src/lib.rs (target/impl-a/debug/deps/dartforge_emit_native-845e7f740af4002d)
+
+running 1 test
+
+thread 'pruning::class_reachability::tests::erased_import_abis_do_not_certify_managed_values_or_argument_packets' (2153698) panicked at crates/emit_native/src/pruning/class_reachability/tests.rs:2206:9:
+unproved imported Ref
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test pruning::class_reachability::tests::erased_import_abis_do_not_certify_managed_values_or_argument_packets ... FAILED
+
+failures:
+
+failures:
+    pruning::class_reachability::tests::erased_import_abis_do_not_certify_managed_values_or_argument_packets
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 856 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

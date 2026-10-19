@@ -2183,3 +2183,48 @@ fn compiled_empty_event_domain_matches_the_eager_loop_under_gc_stress() {
         }
     }).unwrap().join().unwrap();
 }
+
+#[test]
+fn erased_import_abis_do_not_certify_managed_values_or_argument_packets() {
+    for (abi, literal, representation) in [("i64", "2", Type::Ref), ("ptr", "null", Type::Ptr)] {
+        let symbol = "df.dart$3atest..unproved_result";
+        let ir = format!("define {abi} @{symbol}() {{\n ret {abi} {literal}\n}}\n");
+        let (_directory, summary, inventory) = checked_scalar_sdk(&ir);
+        let mut module = fixture();
+        module.imported_allocation_inventory = Some(inventory);
+        module.functions[0].blocks[0].instructions.push((
+            ValueId(10),
+            Instruction::CallStatic {
+                symbol: symbol.into(),
+                args: vec![],
+                ret_ty: representation,
+            },
+            representation,
+        ));
+        let dispatch = if representation == Type::Ref {
+            Instruction::CallSelector {
+                selector: "c:used".into(),
+                recv: Operand::Val(ValueId(10)),
+                args: vec![],
+                names: vec![],
+                tuple_types: Operand::Constant(Constant::Null),
+            }
+        } else {
+            Instruction::CallSelectorForward {
+                arc_owned: false,
+                selector: "c:used".into(),
+                recv: Operand::Val(ValueId(0)),
+                args: Operand::Val(ValueId(10)),
+                desc: Operand::Val(ValueId(10)),
+            }
+        };
+        module.functions[0].blocks[0]
+            .instructions
+            .push((ValueId(11), dispatch, Type::Ref));
+        assert!(
+            audit(&mut module, &[&summary]).is_err(),
+            "unproved imported {representation:?}"
+        );
+        assert!(module.closed_class_tables.is_none());
+    }
+}

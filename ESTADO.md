@@ -3,6 +3,24 @@
 ## Atualização de 19/10/2026
 
 
+- O inventário versão 2 conserva operandos tipados e reconhece argumentos LLVM
+  entre aspas, com escapes/delimitadores e comentários. Os 15 corpos de startup
+  do SDK mantêm o mesmo digest; cada um agora registra a chamada
+  `dartforge_register_image` antes perdida como ABI não suportada. Isso não
+  autoriza registro: imagens estáticas e bindings de helpers exigem certificados
+  próprios. Snapshots antigos e operandos incompatíveis com a ABI são recusados.
+  Foi corrigida também uma aprovação indevida da prova: ABI LLVM `i64` não
+  certifica resultado `Ref`, nem retorno `ptr` prova uma região de pacote.
+  Resultados escalares/void continuam admitidos sob as regras anteriores.
+  Passaram 38 testes de inventário, com publicação/carregamento real do SDK,
+  47 da prova de classes, Clippy/docs estritos. Fmt global e aprovação integral
+  seguem pendentes; sem nova matriz desktop/JIT ou redução comprovada do binário.
+  O JSON do cache observado cresceu 16,8% (57.251.557 → 66.874.532 bytes) para
+  guardar operandos; esse custo não é tamanho do executável. A autorização de
+  startup e a poda completa continuam pendentes. Evidências:
+  `bench/results/2026-10-19-registry-call-operands/README.md`.
+
+
 - A prova reconhece o domínio vazio da entrada do loop em imagens fixas sem
   ingresso nativo aberto: retira somente a aresta automática em um resumo
   temporário e exige cobertura completa das demais raízes. Produtores de

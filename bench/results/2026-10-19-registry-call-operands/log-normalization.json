@@ -1,0 +1,14 @@
+{
+  "class-proof.log": {
+    "original_sha256": "3588be783f1aea503c794203eff59aa748baca02a64619d1638f5ea5ccdb933f",
+    "stored_sha256": "1b8b77d8f6e5ac85c129f69ea13f3730e581b82674d3f387148f600ffe56ee39"
+  },
+  "fmt-excerpt.log": {
+    "original_sha256": "2e9457f4b6980ab983804665a05e5e7a0af22ca645e1159ee599e35fc24f4e94",
+    "stored_sha256": "2e69de2bbe49721a18d9977e626c13b6ca838ab1d1cd091da7130666d951eedf"
+  },
+  "inventory.log": {
+    "original_sha256": "d1afb861e4407eb1278da72bcf189d68980cca788bb30c159ee4bcddc233b732",
+    "stored_sha256": "270b886e9cd1478d1a1eb59902206a8b8fec6a9e82dae0232ebd8c9ef774aa9e"
+  }
+}

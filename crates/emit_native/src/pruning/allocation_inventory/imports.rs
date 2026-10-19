@@ -41,6 +41,7 @@ struct Global {
 struct Call {
     symbol: String,
     abi: Abi,
+    arguments: Vec<String>,
 }
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -212,9 +213,15 @@ impl Inventory {
                 || f.transitive_classes
                     .as_ref()
                     .is_some_and(|cs| !ordered(cs) || cs.iter().any(|cid| *cid > i32::MAX as u32))
-                || f.calls
-                    .iter()
-                    .any(|c| c.symbol.is_empty() || !c.abi.valid())
+                || f.calls.iter().any(|c| {
+                    c.symbol.is_empty()
+                        || !c.abi.valid()
+                        || !super::closure::arguments_match(
+                            &c.abi.result,
+                            &c.abi.parameters,
+                            &c.arguments,
+                        )
+                })
                 || f.dependencies.iter().collect::<HashSet<_>>().len() != f.dependencies.len()
             {
                 return None;
@@ -473,6 +480,12 @@ impl Inventory {
                 && !self.definitions.contains(key)
     }
     pub(crate) fn call(&self, symbol: &str, args: &[Type], result: Type) -> bool {
+        // LLVM i64 erases the scalar/managed distinction, and allocation-free
+        // ptr returns do not prove an argument-packet region. These results
+        // require separate value/region certificates, not ABI equality alone.
+        if matches!(result, Type::Ref | Type::Ptr) {
+            return false;
+        }
         self.facts.get(symbol).is_some_and(|f| {
             !f.local && f.pure && f.abi.as_ref().is_some_and(|abi| abi.matches(args, result))
         })

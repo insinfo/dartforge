@@ -329,7 +329,9 @@ desliga.
 podem ficar ativas. A análise exige uma imagem fixa sem ARC preparado ou fronteiras nativas
 desconhecidas. O leitor de `allocation-inventory.json` agora admite importações
 restritas: fechamentos vazios, sem exposição, com corpos completos e chamadas
-diretas de ABI compatível. Alocação conhecida, sozinha, não autoriza poda.
+diretas de ABI compatível e resultados escalares/void. Retornos gerenciados ou
+ponteiros exigem certificados adicionais de valor/região. Alocação conhecida,
+sozinha, não autoriza poda.
 Chamadas nativas, registro de imagens, memória bruta e funções interponíveis
 continuam desconhecidos. Os casos fora dessa cobertura mantêm o registro amplo.
 
@@ -549,3 +551,28 @@ que falha conserva a rotina e o loop originais. Isso não se aplica a imagens
 abertas/JIT, nas quais a premissa de ancestralidade fixa está ausente, nem prova
 um conjunto não vazio de callbacks. Admitir qualquer produtor de fila exige
 uma prova adicional do domínio e da vida útil dos handles registrados.
+
+
+### Operandos observados no inventário versão 2
+
+O schema 2 de `allocation-inventory.json` preserva `arguments` em cada chamada
+cuja ABI direta foi reconhecida. São operandos LLVM tipados, como `i64 300` ou
+`ptr @"\01section$start$..."`, vinculados ao mesmo registro de corpo, módulo e
+snapshot. O leitor confere contagem, representações e delimitadores no
+subconjunto suportado; não transforma esses dados em certificado de registro,
+alocação, origem de valor ou região de memória. Snapshots do schema 1 não
+substituem observações ausentes e precisam ser reconstruídos.
+
+O coletor reconhece aspas com escapes hexadecimais e delimitadores aninhados
+nos argumentos; ponto e vírgula dentro de aspas não inicia comentário. Chamadas
+indiretas, convenções/atributos não revisados e listas malformadas continuam
+opacas. Isso torna visíveis registros de seções/imagens que antes apareciam
+somente como ABI não suportada.
+
+`i64` pode representar tanto inteiro não encaixotado quanto handle gerenciado.
+Por isso um fechamento de alocações vazio e ABI compatível não bastam para
+aceitar resultado `Ref`; retornar `ptr` também não demonstra um pacote ou sua
+região. Esses resultados continuam sem autorização no consumidor de chamadas.
+Resultados escalares e void conservam as regras de fechamento/exposição.
+A validação dos dados de imagem estática e dos bindings dos helpers do SDK
+continua necessária para autorizar suas rotinas de registro.

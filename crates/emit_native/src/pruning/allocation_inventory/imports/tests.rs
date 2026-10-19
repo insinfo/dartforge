@@ -130,7 +130,7 @@ fn rewrite(dir: &Path, change: impl FnOnce(&mut serde_json::Value)) {
     let text = format!("{value}\n");
     std::fs::write(&file, &text).unwrap();
     // Deliberately recompute integrity: semantic consistency is a separate check.
-    std::fs::write(dir.join("allocation-inventory.ready"),format!("{}\n",serde_json::json!({"schema":1,"cache_key":"test-key","inventory_digest":blake3::hash(text.as_bytes()).to_hex().to_string()}))).unwrap();
+    std::fs::write(dir.join("allocation-inventory.ready"),format!("{}\n",serde_json::json!({"schema":super::super::publication::SCHEMA,"cache_key":"test-key","inventory_digest":blake3::hash(text.as_bytes()).to_hex().to_string()}))).unwrap();
 }
 #[test]
 fn inconsistent_graph_claims_do_not_become_facts_even_with_a_matching_marker() {
@@ -365,5 +365,85 @@ fn reconciliation_reports_the_rejected_snapshot_symbol_or_class_boundary() {
                 .unwrap_err(),
             "SDK definition llvm.a overlaps the LLVM intrinsic namespace"
         );
+    }
+}
+
+#[test]
+fn observed_call_operands_require_matching_abi_syntax_even_with_recomputed_integrity() {
+    let ir = format!(
+        "define private i64 @leaf(i64 %x) {{\n ret i64 %x\n}}\ndefine i64 @{LEAF}(i64 %x) {{\n %v = call i64 @leaf(i64 %x)\n ret i64 %v\n}}\n"
+    );
+    for variant in 0..6 {
+        let (dir, names, runtime) = fixtures(&ir);
+        rewrite(dir.path(), |value| {
+            let call = &mut value["inventory"]["functions"][1]["calls"][0];
+            match variant {
+                0 => {
+                    call.as_object_mut().unwrap().remove("arguments");
+                }
+                1 => call["arguments"] = serde_json::json!([]),
+                2 => call["arguments"] = serde_json::json!(["double %x"]),
+                3 => call["arguments"] = serde_json::json!(["i64 %x, i64 0"]),
+                4 => call["arguments"] = serde_json::json!(["i64 @\"bad\\ZZ\""]),
+                _ => call["arguments"] = serde_json::json!(["i64 %x) call void @opaque() ("]),
+            }
+        });
+        assert!(super::super::publication::verify(
+            dir.path(),
+            "test-key",
+            true,
+            &names,
+            &runtime
+        ));
+        assert!(
+            Inventory::load(dir.path(), "test-key", true, &names, &runtime).is_none(),
+            "variant {variant}"
+        );
+    }
+}
+
+#[test]
+fn previous_inventory_schema_does_not_supply_missing_operand_observations() {
+    let ir = format!("define i64 @{LEAF}() {{\n ret i64 1\n}}\n");
+    let (dir, names, runtime) = fixtures(&ir);
+    rewrite(dir.path(), |value| {
+        value["schema"] = serde_json::json!(super::super::publication::SCHEMA - 1)
+    });
+    let ready = dir.path().join("allocation-inventory.ready");
+    let mut marker: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&ready).unwrap()).unwrap();
+    marker["schema"] = serde_json::json!(super::super::publication::SCHEMA - 1);
+    std::fs::write(ready, format!("{marker}\n")).unwrap();
+    assert!(Inventory::load(dir.path(), "test-key", true, &names, &runtime).is_none());
+}
+
+#[test]
+fn quoted_scalar_ssa_operands_can_close_a_verified_local_call() {
+    let ir = format!(
+        "define private i64 @leaf(i64 %\"value,(scalar)\") {{\n ret i64 7\n}}\ndefine i64 @{LEAF}(i64 %\"value,(scalar)\") {{\n %v = call i64 @leaf(i64 %\"value,(scalar)\")\n ret i64 %v\n}}\n"
+    );
+    let (dir, names, runtime) = fixtures(&ir);
+    let inventory = Inventory::load(dir.path(), "test-key", true, &names, &runtime).unwrap();
+    assert!(inventory.call(LEAF, &[Type::I64], Type::I64));
+    assert!(!inventory.call(LEAF, &[Type::F64], Type::I64));
+}
+
+#[test]
+fn llvm_scalar_results_are_not_managed_reference_or_packet_certificates() {
+    for (result, value, requested) in [("i64", "2", Type::Ref), ("ptr", "null", Type::Ptr)] {
+        let ir = format!("define {result} @{LEAF}() {{\n ret {result} {value}\n}}\n");
+        let (dir, names, runtime) = fixtures(&ir);
+        let inventory = Inventory::load(dir.path(), "test-key", true, &names, &runtime).unwrap();
+        assert!(
+            inventory.known_node(LEAF),
+            "the allocation-free observation remains valid"
+        );
+        assert!(
+            !inventory.call(LEAF, &[], requested),
+            "{requested:?} requires a value/region proof"
+        );
+        if result == "i64" {
+            assert!(inventory.call(LEAF, &[], Type::I64));
+        }
     }
 }
