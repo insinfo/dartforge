@@ -2295,49 +2295,6 @@ pub fn selections(text: &str, features: dartforge_frontend::LibraryFeatures, off
     v
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn chain(text: &str, cursor: &str) -> Vec<String> {
-        let offset = text.find(cursor).expect("cursor") + cursor.len() / 2;
-        let features = dartforge_frontend::LibraryFeatures::new(dartforge_frontend::LanguageVersion::CURRENT, &[]);
-        selections(text, features, offset).into_iter().map(|s| text[s.start..s.end].to_string()).collect()
-    }
-
-    #[test]
-    fn param_list_with_parens() {
-        let t = "int soma(int a, {int b = 0}) => a + b;\n";
-        let c = chain(t, "int a");
-        assert_eq!(c[0], "int");
-        assert!(c.contains(&"int a".to_string()));
-        assert!(c.contains(&"(int a, {int b = 0})".to_string()));
-    }
-
-    #[test]
-    fn field_variable_list() {
-        let t = "class P {\n  final double y = 1;\n}\n";
-        let c = chain(t, "double");
-        assert!(c.contains(&"final double y = 1".to_string()));
-        assert!(c.contains(&"final double y = 1;".to_string()));
-    }
-
-    #[test]
-    fn expression_body_with_semicolon() {
-        let t = "int f() => 1 + 2;\n";
-        let c = chain(t, "1 +");
-        assert!(c.contains(&"=> 1 + 2;".to_string()));
-    }
-
-    #[test]
-    fn annotation_name_and_annotation() {
-        let t = "class A {\n  @override\n  String toString() => '';\n}\n";
-        let c = chain(t, "override");
-        assert_eq!(c[0], "override");
-        assert_eq!(c[1], "@override");
-    }
-}
-
 /// The `Expression` subclasses the tree produces.
 pub const EXPRESSIONS: &[&str] = &[
     "SimpleIdentifier",
@@ -2410,4 +2367,47 @@ pub fn is_statement(kind: &str) -> bool {
 /// The kind is a subclass of `Expression`.
 pub fn is_expression(kind: &str) -> bool {
     EXPRESSIONS.contains(&kind)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn chain(text: &str, cursor: &str) -> Vec<String> {
+        let offset = text.find(cursor).expect("cursor") + cursor.len() / 2;
+        let features = dartforge_frontend::LibraryFeatures::new(dartforge_frontend::LanguageVersion::CURRENT, &[]);
+        selections(text, features, offset).into_iter().map(|s| text[s.start..s.end].to_string()).collect()
+    }
+
+    #[test]
+    fn param_list_with_parens() {
+        let t = "int soma(int a, {int b = 0}) => a + b;\n";
+        let c = chain(t, "int a");
+        assert_eq!(c[0], "int");
+        assert!(c.contains(&"int a".to_string()));
+        assert!(c.contains(&"(int a, {int b = 0})".to_string()));
+    }
+
+    #[test]
+    fn field_variable_list() {
+        let t = "class P {\n  final double y = 1;\n}\n";
+        let c = chain(t, "double");
+        assert!(c.contains(&"final double y = 1".to_string()));
+        assert!(c.contains(&"final double y = 1;".to_string()));
+    }
+
+    #[test]
+    fn expression_body_with_semicolon() {
+        let t = "int f() => 1 + 2;\n";
+        let c = chain(t, "1 +");
+        assert!(c.contains(&"=> 1 + 2;".to_string()));
+    }
+
+    #[test]
+    fn annotation_name_and_annotation() {
+        let t = "class A {\n  @override\n  String toString() => '';\n}\n";
+        let c = chain(t, "override");
+        assert_eq!(c[0], "override");
+        assert_eq!(c[1], "@override");
+    }
 }

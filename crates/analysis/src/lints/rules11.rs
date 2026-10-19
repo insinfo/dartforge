@@ -24,6 +24,7 @@
 //!   patterns of a `switch` (with patterns).
 //! - `unnecessary_library_name`: only from 2.19 on.
 //! - `prefer_null_aware_method_calls`: the `toSource` of both sides.
+//!
 //! Written without compiling or running (2026-10-05).
 
 use super::codes_g as c;

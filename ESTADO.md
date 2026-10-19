@@ -2,6 +2,21 @@
 
 ## Atualização de 19/10/2026
 
+- Analysis passa no Clippy com todos os alvos, sem novas supressões. O cache de
+  dependências consulta `&str`, separado por modo normal/dev, em vez de copiar
+  o `pubspec.yaml` em cada acerto; mantém o limite combinado e resultados próprios.
+  Na sonda isolada de 10 mil acertos sobre 16.464 bytes, as alocações caíram de
+  40 mil para 30 mil e os bytes alocados de 165.270.000 para 630.000. Isso não
+  mede memória residente, parsing nem tempo total do analisador. Dois testes
+  cobrem modos, resultados ausentes, mutação e esvaziamento do cache. Passaram
+  193 testes de analysis/parity, sem ignorados. Os quatro testes de paridade
+  agora falham sem SDK e respeitam caminho explícito inválido; o teste principal
+  recusa pânicos e diagnósticos extras. A ausência de SDK foi exercitada como
+  falha esperada (101). Uma execução nova do Dart 3.6.2 conferiu 417 diagnósticos
+  dos 89 casos em arquivo, código, linha, coluna e comprimento (não mensagens
+  ou severidade). Clippy global ainda falha, assim como formatação geral e link
+  padrão Apple/LLVM 22; documentação gerada com avisos existentes. Evidências:
+  `bench/results/2026-10-19-diagnostics-quality/checks.json`.
 - World e emit-js passam no Clippy com todos os alvos, sem novas supressões.
   Bounds genéricos reaproveitam o `Box`, a busca de extensões empresta o tipo
   receptor, e estruturas complexas de parâmetros, atribuições e memos têm nomes.

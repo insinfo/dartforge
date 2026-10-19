@@ -16,6 +16,7 @@
 //!   of the classes of the set by element (also as a property name), the set
 //!   of the last visited class, the fields of the `this.x`s (and through
 //!   `super.x`).
+//!
 //! Written without compiling or running (2026-10-05).
 
 use super::codes_g as c;

@@ -53,8 +53,7 @@ fn find_match(lexeme: &str, from: usize) -> Option<(usize, usize, Code)> {
                 // and the following `*` lines plus two spaces.
                 Some(x) if !is_word_char(x) => {
                     let mut end = line_rest_end(lexeme, after + x.len_utf8());
-                    loop {
-                        let Some(after_break) = lexeme[end..].strip_prefix('\n') else { break };
+                    while let Some(after_break) = lexeme[end..].strip_prefix('\n') {
                         let trimmed = after_break.trim_start();
                         let Some(after_mark) = trimmed.strip_prefix("*  ") else { break };
                         end = line_rest_end(lexeme, lexeme.len() - after_mark.len());

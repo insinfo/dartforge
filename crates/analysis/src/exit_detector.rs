@@ -430,11 +430,10 @@ impl<'a> ExitDetector<'a> {
                                 return Ok(true);
                             }
                         }
-                        "ForPartsWithExpression" => {
-                            if self.exits(i)? {
+                        "ForPartsWithExpression"
+                            if self.exits(i)? => {
                                 return Ok(true);
                             }
-                        }
                         _ => {}
                     }
                 }

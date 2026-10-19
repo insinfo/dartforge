@@ -10,6 +10,15 @@ use dartforge_parity::oracle::OracleSdk;
 use dartforge_parity::{Execution, filters, run_ours};
 use std::path::PathBuf;
 
+/// Keep an invalid explicit SDK override from silently selecting another installation.
+fn engine() -> Engine {
+    let result = match std::env::var_os("DARTFORGE_SDK_LIB") {
+        Some(path) => Engine::new(&PathBuf::from(path)),
+        None => Engine::discover(),
+    };
+    result.expect("Dart SDK sources required for analyzer parity tests")
+}
+
 const CASES: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
     (
         "dup.dart",
@@ -764,10 +773,7 @@ const CASES: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
 
 #[test]
 fn ported_rules_give_what_analyzer_3_6_2_gives() {
-    let Ok(engine) = Engine::discover() else {
-        eprintln!("SDK missing: test skipped");
-        return;
-    };
+    let engine = engine();
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("../../target/tmp-agent/regras-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
@@ -789,6 +795,9 @@ fn ported_rules_give_what_analyzer_3_6_2_gives() {
     };
     let r = run_ours(&engine, &root, &sources, Some(&cfg), &filters::AnalysisOptions::default(), &ex);
     let _ = std::fs::remove_dir_all(&root);
+    assert!(r.panics.is_empty(), "analyzer parity panics: {:?}", r.panics);
+    let expected_total: usize = CASES.iter().map(|(_, _, records)| records.len()).sum();
+    assert_eq!(r.records.len(), expected_total, "unexpected diagnostic count");
     for (name, _, expected) in CASES {
         let mut found: Vec<(String, usize, usize, usize)> = r
             .records
@@ -812,10 +821,7 @@ fn ported_rules_give_what_analyzer_3_6_2_gives() {
 #[cfg(unix)]
 #[test]
 fn root_spelled_differently_from_the_file_system() {
-    let Ok(engine) = Engine::discover() else {
-        eprintln!("SDK missing: test skipped");
-        return;
-    };
+    let engine = engine();
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("../../target/tmp-agent/grafia-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
     let real = base.join("real");
@@ -842,10 +848,7 @@ fn root_spelled_differently_from_the_file_system() {
 /// against `dart analyze` 3.6.2, 2026-10-13).
 #[test]
 fn internal_is_the_meta_getter() {
-    let Ok(engine) = Engine::discover() else {
-        eprintln!("SDK missing: test skipped");
-        return;
-    };
+    let engine = engine();
     let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let root = repo.join(format!("target/tmp-agent/interno-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
@@ -879,10 +882,7 @@ fn internal_is_the_meta_getter() {
 /// 2026-10-13).
 #[test]
 fn literal_constructor_in_a_constant_context() {
-    let Ok(engine) = Engine::discover() else {
-        eprintln!("SDK missing: test skipped");
-        return;
-    };
+    let engine = engine();
     let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let root = repo.join(format!("target/tmp-agent/literal-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);

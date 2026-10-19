@@ -25,6 +25,7 @@
 //!   a list, and the augmentation exemption.
 //! - `unnecessary_library_directive`: the documentation through `findDartDoc`.
 //! - `prefer_null_aware_operators`: the nodes' `toString`.
+//!
 //! Written without compiling or running (2026-10-05).
 
 use super::walk::{walk, Node};

@@ -1,0 +1,22 @@
+   Compiling dartforge-parity v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/parity)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.37s
+     Running tests/analyzer_rules.rs (target/debug/deps/analyzer_rules-af6a2874abe8a7d9)
+
+running 1 test
+test ported_rules_give_what_analyzer_3_6_2_gives ... FAILED
+
+failures:
+
+---- ported_rules_give_what_analyzer_3_6_2_gives stdout ----
+
+thread 'ported_rules_give_what_analyzer_3_6_2_gives' (1240201) panicked at crates/parity/tests/analyzer_rules.rs:19:12:
+Dart SDK sources required for analyzer parity tests: "could not read /nonexistent/dartforge-sdk-verification/libraries.json: No such file or directory (os error 2)"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    ported_rules_give_what_analyzer_3_6_2_gives
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p dartforge-parity --test analyzer_rules`

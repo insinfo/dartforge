@@ -838,7 +838,7 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 return false;
             }
             let Some(arg) = m.arguments.as_ref().and_then(|x| x.args.iter().find(|y| y.name.is_none())) else { return false };
-            constant_string_value(program, interner, s.unit, a, arg.value).as_deref() == Some("dart2js:late:trust")
+            constant_string_value(program, s.unit, a, arg.value).as_deref() == Some("dart2js:late:trust")
         };
         let mut check = |metadata: &[Annotation], is_first: bool| {
             for m in metadata {
@@ -979,14 +979,13 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
 /// initializer.
 fn constant_string_value(
     program: &dartforge_elements::model::Program,
-    interner: &Interner,
     u: dartforge_elements::model::UnitId,
     a: &Ast,
     e: ExprId,
 ) -> Option<String> {
     match &a.expr(e).kind {
         ExprKind::String(lit) => lit.constant_value().map(|v| v.to_string_lossy()),
-        ExprKind::Parenthesized(x) => constant_string_value(program, interner, u, a, *x),
+        ExprKind::Parenthesized(x) => constant_string_value(program, u, a, *x),
         ExprKind::Identifier(n) => {
             let b = program.lookup_in_unit(u, n.sym)?;
             let v = match b.getter? {

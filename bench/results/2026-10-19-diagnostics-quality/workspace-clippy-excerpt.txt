@@ -1,0 +1,100 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+    Checking dartforge-analysis v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/analysis)
+    Checking dartforge-emit-js v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js)
+    Checking dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/async_sm.rs:518:17
+    |
+518 |                 fields: fields,
+    |                 ^^^^^^^^^^^^^^ help: replace it with: `fields`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+    = note: `-D clippy::redundant-field-names` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::redundant_field_names)]`
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/async_sm.rs:650:21
+    |
+650 |                     fields: fields,
+    |                     ^^^^^^^^^^^^^^ help: replace it with: `fields`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/closures.rs:513:47
+    |
+513 |             self.emit(Instruction::AllocEnv { values: values }, Type::Ref)
+    |                                               ^^^^^^^^^^^^^^ help: replace it with: `values`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/closures.rs:757:21
+    |
+757 |                     index: index,
+    |                     ^^^^^^^^^^^^ help: replace it with: `index`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/closures.rs:975:66
+    |
+975 |         self.emit(Instruction::LoadIndexed { base: args.clone(), index: index }, Type::I64)
+    |                                                                  ^^^^^^^^^^^^ help: replace it with: `index`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/statements.rs:794:21
+    |
+794 |                     cases: cases,
+    |                     ^^^^^^^^^^^^ help: replace it with: `cases`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/enums.rs:327:53
+    |
+327 |             let l = b.emit(Instruction::AllocList { elements: elements }, Type::Ref);
+    |                                                     ^^^^^^^^^^^^^^^^^^ help: replace it with: `elements`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/fn_builder.rs:691:68
+    |
+691 |                 self.emit_call_with_check(Instruction::Unbox { op, to: to }, to)
+    |                                                                    ^^^^^^ help: replace it with: `to`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/fn_builder.rs:716:21
+    |
+716 |                     to: to,
+    |                     ^^^^^^ help: replace it with: `to`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/literals.rs:438:43
+    |
+438 |                 Instruction::CallStatic { symbol: symbol, args: vec![target.clone()], ret_ty: Type::Ref },
+    |                                           ^^^^^^^^^^^^^^ help: replace it with: `symbol`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/locals.rs:204:135
+    |
+204 | ...dartforge_diagnostics::Span { start: offset, end: end });
+    |                                                 ^^^^^^^^ help: replace it with: `end`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/locals.rs:344:75
+    |

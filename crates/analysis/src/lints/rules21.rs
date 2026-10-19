@@ -467,11 +467,9 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                             }
                         }
                         Some(t) => {
-                            if is_class_named(s, interner, t, "String", "dart.core") && method == "toString" && is_non_nullable(table, t) {
-                                report(&c::NOOP_PRIMITIVE_OPERATIONS, name.span, &[]);
-                            } else if is_class_named(s, interner, t, "int", "dart.core") && matches!(method, "toInt" | "round" | "ceil" | "floor" | "truncate") {
-                                report(&c::NOOP_PRIMITIVE_OPERATIONS, name.span, &[]);
-                            } else if is_class_named(s, interner, t, "double", "dart.core") && method == "toDouble" {
+                            if (is_class_named(s, interner, t, "String", "dart.core") && method == "toString" && is_non_nullable(table, t))
+                                || (is_class_named(s, interner, t, "int", "dart.core") && matches!(method, "toInt" | "round" | "ceil" | "floor" | "truncate"))
+                                || (is_class_named(s, interner, t, "double", "dart.core") && method == "toDouble") {
                                 report(&c::NOOP_PRIMITIVE_OPERATIONS, name.span, &[]);
                             }
                         }

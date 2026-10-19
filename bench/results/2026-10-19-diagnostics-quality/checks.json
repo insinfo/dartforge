@@ -1,0 +1,112 @@
+{
+  "baseline": "d63e7ae3",
+  "environment": {
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "dart": "Dart SDK version: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on \"macos_arm64\"",
+    "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "DARTFORGE_ORACLE_3_6": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk",
+    "DARTFORGE_LLVM_DIR": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64"
+  },
+  "source_sha256": {
+    "crates/analysis/src/a_context.rs": "43990ce2b8853c0a615e6afbde94b26e5fca66a9ed2603752054ecbd661df375",
+    "crates/analysis/src/analyzer_tree.rs": "09f5997b9aa05a9f23591432a22b6fe2a2909d241f6074ad0d7668f0f377f660",
+    "crates/analysis/src/c2_syntactic.rs": "bc5de5d72e4b7c800bbf26dcaac1a494c05b576fd481eb8050070bf8e4f213cc",
+    "crates/analysis/src/duplicates.rs": "0e92c8261cff085d39a70614bfd4754271efc77e7403e8b41160920da844e3d1",
+    "crates/analysis/src/enums.rs": "23035b0fca2d6a319b596f8a9b19d10cef70d01fbf475992c8482644c0506774",
+    "crates/analysis/src/exit_detector.rs": "84fe2aa4780fca236042acaae13943abf2a4d5103968531950466c2d19654885",
+    "crates/analysis/src/externals.rs": "aacd5882c65b6029aa17ac5e476e5d8a447b4f9663e666a4869363d6ecbe5d43",
+    "crates/analysis/src/initialization.rs": "8f43903ac585452e5a8479845a61453da77e268ed680f6b221accb967d06d4ed",
+    "crates/analysis/src/lints/pubspec.rs": "728cf4a3cc31898d6d178b984905c9cbf90b7a5e3cd68e1de3085cc08ca7efa7",
+    "crates/analysis/src/lints/regexp_vm.rs": "c1134cc61369394602533cd8a263b7e8050d4b71ff21a7ee7373ea3e868c41e3",
+    "crates/analysis/src/lints/rules10.rs": "0f1ce3fcca4ddaa6eeee91859245492158b7db95d65673cad079b7b3527e8677",
+    "crates/analysis/src/lints/rules11.rs": "ec21d4a7c2fc691fa531cda5492e38d1c04430fbf257f97d1a4a338f7ba3d275",
+    "crates/analysis/src/lints/rules12.rs": "2b96a2432012010b6f0d6dedfb29569b0f71d67d9b2f4ddbcfddaf2ae26f8283",
+    "crates/analysis/src/lints/rules14.rs": "0b0bdf92dc0767600d6d6a1b0c77caba007d82afa39ad33d9a9d0f5739f20ed2",
+    "crates/analysis/src/lints/rules15.rs": "1530b4ec3b1f2545fecf2dd02fe8e8fa7c31d029a2909f884e5ad87b417d82aa",
+    "crates/analysis/src/lints/rules16.rs": "9b0f1ac6e4ac8a50a762f4c2089b263879ea350ed09d3dec3cd963c0d826bafb",
+    "crates/analysis/src/lints/rules17.rs": "1983fb7d1dcb9f8dd5d955e88b6986d48e43dcbc72a628d1c9c5dbe446e2bf7d",
+    "crates/analysis/src/lints/rules18.rs": "b77794160e5b276c627558d3c0300429bc3d128ac5fabe172839813de433cdb1",
+    "crates/analysis/src/lints/rules21.rs": "7c1c7b3cc2b386373bd8ff5d2aef77a70b10b64536fc0acf227003b9410de974",
+    "crates/analysis/src/lints/rules29.rs": "21c2f1f8d6bf710ec2b25a8b271de036702cf1db485bbf6c1ccf5bdaaebacbb9",
+    "crates/analysis/src/lints/rules30.rs": "25ea5f4faf1012d89b6905b9efe8f357ffbd13a9b23f903f6a3547e05d1cea94",
+    "crates/analysis/src/lints/rules6.rs": "22ed7b836fd1b27a9af79aecc698546675c0d47410aa366a7cba58a544bdb952",
+    "crates/analysis/src/lints/rules8.rs": "fc693292d5992c786eb95797f01b02c834b1d6bbae6ac14679cb5ba08afe074c",
+    "crates/analysis/src/lints/rules9.rs": "11bc5e46f703420d58a9cdf5fed92db03eacce0d51da75c80d744f74ab901c9d",
+    "crates/analysis/src/locals.rs": "b7d695e6c0de9a4234863af11c7b163914982a1bb87f921d682eda4f424b4f81",
+    "crates/analysis/src/modifiers.rs": "7d0edecc04fc8e6c6e44276558dd87940e20d0e62e3f5d9418f65649b334f62b",
+    "crates/analysis/src/non_dart/manifest.rs": "0288d6df5ce35e470273fc46a88afe26407899041a5929e1208fa521078e4459",
+    "crates/analysis/src/non_dart/yaml.rs": "7b3a6912b961bcf2317fd59a9acd49f4b964a7f5871f41898caeac458059d321",
+    "crates/analysis/src/records.rs": "a8d1c4303c7bdbdcc682410b1da6cc43e3a72bc71fffcaf6dbb5183be240006c",
+    "crates/analysis/src/todos.rs": "1af0f28e4c7d84f81214c5bbdb7a3decf3a14514ad8dbdeff218b7fbb5e27e5c",
+    "crates/parity/tests/analyzer_rules.rs": "34dc5bc93243ff9b84784ea78f48b15057b108bdbd3918f032ca4394b2a8327f"
+  },
+  "checks": {
+    "analysis_clippy": {
+      "command": "cargo clippy --locked -p dartforge-analysis --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "clippy.txt"
+    },
+    "directed_suite": {
+      "command": "cargo test --locked -p dartforge-analysis -p dartforge-parity -- --include-ignored",
+      "exit_code": 0,
+      "passed": 193,
+      "failed": 0,
+      "ignored": 0,
+      "log": "suite.txt"
+    },
+    "invalid_explicit_sdk": {
+      "command": "DARTFORGE_SDK_LIB=/nonexistent/dartforge-sdk-verification cargo test --locked -p dartforge-parity --test analyzer_rules ported_rules_give_what_analyzer_3_6_2_gives -- --exact",
+      "exit_code": 101,
+      "expected_failure": true,
+      "log": "missing-sdk.txt"
+    },
+    "fresh_oracle": {
+      "command": "python3 bench/results/2026-10-19-diagnostics-quality/verify-oracle.py",
+      "exit_code": 0,
+      "dart_analyze_exit_code": 3,
+      "negative_dart_cases_expected": true,
+      "cases": 89,
+      "matching_diagnostics": 417,
+      "compared_fields": [
+        "file",
+        "code",
+        "line",
+        "column",
+        "length"
+      ],
+      "comparison": "oracle-comparison.json"
+    },
+    "allocation_probe": {
+      "command": "python3 bench/results/2026-10-19-diagnostics-quality/cache-probe.py",
+      "exit_code": 0,
+      "scope": "warm cache hits only; parsing stub is used only to prime the cache, and a counter proves it is never called during measurement",
+      "data": "cache-allocations.csv"
+    },
+    "workspace": {
+      "fmt_exit_code": 1,
+      "clippy_exit_code": 101,
+      "tests_exit_code": 101,
+      "doc_exit_code": 0,
+      "documentation_warnings_remain": true,
+      "test_failure": "Apple LLVM 21 linker cannot read static LLVM 22 bitcode",
+      "failures": "workspace-failures.json"
+    }
+  },
+  "artifacts_sha256": {
+    "verify-oracle.py": "526b4ac44916eaefa6933bfda674c94fda85ef1eeac6342d7119ae49bcbd585d",
+    "missing-sdk.txt": "3365d9da803f8ffb3351cfd793d0cae6dbd241e34b5b809b6b32d39d9bd6aff3",
+    "workspace-doc.txt": "41e0399b799d5a0b3ad6ee7e83cb0130147d8689c9611056379d002d1cf64a41",
+    "cache-probe.py": "a94d945ee61705ed12f1f14a76010425c6b874c18f1d632650cd9b7b1ad0e090",
+    "cache-probe.rs": "987c5fd831966f587a530dfcc45e3888aeefe8d5a4357e9a74f7bf2453803d04",
+    "README.md": "b91b31e269c8c5a038864a84633bb3e2c08ba4b186f1f0f565fd290d99924243",
+    "workspace-clippy-excerpt.txt": "56e2f93b4554a505f5376c88b9c6878ae437ca6e3c88a8f8db5d51b613753a96",
+    "workspace-fmt-excerpt.txt": "b255b625f165a794183016e56ef15c1a7a35a47e3f5bc5df8f8293f9674fc324",
+    "suite.txt": "9b08beb224e5d4eaf3109309f24ea7bd6d5e10e8c664f090b404fb02bba24f78",
+    "oracle-comparison.json": "e0d60459e5132de6cfb1b9b415225d3c21cca97eb618b08f83797908269f0418",
+    "workspace-failures.json": "5e65ce4d0d2500f608f59d458669f10ca5b74efa9badfd66ca098c2892cabfe5",
+    "workspace-tests-excerpt.txt": "74715b4141d9a1c1b499a0e7afe48b21d9a97f2006cf63bfc7c5cd175539e1f8",
+    "cache-allocations.csv": "16251c05d6cadce3a2e43f30bbc1771376baf290e204895d49243473c1f60502",
+    "clippy.txt": "cba4c4ae5f53f7a769bf2ab6f9feb01136aaf60641a7de88ee0a7d2b4b670743",
+    "fresh-oracle.txt": "29a85bec32a263ff937a1c28be13ff08fb35cb16c4cc537e3207aa8115b4598a"
+  }
+}

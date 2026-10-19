@@ -142,15 +142,14 @@ impl<'a> Visitor<'a> {
                     // type, the `super.x` it cannot declare.
                     self.sup = body_sup;
                     for p in k.parameters.iter() {
-                        if owner == Owner::ExtensionType && p.super_ {
-                            if let Some(n) = p.name {
+                        if owner == Owner::ExtensionType && p.super_
+                            && let Some(n) = p.name {
                                 // `super.x`: the word sits six bytes before the name.
                                 let start = n.span.start.saturating_sub(6);
                                 if self.source.get(start..start + 5) == Some("super") {
                                     self.report(c::EXTENSION_TYPE_CONSTRUCTOR_WITH_SUPER_FORMAL_PARAMETER, Span { start, end: start + 5 }, &[]);
                                 }
                             }
-                        }
                     }
                     self.params(&k.parameters);
                     // Every constructor initializer is a static context.
@@ -444,12 +443,11 @@ impl<'a> Visitor<'a> {
                     // the last one before the iterable.
                     let end = self.a.expr(*iterable).span.start;
                     let fragment = self.source.get(collection_start..end).unwrap_or("");
-                    if !matches!(self.modifier, AsyncModifier::Async | AsyncModifier::AsyncStar) {
-                        if let Some(i) = fragment.rfind("await") {
+                    if !matches!(self.modifier, AsyncModifier::Async | AsyncModifier::AsyncStar)
+                        && let Some(i) = fragment.rfind("await") {
                             let start = collection_start + i;
                             self.report(c::ASYNC_FOR_IN_WRONG_CONTEXT, Span { start, end: start + 5 }, &[]);
                         }
-                    }
                 }
                 self.for_in_target(target);
                 self.expr(*iterable);
@@ -504,12 +502,11 @@ impl<'a> Visitor<'a> {
                 self.expr(*x);
             }
             ExprKind::List { type_args, elements, .. } => {
-                if type_args.len() > 1 {
-                    if let Some(sp) = self.type_list(type_args) {
+                if type_args.len() > 1
+                    && let Some(sp) = self.type_list(type_args) {
                         let n = type_args.len().to_string();
                         self.report(c::EXPECTED_ONE_LIST_TYPE_ARGUMENTS, sp, &[n.as_str()]);
                     }
-                }
                 for el in elements.iter() {
                     self.element(el, node.span.start);
                 }
@@ -517,15 +514,14 @@ impl<'a> Visitor<'a> {
             ExprKind::SetOrMap { type_args, elements, .. } => {
                 // With one argument it is a set and with two a map; with three
                 // or more, the shape comes from the elements (an empty `{}` is a map).
-                if type_args.len() > 2 {
-                    if let Some(sp) = self.type_list(type_args) {
+                if type_args.len() > 2
+                    && let Some(sp) = self.type_list(type_args) {
                         let n = type_args.len().to_string();
                         let has_entry = has_map_entry(elements);
                         let is_set = !has_entry && !elements.is_empty();
                         let code = if is_set { c::EXPECTED_ONE_SET_TYPE_ARGUMENTS } else { c::EXPECTED_TWO_MAP_TYPE_ARGUMENTS };
                         self.report(code, sp, &[n.as_str()]);
                     }
-                }
                 for el in elements.iter() {
                     self.element(el, node.span.start);
                 }

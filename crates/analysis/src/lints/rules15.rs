@@ -418,7 +418,7 @@ pub(super) fn expected_type(
         let ret = return_of(t)?;
         return if is_class(ret, "Iterable", "dart:core") || is_class(ret, "Stream", "dart:async") { type_argument(table, ret, 0) } else { None };
     }
-    let Some(parent_node) = parent_node else { return None };
+    let parent_node = parent_node?;
     match parent_node {
         Node::Expr(p) => match &a.expr(p).kind {
             // `=` assignment (except `x = x!`).

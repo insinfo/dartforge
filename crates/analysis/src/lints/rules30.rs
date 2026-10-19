@@ -139,7 +139,7 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         if !nullable_accesses.contains(&v) {
             let x = &l.variables[i];
             let end = x.initializer.map_or(x.name.span.end, |e| a.expr(e).span.end);
-            findings.push(Span { start: x.name.span.start, end: end });
+            findings.push(Span { start: x.name.span.start, end });
         }
     };
     for (k, d) in a.decls.iter().enumerate() {

@@ -1,0 +1,9 @@
+version,result,with_dev,source_bytes,lookups,allocations,allocated_bytes
+before,some,false,16464,10000,40000,165270000
+before,some,true,16464,10000,50000,165590000
+before,none,false,16393,10000,10000,163930000
+before,none,true,16393,10000,10000,163930000
+after,some,false,16464,10000,30000,630000
+after,some,true,16464,10000,40000,950000
+after,none,false,16393,10000,0,0
+after,none,true,16393,10000,0,0

@@ -108,7 +108,7 @@ enum Tag {
     /// An element; `None` when it is not one of the relevant ones (or is a
     /// comment or a declaration).
     Element(Option<Element>),
-    TagEnd,
+    ClosingElement,
     End,
     Error,
 }
@@ -272,7 +272,7 @@ impl Reader<'_> {
                 self.pos += 1;
             }
             // A closing tag has no attributes.
-            return if self.closing() { Tag::TagEnd } else { Tag::Error };
+            return if self.closing() { Tag::ClosingElement } else { Tag::Error };
         }
         let relevant = RELEVANT.contains(&name.as_str());
         let (attributes, mut empty) = match closed {
@@ -290,7 +290,7 @@ impl Reader<'_> {
             self.pos += 1;
             loop {
                 match self.tag() {
-                    Tag::TagEnd => break,
+                    Tag::ClosingElement => break,
                     Tag::End => return Tag::End,
                     Tag::Error => return Tag::Error,
                     Tag::Element(None) => {}

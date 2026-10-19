@@ -16,6 +16,7 @@
 //! - `prefer_initializing_formals`: the target's canonical field and the
 //!   parameter by element.
 //! - `hash_and_equals`: the members of the whole class, with the augmentations.
+//!
 //! Written without compiling or running (2026-10-05).
 
 use super::codes_g as c;
@@ -487,11 +488,12 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                     findings.push((n.span, getter_name));
                 }
                 // `this.x`.
-                ExprKind::Property { target, name, .. } if matches!(a.expr(*target).kind, ExprKind::This) => {
-                    if is_getter_element(id, element) && !in_const_literal(id, body) && !matches!(parent.map(|p| &a.expr(p).kind), Some(ExprKind::Assign { target, .. }) if *target == id) {
+                ExprKind::Property { target, name, .. }
+                    if matches!(a.expr(*target).kind, ExprKind::This)
+                        && is_getter_element(id, element) && !in_const_literal(id, body)
+                        && !matches!(parent.map(|p| &a.expr(p).kind), Some(ExprKind::Assign { target, .. }) if *target == id) => {
                         findings.push((name.span, getter_name));
                     }
-                }
                 _ => {}
             }
         }

@@ -19,11 +19,10 @@ pub fn without_constants(units: &[Unit<'_>]) -> Vec<(usize, Diagnostic)> {
     for unit in units {
         for &id in &unit.unit.declarations {
             let decl = unit.ast.decl(id);
-            if let DeclKind::Enum(e) = &decl.kind {
-                if decl.augment && !e.constants.is_empty() {
+            if let DeclKind::Enum(e) = &decl.kind
+                && decl.augment && !e.constants.is_empty() {
                     augmented_with_constants.insert(e.name.sym);
                 }
-            }
         }
     }
 
@@ -31,8 +30,8 @@ pub fn without_constants(units: &[Unit<'_>]) -> Vec<(usize, Diagnostic)> {
     for (i, unit) in units.iter().enumerate() {
         for &id in &unit.unit.declarations {
             let decl = unit.ast.decl(id);
-            if let DeclKind::Enum(e) = &decl.kind {
-                if !decl.augment && e.constants.is_empty() && !augmented_with_constants.contains(&e.name.sym) {
+            if let DeclKind::Enum(e) = &decl.kind
+                && !decl.augment && e.constants.is_empty() && !augmented_with_constants.contains(&e.name.sym) {
                     out.push((
                         i,
                         Diagnostic::with_code(
@@ -42,7 +41,6 @@ pub fn without_constants(units: &[Unit<'_>]) -> Vec<(usize, Diagnostic)> {
                         ),
                     ));
                 }
-            }
         }
     }
     out

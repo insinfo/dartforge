@@ -39,6 +39,16 @@ fn surely_non_nullable_type(ast: &Ast, id: TypeId, names: &Interner, aliases: &H
     }
 }
 
+/// Syntactic and semantic evidence for an instance-field initialization check.
+struct FieldContext<'a> {
+    ast: &'a Ast,
+    names: &'a Interner,
+    aliases: &'a HashSet<SymbolId>,
+    unit: usize,
+    enum_index: bool,
+    non_nullable: &'a dyn Fn(usize, usize) -> Option<bool>,
+}
+
 /// `_checkForNotInitializedNonNullableInstanceFields` (3.6.2,
 /// `error_verifier.dart:4837-4862`): the non-static, non-`late`, non-`final`
 /// list (a `const` one counts: the list's `isFinal` is only the `final`
@@ -46,7 +56,8 @@ fn surely_non_nullable_type(ast: &Ast, id: TypeId, names: &Interner, aliases: &H
 /// external, of a potentially non-nullable type. `non_nullable` is the
 /// predicate on the element's type (unit, start of the name); without it, the
 /// syntactic evidence.
-fn non_final_non_nullable_instance(v: &VariableList, ast: &Ast, names: &Interner, aliases: &HashSet<SymbolId>, out: &mut Vec<(usize, Diagnostic)>, unit: usize, enum_index: bool, non_nullable: &dyn Fn(usize, usize) -> Option<bool>) {
+fn non_final_non_nullable_instance(v: &VariableList, context: FieldContext<'_>, out: &mut Vec<(usize, Diagnostic)>) {
+    let FieldContext { ast, names, aliases, unit, enum_index, non_nullable } = context;
     if v.static_ || v.final_ || v.late || v.external || v.abstract_ {
         return;
     }
@@ -229,7 +240,9 @@ pub fn uninitialized_finals_with(units: &[Unit<'_>], names: &Interner, non_nulla
                                     _ => false,
                                 };
                                 if valid {
-                                    non_final_non_nullable_instance(v, unit.ast, names, &aliases, &mut out, i, enum_index, non_nullable);
+                                    non_final_non_nullable_instance(v, FieldContext {
+                                        ast: unit.ast, names, aliases: &aliases, unit: i, enum_index, non_nullable,
+                                    }, &mut out);
                                 }
                             }
                         }
@@ -321,7 +334,7 @@ mod tests {
         uninitialized_finals(&[Unit { ast: &parsed.ast, unit: &parsed.unit, source }], &names)
             .into_iter()
             .map(|(_, d)| {
-                let name = source[d.span.start as usize..d.span.end as usize].to_string();
+                let name = source[d.span.start..d.span.end].to_string();
                 (name, d.message)
             })
             .collect()

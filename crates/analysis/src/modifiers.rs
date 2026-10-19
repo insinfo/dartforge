@@ -193,11 +193,10 @@ pub fn outside_library(program: &Program, lib: LibraryId, names: &Interner) -> V
                 }
             }
             // final: extended, implemented, mixin constraint.
-            if let Some((t, Some(s))) = cl.extends {
-                if cx.is_final(s) && !cx.is_sealed(s) && cx.class_of(s).library != lib && !cx.may_ignore(cx.class_of(s).library, true) {
+            if let Some((t, Some(s))) = cl.extends
+                && cx.is_final(s) && !cx.is_sealed(s) && cx.class_of(s).library != lib && !cx.may_ignore(cx.class_of(s).library, true) {
                     by(c::FINAL_CLASS_EXTENDED_OUTSIDE_OF_LIBRARY, span(t), &[&cx.name_of(s)], None);
                 }
-            }
             for &(t, target) in &cl.implements {
                 let Some(target) = target else { continue };
                 for e in cx.all_supertypes(target) {
@@ -292,12 +291,11 @@ fn restriction(
         (u, span, format!("The type '{s}' is a subtype of '{b}', and '{b}' is defined here."))
     });
     let if_sealed = |x: Option<(UnitId, Span, String)>| if cx.is_sealed(sup) { x } else { None };
-    if let Some(sp) = implemented {
-        if cx.is_sealed(sup) && lib_bf != lib_el && cx.is_base(bf) {
+    if let Some(sp) = implemented
+        && cx.is_sealed(sup) && lib_bf != lib_el && cx.is_base(bf) {
             let code = if cx.is_mixin(bf) { c::BASE_MIXIN_IMPLEMENTED_OUTSIDE_OF_LIBRARY } else { c::BASE_CLASS_IMPLEMENTED_OUTSIDE_OF_LIBRARY };
             return Some((code, sp, vec![cx.name_of(bf)], context));
         }
-    }
     if cx.is_base(element) || cx.is_final(element) || cx.is_sealed(element) {
         return None;
     }

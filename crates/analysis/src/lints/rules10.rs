@@ -16,6 +16,7 @@
 //! - `avoid_field_initializers_in_const_classes`: the use of a parameter by
 //!   element and the constructors of the whole class.
 //! - `prefer_spread_collections`: the target list outside a constant context.
+//!
 //! Written without compiling or running (2026-10-05).
 
 use super::codes_g as c;

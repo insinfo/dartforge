@@ -1,0 +1,25 @@
+{
+  "fmt": {
+    "exit_code": 1,
+    "full_log_bytes": 15804356,
+    "full_log_sha256": "b952f362e64a39aed54d69cdbb005cdaf576de4cc3f68be38474ed54784f7e0f",
+    "excerpt": "workspace-fmt-excerpt.txt"
+  },
+  "clippy": {
+    "exit_code": 101,
+    "full_log_bytes": 121615,
+    "full_log_sha256": "cb64cb3fd0a8983b82bf078a3666620dcbb3de38a4fa22a0f35bb5e8a61deeda",
+    "excerpt": "workspace-clippy-excerpt.txt",
+    "reported_crate_failures": [
+      "error: could not compile `dartforge-dev` (lib) due to 7 previous errors",
+      "error: could not compile `dartforge-emit-native` (lib) due to 154 previous errors",
+      "error: could not compile `dartforge-emit-native` (lib test) due to 192 previous errors"
+    ]
+  },
+  "tests": {
+    "exit_code": 101,
+    "full_log_bytes": 1655487,
+    "full_log_sha256": "d2ffd34c6e08c495dcbdd654537fc8f680244793dee97a2f50d99df1d5cdff40",
+    "excerpt": "workspace-tests-excerpt.txt"
+  }
+}

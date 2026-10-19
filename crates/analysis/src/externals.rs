@@ -67,8 +67,8 @@ pub fn initializers(unit: Unit<'_>) -> Vec<Diagnostic> {
                 for &m in members {
                     if let MemberKind::Constructor(k) = &ast.member(m).kind {
                         for p in k.parameters.iter() {
-                            if p.this_ {
-                                if let Some(name) = p.name {
+                            if p.this_
+                                && let Some(name) = p.name {
                                     if external_fields.contains(&name.sym) {
                                         out.push(report(
                                             c::EXTERNAL_FIELD_CONSTRUCTOR_INITIALIZER,
@@ -82,7 +82,6 @@ pub fn initializers(unit: Unit<'_>) -> Vec<Diagnostic> {
                                         ));
                                     }
                                 }
-                            }
                         }
                         for init in &k.initializers {
                             if let Initializer::Field { name, .. } = init {

@@ -828,11 +828,10 @@ fn has_valid_use(
                 }
             }
             // `PrefixedIdentifier`: `x.close` (without calling it).
-            ExprKind::Property { target, name, .. } => {
-                if matches!(a.expr(*target).kind, ExprKind::Identifier(_)) && is_the_element(*target) && releases(interner.resolve(name.sym)) {
+            ExprKind::Property { target, name, .. }
+                if matches!(a.expr(*target).kind, ExprKind::Identifier(_)) && is_the_element(*target) && releases(interner.resolve(name.sym)) => {
                     return true;
                 }
-            }
             _ => {}
         }
     }

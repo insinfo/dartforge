@@ -22,6 +22,7 @@
 //! - `unnecessary_const`: `inConstantContext` (`dartforge_frontend::pais`).
 //! - `directives_ordering`: also the `@docImport`s of the `library`
 //!   directive's documentation, with the URIs' `stringValue`.
+//!
 //! Written without compiling or running (2026-10-05).
 
 use super::codes_g as c;
@@ -634,7 +635,8 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         }
         // `_checkDirectiveSectionOrderedAlphabetically`: each section in
         // order, comparing with the section's previous URI.
-        let sections: [&dyn Fn(&&(Span, Kind, Option<String>)) -> bool; 3] = [&is_dart, &is_relative, &is_package];
+        type DirectiveSection<'a> = &'a dyn Fn(&&(Span, Kind, Option<String>)) -> bool;
+        let sections: [DirectiveSection<'_>; 3] = [&is_dart, &is_relative, &is_package];
         for section in sections {
             for kind in [Kind::Import, Kind::Export, Kind::DocImport] {
                 let in_section: Vec<&(Span, Kind, Option<String>)> = directives.iter().filter(|x| x.1 == kind).filter(|x| section(x)).collect();

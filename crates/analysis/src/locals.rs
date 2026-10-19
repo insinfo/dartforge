@@ -331,8 +331,8 @@ impl<'a> Visitor<'a> {
     /// the `case`s that share a body), the same name already declared there is
     /// the **same** variable (`JoinPatternVariableElement`).
     fn declare_pattern_name(&mut self, n: ast::Name, group: Option<usize>) {
-        if let Some(region) = self.shared_region {
-            if let Some(i) = self.find(n.sym).filter(|&i| i >= region) {
+        if let Some(region) = self.shared_region
+            && let Some(i) = self.find(n.sym).filter(|&i| i >= region) {
                 let root = self.root(i);
                 if self.wildcard && self.interner.resolve(n.sym) == "_" {
                     return;
@@ -340,14 +340,12 @@ impl<'a> Visitor<'a> {
                 self.locals.push(Local { name: n.sym, span: n.span, kind: LocalKind::Variable, read: false, group, alias: Some(root), read_by_own_guard: false });
                 return;
             }
-        }
         // `var a && var a` (`duplicate_variable_pattern`): the second does not
         // enter the scope; the uses of `a` are the first's.
-        if let Some(start) = self.pattern_start {
-            if self.find(n.sym).is_some_and(|i| i >= start) {
+        if let Some(start) = self.pattern_start
+            && self.find(n.sym).is_some_and(|i| i >= start) {
                 return;
             }
-        }
         self.declare(n, LocalKind::Variable, group);
     }
 
@@ -530,12 +528,11 @@ impl<'a> Visitor<'a> {
                 while j < b.len() && (b[j].is_ascii_alphanumeric() || b[j] == b'_' || b[j] == b'$') {
                     j += 1;
                 }
-                if j > start {
-                    if let Some(sym) = self.interner.lookup(&fragment[start..j]) {
+                if j > start
+                    && let Some(sym) = self.interner.lookup(&fragment[start..j]) {
                         let span = Span { start: from + start, end: from + j };
                         self.refer(ast::Name { sym, span }, true);
                     }
-                }
                 i = j.max(i + 1);
             } else {
                 i += 1;

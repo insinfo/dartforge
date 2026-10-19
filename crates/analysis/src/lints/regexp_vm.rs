@@ -130,7 +130,7 @@ impl Builder {
     }
     /// `ToRegExp`: `None` for `RegExpEmpty`; the single term of a single
     /// alternative is the term itself.
-    fn to_regexp(&mut self) -> Option<Term> {
+    fn finish_regexp(&mut self) -> Option<Term> {
         self.flush_surrogate();
         if self.alternatives == 0 {
             return match self.terms[..] {
@@ -334,7 +334,7 @@ impl Parser<'_> {
                 }
                 self.advance();
                 let mut state = stack.pop().expect("open group");
-                let body = state.builder.to_regexp();
+                let body = state.builder.finish_regexp();
                 let term = match state.group {
                     Group::Capture => {
                         if let Some(name) = state.name.take() {

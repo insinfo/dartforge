@@ -201,7 +201,7 @@ impl Cx<'_> {
     }
 
     /// The element of a resolution.
-    fn from_resolved(&self, u: UnitId, body: &UnitBodyTypes, e: ExprId, pos: usize) -> Option<Ref> {
+    fn reference_from_resolved(&self, u: UnitId, body: &UnitBodyTypes, e: ExprId, pos: usize) -> Option<Ref> {
         Some(match body.get_resolved(e)? {
             Resolved::Local(_) | Resolved::Parameter { .. } | Resolved::TypeParameter(_) => Ref::Position(u, pos),
             Resolved::Member { member: MemberRef::Variable(v), .. } | Resolved::Element(Element::Variable(v)) => Ref::Variable(*v),
@@ -454,13 +454,13 @@ fn references(cx: &Cx<'_>, u: UnitId) -> Vec<(usize, Action)> {
         let pos = e.span.start;
         match &e.kind {
             ExprKind::Identifier(_) | ExprKind::Property { .. } if !written.contains(&id) && !constructor_names.contains(&id) => {
-                if let Some(r) = cx.from_resolved(u, body, id, pos) {
+                if let Some(r) = cx.reference_from_resolved(u, body, id, pos) {
                     out.push((pos, Action::Element(r)));
                 }
             }
             ExprKind::Assign { op, target, .. } => {
                 if matches!(a.expr(*target).kind, ExprKind::Identifier(_) | ExprKind::Property { .. })
-                    && let Some(r) = cx.from_resolved(u, body, *target, pos)
+                    && let Some(r) = cx.reference_from_resolved(u, body, *target, pos)
                 {
                     out.push((pos, Action::Element(r)));
                     if *op != ast::AssignOp::Assign
@@ -472,7 +472,7 @@ fn references(cx: &Cx<'_>, u: UnitId) -> Vec<(usize, Action)> {
             }
             ExprKind::Unary { op: UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec, operand } => {
                 if matches!(a.expr(*operand).kind, ExprKind::Identifier(_) | ExprKind::Property { .. })
-                    && let Some(r) = cx.from_resolved(u, body, *operand, pos)
+                    && let Some(r) = cx.reference_from_resolved(u, body, *operand, pos)
                 {
                     out.push((pos, Action::Element(r)));
                     if let Some(l) = cx.read_of(r) {

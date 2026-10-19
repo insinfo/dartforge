@@ -1026,12 +1026,7 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             }
             let reported = if found_entries.is_empty() {
                 // The unit's scope.
-                match program.lookup_in_unit(s.unit, name.sym) {
-                    // A top-level element (the requested one or the other
-                    // accessor) is not the member, nor is it a class's.
-                    None => true,
-                    Some(_) => false,
-                }
+                program.lookup_in_unit(s.unit, name.sym).is_none()
             } else if let Some(r) = requested.first() {
                 match r.kind {
                     EntryKind::Member { owner, .. } => element_owner == Some((s.unit.0, owner)),

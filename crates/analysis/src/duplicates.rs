@@ -109,8 +109,8 @@ impl Reporter<'_> {
                 getters.insert(name.to_string(), Elem { at: span, unit: self.unit, ..e });
             }
         }
-        if let Some(setters) = setters {
-            if e.kind == ElemKind::Setter {
+        if let Some(setters) = setters
+            && e.kind == ElemKind::Setter {
                 match setters.get(name).copied() {
                     Some(previous) => {
                         let d = self.with_first(Diagnostic::with_code(c::DUPLICATE_DEFINITION, span, [name]), previous);
@@ -121,7 +121,6 @@ impl Reporter<'_> {
                     }
                 }
             }
-        }
     }
 
     /// A field or top-level variable: the getter and, if mutable, the setter.
@@ -694,11 +693,10 @@ fn unit_members(rel: &mut Reporter<'_>, u: &Unit<'_>) -> (Vec<DeclContext>, Hash
             _ => continue,
         }
         members(rel, u.ast, &mut ctx);
-        if let DeclKind::Enum(x) = &u.ast.decl(d).kind {
-            if ctx.name.as_deref() == Some("values") {
+        if let DeclKind::Enum(x) = &u.ast.decl(d).kind
+            && ctx.name.as_deref() == Some("values") {
                 rel.report(c::ENUM_WITH_NAME_VALUES, x.name.span, &[]);
             }
-        }
         if let Some(k) = ctx.key_if(rel.merge) {
             elements.insert(k, ctx.save());
         }
@@ -721,11 +719,10 @@ fn members(rel: &mut Reporter<'_>, ast: &Ast, ctx: &mut DeclContext) {
                 if name == "new" {
                     name.clear();
                 }
-                if let Some(n) = k.name {
-                    if !name.is_empty() {
+                if let Some(n) = k.name
+                    && !name.is_empty() {
                         named.push((name.clone(), n.span));
                     }
-                }
                 if !ctx.constructors.insert(name.clone()) {
                     // `atConstructorDeclaration`: from the class name to the end of the name.
                     let end = k.name.unwrap_or(k.class_name).span.end;

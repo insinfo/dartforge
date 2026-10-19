@@ -178,7 +178,7 @@ impl Builder<'_> {
                     // A multi-line plain scalar: up to the end of the first line,
                     // without the comment.
                     let line = rest.split('\n').next().unwrap_or("");
-                    line.find(" #").map_or(line.len(), |k| k).min(line.trim_end().len())
+                    line.find(" #").unwrap_or(line.len()).min(line.trim_end().len())
                 };
                 let span = Span { start, end: start + length };
                 let lowercase = value.to_ascii_lowercase();

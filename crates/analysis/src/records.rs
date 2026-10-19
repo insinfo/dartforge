@@ -34,9 +34,9 @@ fn name_after(source: &str, end: usize) -> Option<(String, Span)> {
             continue;
         }
         if source[i..].starts_with("/*") {
-            match source[i + 2..].find("*/") {
-                Some(k) => i = i + 2 + k + 2,
-                None => return None,
+            {
+                let k = source[i + 2..].find("*/")?;
+                i = i + 2 + k + 2
             }
             continue;
         }

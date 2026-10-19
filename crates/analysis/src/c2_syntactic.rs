@@ -100,11 +100,10 @@ pub fn check(u: Unit<'_>, names: &Interner) -> Vec<Diagnostic> {
             DirectiveKind::Import { uri, .. } | DirectiveKind::Export { uri, .. } | DirectiveKind::Part { uri } => Some(uri),
             _ => None,
         };
-        if let Some(uri) = uri {
-            if uri.parts.iter().any(|p| matches!(p, ast::StringPart::Interpolation(_))) {
+        if let Some(uri) = uri
+            && uri.parts.iter().any(|p| matches!(p, ast::StringPart::Interpolation(_))) {
                 v.report(c::URI_WITH_INTERPOLATION, uri.span, &[]);
             }
-        }
     }
     let main_sym = names.lookup("main");
     for &d in u.unit.declarations.iter() {
@@ -135,11 +134,10 @@ impl<'a> Visitor<'a> {
             }
             DeclKind::Function(f) => {
                 let func = a.function(*f);
-                if matches!(func.kind, FunctionKind::Getter | FunctionKind::Setter) {
-                    if let Some(sp) = func.name.and_then(not_function) {
+                if matches!(func.kind, FunctionKind::Getter | FunctionKind::Setter)
+                    && let Some(sp) = func.name.and_then(not_function) {
                         self.report(c::MAIN_IS_NOT_FUNCTION, sp, &[]);
                     }
-                }
                 self.function(*f);
             }
             DeclKind::Class(k) => {
@@ -715,12 +713,11 @@ impl<'a> Visitor<'a> {
             PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => self.pattern(*x),
             PatternKind::Cast { pattern, .. } => self.pattern(*pattern),
             PatternKind::List { type_args, elements } => {
-                if type_args.len() > 1 {
-                    if let Some(sp) = self.type_list(type_args) {
+                if type_args.len() > 1
+                    && let Some(sp) = self.type_list(type_args) {
                         let n = type_args.len().to_string();
                         self.report(c::EXPECTED_ONE_LIST_PATTERN_TYPE_ARGUMENTS, sp, &[&n]);
                     }
-                }
                 for el in elements.iter() {
                     match el {
                         ast::ListPatternElement::Pattern(x) | ast::ListPatternElement::Rest(Some(x)) => self.pattern(*x),
@@ -729,12 +726,11 @@ impl<'a> Visitor<'a> {
                 }
             }
             PatternKind::Map { type_args, entries, rest } => {
-                if !type_args.is_empty() && type_args.len() != 2 {
-                    if let Some(sp) = self.type_list(type_args) {
+                if !type_args.is_empty() && type_args.len() != 2
+                    && let Some(sp) = self.type_list(type_args) {
                         let n = type_args.len().to_string();
                         self.report(c::EXPECTED_TWO_MAP_PATTERN_TYPE_ARGUMENTS, sp, &[&n]);
                     }
-                }
                 // A map pattern has no rest: on the `...`.
                 if *rest {
                     let from = entries.last().map_or(pattern_span.start, |en| a.pattern(en.value).span.end);

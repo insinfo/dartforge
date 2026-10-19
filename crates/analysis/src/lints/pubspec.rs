@@ -169,7 +169,7 @@ fn is_valid_package_name(s: &str) -> bool {
 
 /// The scheme of `Uri.tryParse(text)`, lowercased.
 fn scheme(t: &str) -> Option<String> {
-    let end = t.find(|c: char| matches!(c, ':' | '/' | '?' | '#'))?;
+    let end = t.find([':', '/', '?', '#'])?;
     if t.as_bytes()[end] != b':' || end == 0 {
         return None;
     }
@@ -243,24 +243,37 @@ pub fn run(source: &str, enabled: &dyn Fn(&str) -> bool) -> Vec<LintReport> {
     out
 }
 
-/// What `depend_on_referenced_packages` reads: the package name, the
-/// dependencies and the dev dependencies.
+type DependencyResults = std::collections::HashMap<String, Option<Vec<String>>>;
+
+/// Returns the package name and dependencies read by `depend_on_referenced_packages`.
+/// Development dependencies are included only when `with_dev` is true.
+/// Returns `None` for invalid YAML or a document without a scalar package name.
+///
+/// ```
+/// use dartforge_analysis::lints::pubspec::available_dependencies;
+/// let source = "name: example\ndependencies:\n  collection: any\n";
+/// assert_eq!(available_dependencies(source, false),
+///     Some(vec!["example".to_string(), "collection".to_string()]));
+/// ```
 pub fn available_dependencies(source: &str, with_dev: bool) -> Option<Vec<String>> {
     // Every unit of a package asks for the same `pubspec.yaml`: the answer by
     // text, per thread.
     thread_local! {
-        static CACHE: std::cell::RefCell<std::collections::HashMap<(String, bool), Option<Vec<String>>>> = Default::default();
+        static CACHE: std::cell::RefCell<[DependencyResults; 2]> = Default::default();
     }
-    if let Some(hit) = CACHE.with(|c| c.borrow().get(&(source.to_string(), with_dev)).cloned()) {
+    let mode = usize::from(with_dev);
+    if let Some(hit) = CACHE.with(|c| c.borrow()[mode].get(source).cloned()) {
         return hit;
     }
     let r = available_dependencies_uncached(source, with_dev);
     CACHE.with(|c| {
         let mut c = c.borrow_mut();
-        if c.len() > 64 {
-            c.clear();
+        if c.iter().map(DependencyResults::len).sum::<usize>() > 64 {
+            for mode in c.iter_mut() {
+                mode.clear();
+            }
         }
-        c.insert((source.to_string(), with_dev), r.clone());
+        c[mode].insert(source.to_string(), r.clone());
     });
     r
 }
@@ -371,4 +384,44 @@ impl YamlIgnores {
 
 fn line_of(line_starts: &[usize], pos: usize) -> usize {
     line_starts.partition_point(|&x| x <= pos)
+}
+
+
+#[cfg(test)]
+mod dependency_cache_tests {
+    use super::*;
+
+    #[test]
+    fn warm_dependency_lookups_preserve_mode_and_owned_results() {
+        let source = "name: cache_example\ndependencies:\n  runtime_dep: any\ndev_dependencies:\n  test_dep: any\n";
+        let production = vec!["cache_example".to_string(), "runtime_dep".to_string()];
+        let mut development = production.clone();
+        development.push("test_dep".to_string());
+        for _ in 0..3 {
+            assert_eq!(available_dependencies(source, false), Some(production.clone()));
+            assert_eq!(available_dependencies(source, true), Some(development.clone()));
+        }
+        let mut result = available_dependencies(source, true).unwrap();
+        result.clear();
+        assert_eq!(available_dependencies(source, true), Some(development));
+    }
+
+    #[test]
+    fn misses_and_eviction_preserve_uncached_results() {
+        for source in ["", "name: [", "dependencies: {}\n"] {
+            for mode in [false, true] {
+                for _ in 0..2 {
+                    assert_eq!(available_dependencies(source, mode), available_dependencies_uncached(source, mode));
+                }
+            }
+        }
+        for n in 0..140 {
+            let source = format!("name: cache_eviction_{n}\ndev_dependencies:\n  test_dep: any\n");
+            for mode in [false, true] {
+                assert_eq!(available_dependencies(&source, mode), available_dependencies_uncached(&source, mode));
+            }
+        }
+        let source = "name: after_eviction\n";
+        assert_eq!(available_dependencies(source, false), Some(vec!["after_eviction".into()]));
+    }
 }

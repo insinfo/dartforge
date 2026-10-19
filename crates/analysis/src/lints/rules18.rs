@@ -368,11 +368,9 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             if !is_nullable_bool(t) {
                 continue;
             }
-            let reported = match (op, &a.expr(*right).kind) {
-                (BinaryOp::Eq, ExprKind::Bool(true)) => true,
-                (BinaryOp::NotEq, ExprKind::Bool(false)) => true,
-                _ => false,
-            };
+            let reported = matches!((op, &a.expr(*right).kind),
+                (BinaryOp::Eq, ExprKind::Bool(true)) | (BinaryOp::NotEq, ExprKind::Bool(false))
+            );
             if reported {
                 report(&c::USE_IF_NULL_TO_CONVERT_NULLS_TO_BOOLS, e.span, &[]);
             }
