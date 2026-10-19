@@ -1,0 +1,80 @@
+Cargo LLVM linker: /Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/ld64.lld; SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
+warning: linker stderr: ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libblake3-3516a563bfb687ce.rlib(a1edd97dd51cd48d-blake3_neon.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-emit-native` (build script) generated 1 warning
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+warning: linker stderr: ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libblake3-3516a563bfb687ce.rlib(a1edd97dd51cd48d-blake3_neon.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/liblibz_sys-032d16bd0c4624ad.rlib(f0389296f42960e9-deflate.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/liblibz_sys-032d16bd0c4624ad.rlib(f0389296f42960e9-adler32.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/liblibz_sys-032d16bd0c4624ad.rlib(f0389296f42960e9-crc32.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/liblibz_sys-032d16bd0c4624ad.rlib(f0389296f42960e9-inflate.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/liblibz_sys-032d16bd0c4624ad.rlib(f0389296f42960e9-inffast.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/liblibz_sys-032d16bd0c4624ad.rlib(f0389296f42960e9-inftrees.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/liblibz_sys-032d16bd0c4624ad.rlib(f0389296f42960e9-trees.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/liblibz_sys-032d16bd0c4624ad.rlib(f0389296f42960e9-zutil.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(25ac62e5b3c53843-curve25519.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(0bbbd18bda93c05b-aes_nohw.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(00c879ee3285a50d-montgomery.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(00c879ee3285a50d-montgomery_inv.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(a0330e891e733f4e-gfp_p384.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(a0330e891e733f4e-ecp_nistz.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(aaa1ba3e455ee2e1-limbs.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(a4019cc0736b0423-mem.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(d5a9841f3dc6e253-poly1305.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(a0330e891e733f4e-p256-nistz.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(c322a0bcc369f531-chacha-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(c322a0bcc369f531-chacha20_poly1305_armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(c322a0bcc369f531-aesv8-armx-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(c322a0bcc369f531-aesv8-gcm-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(c322a0bcc369f531-ghash-neon-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(c322a0bcc369f531-ghashv8-armx-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(c322a0bcc369f531-vpaes-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(c322a0bcc369f531-armv8-mont-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(c322a0bcc369f531-p256-armv8-asm-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(c322a0bcc369f531-sha512-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(c322a0bcc369f531-sha256-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-emit-native` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.98s
+     Running unittests src/lib.rs (target/impl-a/debug/deps/dartforge_emit_native-e0de8c0a977ab9ec)
+
+running 7 tests
+test pruning::class_reachability::tests::inherited_implementation_transitively_activates_its_allocated_class ... ok
+test pruning::class_reachability::tests::inactive_foreign_body_is_not_mistaken_for_an_active_exposure ... ok
+test pruning::class_reachability::tests::unresolved_live_selector_target_cannot_close_the_image ... FAILED
+test pruning::class_reachability::tests::scalar_native_memory_access_does_not_close_managed_creation ... FAILED
+test pruning::class_reachability::tests::incompatible_static_call_does_not_prove_allocation_coverage ... FAILED
+test pruning::class_reachability::tests::unknown_creation_exposure_and_entry_inputs_keep_original_wide_behavior ... ok
+test pruning::class_reachability::tests::unallocated_tables_protocol_methods_and_emitted_dispatch_disappear ... ok
+
+failures:
+
+---- pruning::class_reachability::tests::unresolved_live_selector_target_cannot_close_the_image stdout ----
+
+thread 'pruning::class_reachability::tests::unresolved_live_selector_target_cannot_close_the_image' (1350360) panicked at crates/emit_native/src/pruning/class_reachability/tests.rs:269:5:
+assertion failed: !apply(&mut module)
+
+---- pruning::class_reachability::tests::scalar_native_memory_access_does_not_close_managed_creation stdout ----
+
+thread 'pruning::class_reachability::tests::scalar_native_memory_access_does_not_close_managed_creation' (1350357) panicked at crates/emit_native/src/pruning/class_reachability/tests.rs:302:5:
+assertion failed: !apply(&mut module)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- pruning::class_reachability::tests::incompatible_static_call_does_not_prove_allocation_coverage stdout ----
+
+thread 'pruning::class_reachability::tests::incompatible_static_call_does_not_prove_allocation_coverage' (1350355) panicked at crates/emit_native/src/pruning/class_reachability/tests.rs:285:5:
+assertion failed: !apply(&mut module)
+
+
+failures:
+    pruning::class_reachability::tests::incompatible_static_call_does_not_prove_allocation_coverage
+    pruning::class_reachability::tests::scalar_native_memory_access_does_not_close_managed_creation
+    pruning::class_reachability::tests::unresolved_live_selector_target_cannot_close_the_image
+
+test result: FAILED. 4 passed; 3 failed; 0 ignored; 0 measured; 789 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

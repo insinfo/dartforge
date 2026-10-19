@@ -344,6 +344,9 @@ impl LlvmEmitter<'_> {
         }
         let module = self.module;
         for (cid, symbol, methods) in &module.method_tables {
+            if module.closed_class_tables.as_ref().is_some_and(|active| !active.contains(cid)) {
+                continue;
+            }
             let pairs = crate::pruning::table_pairs(*cid, methods);
             for (_, _, f) in &pairs {
                 self.annotate_external(f, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);

@@ -1,0 +1,82 @@
+{
+  "baseline": "0fa55ed5",
+  "host": "macOS ARM64",
+  "sdk": "Dart 3.6.2",
+  "llvm": "22.1.8",
+  "link_sdk": "MacOSX26.5.sdk",
+  "checks": [
+    {
+      "check": "unit",
+      "exit_code": 0,
+      "passed": 805,
+      "failed": 0,
+      "ignored": 0,
+      "log_bytes": 90074,
+      "log_sha256": "24abc72dd2b20506335871b45c6cef1787601b19fd7226975ba5d2e0872e8fe2",
+      "evidence": "unit.txt"
+    },
+    {
+      "check": "doc",
+      "exit_code": 0,
+      "passed": 121,
+      "failed": 0,
+      "ignored": 0,
+      "log_bytes": 15428,
+      "log_sha256": "22d009418b80d7c121e1d5f3fcc1b7b1087d05f483a016418d0f5fb8b89a1965",
+      "evidence": "doc.txt"
+    },
+    {
+      "check": "production",
+      "exit_code": 101,
+      "passed": 0,
+      "failed": 1,
+      "ignored": 0,
+      "log_bytes": 8758,
+      "log_sha256": "a2472f96474dc8ff3fe310805febfb5be8e7cf122c32d1a273ac19f62ac348d1",
+      "evidence": "production.txt"
+    }
+  ],
+  "before": {
+    "passed": 4,
+    "failed": 3,
+    "exit_code": 101,
+    "note": "Baseline implementation plus the first three new regressions; later fixture/coverage cases were added after this capture."
+  },
+  "workspace_checks": [
+    {
+      "check": "format",
+      "exit_code": 1,
+      "log_bytes": 15743312,
+      "log_sha256": "fab49ff8fbfb7d989f9176bed6a49d10849b68f2bee64f620012466883b61e94",
+      "evidence": "workspace-format.txt"
+    },
+    {
+      "check": "clippy",
+      "exit_code": 101,
+      "log_bytes": 438908,
+      "log_sha256": "4d26d04313da1f2514141f6637e45ec2a58a661381277e789db4ff40b60728ed",
+      "modified_file_diagnostics": [],
+      "evidence": "workspace-clippy.txt"
+    },
+    {
+      "check": "tests",
+      "exit_code": 101,
+      "log_bytes": 1570478,
+      "log_sha256": "906c9d80af4ec2d4797cdf3a6ffa77c22cacfcad1f4511f9c7f3ee4c9bbfbcd0",
+      "evidence": "workspace-tests.txt"
+    },
+    {
+      "check": "docs",
+      "exit_code": 0,
+      "log_bytes": 11508,
+      "log_sha256": "b9bb917adab8258e1add5f4f59ee807142939c70b4258b4c7197d6f32ccaf221",
+      "evidence": "workspace-docs.txt"
+    }
+  ],
+  "nonoverlapping_results": {
+    "passed": 926,
+    "failed": 1,
+    "note": "805 unit tests + 121 doctests pass; one repeated production-profile regression fails. Directed runs overlap and are not added."
+  },
+  "new_lint_suppressions": false
+}

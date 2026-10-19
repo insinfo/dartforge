@@ -322,3 +322,41 @@ desliga.
 * Os ajudantes `_dartforge*` são raízes por biblioteca: `_dartforgeStartIo` mantém o preparo do
   `dart:io` em todo programa. Tirá-los pede saber quais o programa pode disparar.
 * As funções que só uma tabela podada citava continuam no bitcode do SDK; quem as tira é o LTO.
+
+## 7. Alcance fechado experimental — atualização de 19/10/2026
+
+`DARTFORGE_CLOSED_CLASS_REACHABILITY=1` tenta provar quais tabelas do programa
+podem ficar ativas. A análise ainda exige uma imagem fixa sem SDK importado,
+ARC preparado ou fronteiras nativas desconhecidas. Os casos fora dessa cobertura
+mantêm o registro amplo. O inventário `allocation-inventory.json` não é consumido
+como autorização de poda: alocação, exposição nativa e mutação de registro têm
+obrigações diferentes.
+
+A prova agora exige destinos alcançáveis com definição conhecida, raízes com
+corpos disponíveis, assinaturas compatíveis nas chamadas locais e nos auxiliares
+admitidos do runtime, entradas uniformes `Ref(Ref, Ptr, Ptr)` e corpos com SSA/CFG
+verificáveis. Reutiliza a verificação estrutural limitada de
+`pruning/receiver_provenance.rs`; não substitui um verificador geral de tipos da
+HIR. Escritas/leitura de memória nativa, endereços de funções e bindings externos
+continuam desconhecidos. A memória local aceita é a de slots `Alloca` identificados
+na própria função e globais declaradas no módulo, com representação compatível;
+loads de `Ref` por ponteiro continuam fora da prova. A reanálise que falha descarta
+o conjunto anterior e o conjunto temporário de tabelas.
+
+Tabelas das classes canônicas do runtime são protegidas independentemente do vetor
+opcional de registro do módulo: boxing, strings e exceções podem criar esses
+valores sem uma instrução `AllocObject`. Com cobertura completa, a emissão omite
+tanto os registros quanto as definições de tabela inativas. O catálogo nominal de
+classes permanece disponível.
+
+Os testes incluem executáveis do mesmo módulo com registro amplo e com o conjunto
+fechado, exercitando despacho por seletor nos dois modos com e sem `GC_STRESS`.
+Essa fixture não importa SDK e usa o `main` do runtime no lugar do wrapper do
+emissor, que normalmente faz parte da ligação com o SDK. Ela não certifica a
+poda de um aplicativo completo com SDK.
+
+O teste `production_profile::platform_constant_prunes_the_other_backends` continua
+como exigência de remoção completa dos outros backends. O suporte às importações
+e suas exposições ainda precisa ser completado; a configuração padrão mantém as
+tabelas desse caso. Evidências da rodada:
+`bench/results/2026-10-19-class-coverage/README.md`.

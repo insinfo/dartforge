@@ -1,0 +1,6 @@
+{
+  "crates/emit_native/src/llvm/selectors.rs": "dbefe55a298886afb8f533e07a0d8a0c478c7586740b6aacf9111648ee1aaad6",
+  "crates/emit_native/src/pruning/class_reachability.rs": "b39d25851ee9f80043b9ece5e7c08e88785dec5feb2ae7a4df6d6ad09432c7d4",
+  "crates/emit_native/src/pruning/class_reachability/tests.rs": "10ef010d3e8aed6295ed157c8d315853cd4286fa1e162cda3bd4c8422155a63f",
+  "crates/emit_native/src/pruning/receiver_provenance.rs": "a43ec0a475aeb4e301d61798481e17d6e9d3b1e3d7552b5f6c25f9fc4cf01330"
+}

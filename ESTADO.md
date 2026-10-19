@@ -2,6 +2,25 @@
 
 ## Atualização de 19/10/2026
 
+- A prova experimental de alcance de classes agora recusa destinos alcançáveis
+  sem corpo, chamadas locais/runtime com ABI incompatível, entradas uniformes
+  inválidas, endereços de funções e memória nativa sem cobertura. Reutiliza a
+  testemunha estrutural de SSA/CFG; slots locais e globais precisam de declaração
+  e representação compatíveis. Uma reanálise falha descarta conjuntos temporários
+  e antigos. Tabelas de classes canônicas criadas implicitamente por boxing,
+  strings e exceções são protegidas mesmo sem vetor de registro do módulo.
+  Quando a prova fecha, o emissor omite também as definições de tabela inativas.
+  Três regressões falharam antes; foram adicionados 12 testes. Passaram 805 testes
+  unitários nativos com `--include-ignored` e 121 doctests. A fixture de despacho
+  gera e executa binários com registro amplo/fechado, com e sem `GC_STRESS`;
+  não importa SDK e adapta apenas o wrapper `main` para ligar ao runtime sem SDK.
+  O teste de produção repetido ainda falha na remoção de tabelas estrangeiras.
+  O modo continua opt-in e recusa SDK importado; não há alegação de cobertura
+  completa dessas fronteiras. Sem novas supressões/diagnósticos Clippy nos arquivos
+  alterados. Checks globais seguem pendentes (formatação, Clippy e link padrão
+  Apple/LLVM 22); docs geradas com avisos. Detalhes e limites em
+  `docs/NATIVO-PODA-DE-TABELAS.md` §7 e
+  `bench/results/2026-10-19-class-coverage/README.md`.
 - Os leitores do conversor nativo agora rejeitam offsets/varints fora do limite,
   estouros de frame/retorno/slots e índices inconsistentes nos mapas compactos
   DFGM/DFPC. Cada função é lida dentro do próprio stream; contagens de tabelas e

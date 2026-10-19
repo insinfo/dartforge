@@ -324,13 +324,13 @@ fn value_classes(
 }
 
 /// Structural SSA witness for identity/allocation facts, not a general HIR typer.
-struct Shape {
+pub(super) struct Shape {
     positions: HashMap<BlockId, usize>,
     reachable: BTreeSet<usize>,
     definitions: HashMap<ValueId, (Type, Option<(usize, usize)>)>,
 }
 impl Shape {
-    fn operand_type(&self, op: &Operand) -> Option<Type> {
+    pub(super) fn operand_type(&self, op: &Operand) -> Option<Type> {
         match op {
             Operand::Val(v) => self.definitions.get(v).map(|d| d.0),
             Operand::Constant(Constant::Null | Constant::String(_) | Constant::StringWtf8(_)) => {
@@ -341,7 +341,7 @@ impl Shape {
             Operand::Constant(Constant::Double(_)) => Some(Type::F64),
         }
     }
-    fn new(f: &Function) -> Result<Self, String> {
+    pub(super) fn new(f: &Function) -> Result<Self, String> {
         // A bounded proof budget is a conservative fallback, never a type guess.
         if f.blocks.is_empty()
             || f.blocks.len() > 512

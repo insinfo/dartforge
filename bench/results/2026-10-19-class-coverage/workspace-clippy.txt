@@ -1,0 +1,220 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Checking dartforge-lsp v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/lsp)
+    Checking dartforge-cli v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli)
+    Checking dartforge-types v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/types)
+error: this `if` statement can be collapsed
+   --> crates/cli/src/pub_get/output.rs:122:9
+    |
+122 | /         if let Some(bound) = constraint.lower {
+123 | |             if lower.as_ref().is_none_or(|(v, inc): &(Version, bool)| {
+124 | |                 super::constraints::compare_versions(&bound.0, v).is_gt()
+125 | |                     || (super::constraints::compare_versions(&bound.0, v).is_eq()
+...   |
+131 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+    = note: `-D clippy::collapsible-if` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::collapsible_if)]`
+help: collapse nested if block
+    |
+122 ~         if let Some(bound) = constraint.lower
+123 ~             && lower.as_ref().is_none_or(|(v, inc): &(Version, bool)| {
+124 |                 super::constraints::compare_versions(&bound.0, v).is_gt()
+...
+129 |                 lower = Some(bound);
+130 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/cli/src/pub_get/output.rs:132:9
+    |
+132 | /         if let Some(bound) = constraint.upper {
+133 | |             if upper.as_ref().is_none_or(|(v, inc): &(Version, bool)| {
+134 | |                 super::constraints::compare_versions(&bound.0, v).is_lt()
+135 | |                     || (super::constraints::compare_versions(&bound.0, v).is_eq()
+...   |
+141 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+132 ~         if let Some(bound) = constraint.upper
+133 ~             && upper.as_ref().is_none_or(|(v, inc): &(Version, bool)| {
+134 |                 super::constraints::compare_versions(&bound.0, v).is_lt()
+...
+139 |                 upper = Some(bound);
+140 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/cli/src/pub_get/resolver.rs:111:13
+    |
+111 | /             if let Some(value) = selected.get(name) {
+112 | |                 if value.source != requirement.source
+113 | |                     || !requirement
+114 | |                         .constraints
+...   |
+120 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+111 ~             if let Some(value) = selected.get(name)
+112 ~                 && (value.source != requirement.source
+113 |                     || !requirement
+114 |                         .constraints
+115 |                         .iter()
+116 ~                         .all(|(_, c)| c.allows(&value.candidate.manifest.version)))
+117 |                 {
+118 |                     return Err(SearchError::Conflict(conflict(name, requirement)));
+119 ~                 }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/cli/src/pub_get/resolver.rs:153:9
+    |
+153 | /         if let Some((source, version)) = self.locked.get(name) {
+154 | |             if source == &requirement.source {
+155 | |                 if let Some(index) = candidates
+156 | |                     .iter()
+...   |
+163 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+153 ~         if let Some((source, version)) = self.locked.get(name)
+154 ~             && source == &requirement.source {
+155 |                 if let Some(index) = candidates
+...
+161 |                 }
+162 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/cli/src/pub_get/resolver.rs:154:13
+    |
+154 | /             if source == &requirement.source {
+155 | |                 if let Some(index) = candidates
+156 | |                     .iter()
+157 | |                     .position(|c| &c.manifest.version == version)
+...   |
+162 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+154 ~             if source == &requirement.source
+155 ~                 && let Some(index) = candidates
+156 |                     .iter()
+...
+160 |                     candidates.insert(0, candidate);
+161 ~                 }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/cli/src/test_runner.rs:103:9
+    |
+103 | /         if explicit
+104 | |             || path
+105 | |
+[bounded excerpt; full original log hash recorded]
+1.98.0/index.html#type_complexity
+
+error: this function has too many arguments (8/7)
+    --> crates/lsp/src/project.rs:2466:5
+     |
+2466 | /     fn member_occurrences(
+2467 | |         &self,
+2468 | |         owner: Owner,
+2469 | |         name_: &str,
+...    |
+2474 | |         by: &mut impl FnMut(UnitId, Span),
+2475 | |     ) -> Result<(), String> {
+     | |___________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_arguments
+
+error: very complex type used. Consider factoring parts into `type` definitions
+    --> crates/lsp/src/project.rs:2844:10
+     |
+2844 |     ) -> Option<(Option<(UnitId, Span)>, Vec<(UnitId, Span)>)> {
+     |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: very complex type used. Consider factoring parts into `type` definitions
+    --> crates/lsp/src/project.rs:2865:10
+     |
+2865 |     ) -> Option<(Option<(UnitId, Span)>, Vec<(UnitId, Span)>)> {
+     |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: this function has too many arguments (8/7)
+   --> crates/lsp/src/refactorings_move.rs:274:5
+    |
+274 |     fn forced_import(&mut self, cx: &Context<'_>, uri: &str, prefix: Option<&str>, show: Option<&str>, use_show: bool, absolute: bool, relative: bool) -> String {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_arguments
+
+error: very complex type used. Consider factoring parts into `type` definitions
+  --> crates/lsp/src/refactorings_inline.rs:36:16
+   |
+36 |     variables: Vec<(usize, String, Vec<(usize, usize)>)>,
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: variant name starts with the enum's name
+  --> crates/lsp/src/rename.rs:70:5
+   |
+70 |     ClassMember { target: Target, class: ClassId, concrete: Option<Concrete> },
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#enum_variant_names
+   = note: `-D clippy::enum-variant-names` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::enum_variant_names)]`
+
+error: the variable `i` is used as a loop counter
+   --> crates/lsp/src/refactorings_method.rs:788:17
+    |
+788 |                 for &p in positional.iter().chain(optional.iter()) {
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using: `for (i, &p) in positional.iter().chain(optional.iter()).enumerate()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#explicit_counter_loop
+
+error: very complex type used. Consider factoring parts into `type` definitions
+    --> crates/lsp/src/refactorings_method.rs:1579:16
+     |
+1579 |     let kinds: [(&'static str, fn(&ast::DeclKind) -> Option<ast::Name>); 4] = [
+     |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: this function has too many arguments (8/7)
+   --> crates/lsp/src/refactorings_move.rs:274:5
+    |
+274 |     fn forced_import(&mut self, cx: &Context<'_>, uri: &str, prefix: Option<&str>, show: Option<&str>, use_show: bool, absolute: bool, relative: bool) -> String {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_arguments
+
+error: variant name starts with the enum's name
+  --> crates/lsp/src/rename.rs:70:5
+   |
+70 |     ClassMember { target: Target, class: ClassId, concrete: Option<Concrete> },
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#enum_variant_names
+   = note: `-D clippy::enum-variant-names` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::enum_variant_names)]`
+
+error: could not compile `dartforge-lsp` (lib) due to 17 previous errors
+error: could not compile `dartforge-lsp` (lib test) due to 17 previous errors

@@ -1,0 +1,196 @@
+Diff in /Volumes/ssd_dock/MyRustProjects/dartforge/crates/sass/examples/check.rs:11:
+ //! `i.compressed.css.map` (the `.css` as `sass_builder` writes it, with the
+ //! `sourceMappingURL` comment), or `i.<style>.err` when dart-sass refuses.
+ use dartforge_sass::sass_builder::{compile, Asset, Disk, Packages};
+-use dartforge_sass::{OutputStyle, DartSassVersion};
++use dartforge_sass::{DartSassVersion, OutputStyle};
+
+ /// The imitated version: `SASS_VERSION` (`1.66.0` or `1.102.0`, the
+ /// default).
+Diff in /Volumes/ssd_dock/MyRustProjects/dartforge/crates/sass/examples/compile.rs:2:
+ //! and the source map (as `asset:p/web/a.scss`), to compare by hand with
+ //! dart-sass.
+ use dartforge_sass::sass_builder::{compile, Asset, Disk, Packages};
+-use dartforge_sass::{OutputStyle, DartSassVersion};
++use dartforge_sass::{DartSassVersion, OutputStyle};
+
+ /// The imitated version: `SASS_VERSION` (`1.66.0` or `1.102.0`, the
+ /// default).
+Diff in /Volumes/ssd_dock/MyRustProjects/dartforge/crates/sass/src/lib.rs:96:
+ };
+ pub use crate::fs::{Fs, NullFs, StdFs};
+ pub use crate::logger::{Logger, NullLogger, StdLogger};
+-pub use crate::options::{InputSyntax, Options, OutputStyle, DartSassVersion};
++pub use crate::options::{DartSassVersion, InputSyntax, Options, OutputStyle};
+ pub use crate::{builtin::Builtin, evaluate::Visitor};
+ pub(crate) use crate::{context_flags::ContextFlags, lexer::Token};
+ use crate::{lexer::Lexer, parse::ScssParser};
+Diff in /Volumes/ssd_dock/MyRustProjects/dartforge/crates/sass/tests/forms_166.rs:9:
+ //! bytes, or is refused when the oracle refuses it (`.erro`). The `r*`
+ //! shapes 1.66 compiles, but the 1.66 mode does not guarantee the output and
+ //! must refuse them — never generate something else.
+-use dartforge_sass::{from_path, Options, OutputStyle, DartSassVersion};
++use dartforge_sass::{from_path, DartSassVersion, Options, OutputStyle};
+ use std::path::Path;
+
+ #[test]
+Diff in /Volumes/ssd_dock/MyRustProjects/dartforge/crates/abi/src/lib.rs:152:
+     /// WebAssembly requires imports/exports and linear memory, not dlopen/LoadLibrary.
+     pub fn validate_dynamic_target(&self, target: Target) -> Result<(), AbiError> {
+         if !target.supports_dynamic_libraries() {
+-            return Err(AbiError("dynamic FFI unavailable in the WebAssembly profile"));
++            return Err(AbiError(
++                "dynamic FFI unavailable in the WebAssembly profile",
++            ));
+         }
+         Ok(())
+     }
+Diff in /Volumes/ssd_dock/MyRustProjects/dartforge/crates/analysis/src/a_context.rs:19:
+ use dartforge_diagnostics::codes::compile_time_error as c;
+ use dartforge_diagnostics::{Code, Diagnostic, Span};
+ use dartforge_frontend::ast::{
+-    self, AsyncModifier, CollectionElement, DeclKind, ExprId, ExprKind, FunctionBody, MemberId, MemberKind, PatternId,
+-    PatternKind, StmtId, StmtKind,
++    self, AsyncModifier, CollectionElement, DeclKind, ExprId, ExprKind, FunctionBody, MemberId,
++    MemberKind, PatternId, PatternKind, StmtId, StmtKind,
+ };
+
+ /// The context of a `super` (`SuperContext`).
+Diff in /Volumes/ssd_dock/MyRustProjects/dartforge/crates/analysis/src/a_context.rs:67:
+
+ /// The context diagnostics of a unit.
+ pub fn check(u: Unit<'_>) -> Vec<Diagnostic> {
+-    let mut v = Visitor { a: u.ast, source: u.source, out: Vec::new(), sup: Sup::Static, modifier: AsyncModifier::None, in_late_local: false };
++    let mut v = Visitor {
++        a: u.ast,
++        source: u.source,
++        out: Vec::new(),
++        sup: Sup::Static,
++        modifier: AsyncModifier::None,
++        in_late_local: false,
++    };
+     for &d in u.unit.declarations.iter() {
+         v.decl(d);
+     }
+Diff in /Volumes/ssd_dock/MyRustProjects/dartforge/crates/analysis/src/a_context.rs:76:
+
+ impl<'a> Visitor<'a> {
+     fn report(&mut self, code: Code, span: Span, args: &[&str]) {
+-        self.out.push(Diagnostic::with_code(code, span, args.iter().copied()));
++        self.out
++            .push(Diagnostic::with_code(code, span, args.iter().copied()));
+     }
+
+     // -- Declarations -------------------------------------------------------------
+Diff in /Volumes/ssd_dock/MyRustProjects/dartforge/crates/analysis/src/a_context.rs:125:
+                 MemberKind::Field(l) => {
+                     // A static field, or an instance one that is not `late`:
+                     // the initializer runs without `this`.
+-                    self.sup = if l.static_ || !l.late { Sup::Static } else { owner.sup() };
++                    self.sup = if l.static_ || !l.late {
++                        Sup::Static
++                    } else {
++                        owner.sup()
++                    };
+                     for var in l.variables.iter() {
+                         if let Some(init) = var.initializer {
+                             self.expr(init);
+Diff in /Volumes/ssd_dock/MyRustProjects/dartforge/crates/analysis/src/a_context.rs:133:
+                     }
+                 }
+                 MemberKind::Method(
+[bounded excerpt; full original log hash recorded]
+ics and top-level
+-        check(c.live("Estat.usado") && !c.live("Estat.naoUsado"), "used static live, the other dead");
+-        check(c.m.is_live_variable(c.variable("contador")), "static read/written live");
+-        check(c.live("topoUsado") && !c.live("topoMorto") && !c.live("topoMorto2"), "top-level functions");
+-        check(!c.m.is_live_variable(c.variable("preguicoso")), "unread top-level variable dead");
+-        check(c.level("Cor") == ClassLevel::Instantiated, "used enum instantiated");
++        check(
++            c.live("Estat.usado") && !c.live("Estat.naoUsado"),
++            "used static live, the other dead",
++        );
++        check(
++            c.m.is_live_variable(c.variable("contador")),
++            "static read/written live",
++        );
++        check(
++            c.live("topoUsado") && !c.live("topoMorto") && !c.live("topoMorto2"),
++            "top-level functions",
++        );
++        check(
++            !c.m.is_live_variable(c.variable("preguicoso")),
++            "unread top-level variable dead",
++        );
++        check(
++            c.level("Cor") == ClassLevel::Instantiated,
++            "used enum instantiated",
++        );
+         // extension
+-        check(c.live("ext:grita") && !c.live("ext:cala"), "extension members by name");
++        check(
++            c.live("ext:grita") && !c.live("ext:cala"),
++            "extension members by name",
++        );
+         // constructors
+-        check(c.level("Fab") == ClassLevel::Instantiated && c.live("Fab._"), "redirecting factory instantiates the target");
++        check(
++            c.level("Fab") == ClassLevel::Instantiated && c.live("Fab._"),
++            "redirecting factory instantiates the target",
++        );
+         check(c.m.ctor_tearoff(c.function("Tear.")), "constructor tearoff");
+-        check(c.level("ConstUsada") == ClassLevel::Instantiated && c.level("ConstMorta") == ClassLevel::Dead, "used and unused const");
+-        check(c.level("Json") == ClassLevel::Dead, "unreferenced class dead");
++        check(
++            c.level("ConstUsada") == ClassLevel::Instantiated
++                && c.level("ConstMorta") == ClassLevel::Dead,
++            "used and unused const",
++        );
++        check(
++            c.level("Json") == ClassLevel::Dead,
++            "unreferenced class dead",
++        );
+         // selector kind: read and write are independent
+-        check(c.live_kind("SoLeitura.v", false) && !c.live_kind("SoLeitura.v", true), "read getter lives, never-written setter dies");
+-        check(c.live_kind("SoEscrita.w", true) && !c.live_kind("SoEscrita.w", false), "written setter lives, never-read getter dies");
++        check(
++            c.live_kind("SoLeitura.v", false) && !c.live_kind("SoLeitura.v", true),
++            "read getter lives, never-written setter dies",
++        );
++        check(
++            c.live_kind("SoEscrita.w", true) && !c.live_kind("SoEscrita.w", false),
++            "written setter lives, never-read getter dies",
++        );
+         // restriction by receiver type: `toca` on `Sopro` does not keep `Flauta`'s `toca`
+-        check(c.live("Sopro.toca") && c.live("Gaita.toca"), "toca live in the receiver's cone (base and subclass)");
+-        check(!c.live("Flauta.toca") && !c.live("Flauta.assobia"), "toca/assobia dead in the disjoint instantiated class");
+-        check(c.level("Flauta") == ClassLevel::Instantiated, "Flauta instantiated even with its members pruned");
++        check(
++            c.live("Sopro.toca") && c.live("Gaita.toca"),
++            "toca live in the receiver's cone (base and subclass)",
++        );
++        check(
++            !c.live("Flauta.toca") && !c.live("Flauta.assobia"),
++            "toca/assobia dead in the disjoint instantiated class",
++        );
++        check(
++            c.level("Flauta") == ClassLevel::Instantiated,
++            "Flauta instantiated even with its members pruned",
++        );
+         // dry-run check and determinism
+         let inc = check_consistency(e, &roots, &m);
+         check(inc.is_empty(), &format!("consistency check: {inc:?}"));
+Diff in /Volumes/ssd_dock/MyRustProjects/dartforge/crates/world/tests/world.rs:133:
+         let mut perm = roots.clone();
+         perm.selectors.insert(0, "toJson".into());
+         let m2 = compute(e, &perm);
+-        let same = (0..a.program.functions.len()).all(|i| m.is_live_function(FunctionElementId(i as u32)) == m2.is_live_function(FunctionElementId(i as u32)))
+-            && (0..a.program.classes.len()).all(|i| m.class_level(ClassId(i as u32)) == m2.class_level(ClassId(i as u32)));
++        let same = (0..a.program.functions.len()).all(|i| {
++            m.is_live_function(FunctionElementId(i as u32))
++                == m2.is_live_function(FunctionElementId(i as u32))
++        }) && (0..a.program.classes.len())
++            .all(|i| m.class_level(ClassId(i as u32)) == m2.class_level(ClassId(i as u32)));
+         check(same, "determinism");
+         Ok(errors)
+     })
