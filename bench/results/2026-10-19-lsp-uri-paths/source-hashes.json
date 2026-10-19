@@ -1,0 +1,6 @@
+{
+  "crates/lsp/src/completion.rs": "62f4a467677e36cfcc53abd8a6a4d116bef7c059330da864db2ec11ded8d2c09",
+  "crates/lsp/src/completion/isp_helpers.rs": "233e57ad7139b713a3dc662585d8ace55ef506cd3d8bc965dddb09c9fdc01af6",
+  "crates/lsp/src/completion/uri_paths.rs": "e14b9109fc0a359bc12b8628e4785b22d11ac3e0caa0dfe526547a18245e502e",
+  "crates/lsp/tests/uri_completion.rs": "5982bc978b87fcbf6700a59c45b19630344ee19c8b3ece90066e6039951c19d0"
+}

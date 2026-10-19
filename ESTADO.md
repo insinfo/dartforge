@@ -2,6 +2,19 @@
 
 ## Atualização de 19/10/2026
 
+- LSP resolve os caminhos codificados de imports relativos e URIs `file://`
+  antes de procurar arquivos, preservando o prefixo digitado nas sugestões.
+  As duas regressões falhavam antes; passaram os 258 testes do LSP, incluindo
+  três integrações e três testes de lookup. Seis cenários foram consultados no
+  servidor oficial Dart 3.6.2, incluindo espaços, Unicode, `%25` e `%23`.
+  A conclusão de `package:` mantém o comportamento anterior. Validação macOS;
+  não houve nova execução Windows/Linux. Clippy do LSP segue falhando em 16
+  diagnósticos (antes 17), sem supressões. Fmt/Clippy globais seguem pendentes;
+  docs passaram com LLVM explicitamente selecionado, com avisos existentes.
+  A suíte global sem filtros segue ativa na revisão-base `81e6762b`, no corpus
+  de builders nativos; ainda não há resultado final nem certificação global
+  desta alteração. Evidências: `bench/results/2026-10-19-lsp-uri-paths/README.md`.
+
 - Cargo no macOS agora seleciona o linker compatível sem flags manuais: o
   wrapper do repositório usa `cc` para ligações comuns e examina arquivos LLVM
   antes de escolher Clang/LLD para bitcode. Bibliotecas LLVM não empacotadas

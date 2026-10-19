@@ -1,0 +1,73 @@
+[
+  {
+    "partial": "folder%20space/",
+    "items": [
+      {
+        "label": "folder%20space/fancy é name.dart",
+        "newText": "folder%20space/fancy é name.dart"
+      },
+      {
+        "label": "folder%20space/hello.dart",
+        "newText": "folder%20space/hello.dart"
+      }
+    ],
+    "error": null
+  },
+  {
+    "partial": "folder space/",
+    "items": [
+      {
+        "label": "folder space/fancy é name.dart",
+        "newText": "folder space/fancy é name.dart"
+      },
+      {
+        "label": "folder space/hello.dart",
+        "newText": "folder space/hello.dart"
+      },
+      {
+        "label": "package:uri_fixture/folder space/",
+        "newText": "package:uri_fixture/folder space/"
+      }
+    ],
+    "error": null
+  },
+  {
+    "partial": "percent%25literal/",
+    "items": [
+      {
+        "label": "percent%25literal/p.dart",
+        "newText": "percent%25literal/p.dart"
+      }
+    ],
+    "error": null
+  },
+  {
+    "partial": "hash%23tag/",
+    "items": [
+      {
+        "label": "hash%23tag/h.dart",
+        "newText": "hash%23tag/h.dart"
+      }
+    ],
+    "error": null
+  },
+  {
+    "partial": "package:uri_fixture/folder%20space/",
+    "items": [],
+    "error": null
+  },
+  {
+    "partial": "file:<fixture>/folder%20space/",
+    "items": [
+      {
+        "label": "file:<fixture>/folder%20space/fancy é name.dart",
+        "newText": "file:<fixture>/folder%20space/fancy é name.dart"
+      },
+      {
+        "label": "file:<fixture>/folder%20space/hello.dart",
+        "newText": "file:<fixture>/folder%20space/hello.dart"
+      }
+    ],
+    "error": null
+  }
+]

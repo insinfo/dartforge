@@ -46,6 +46,7 @@ use std::path::PathBuf;
 
 mod target;
 mod context;
+mod uri_paths;
 mod isp;
 mod isp_declarations;
 mod isp_not_imported;

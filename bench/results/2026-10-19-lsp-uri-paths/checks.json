@@ -1,0 +1,197 @@
+[
+  {
+    "name": "lsp-clippy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "-p",
+      "dartforge-lsp",
+      "--all-targets",
+      "--no-deps",
+      "--target-dir",
+      "target/impl-a",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 101,
+    "log": "/tmp/forge-uri-lsp-clippy.log",
+    "bytes": 10728,
+    "sha256": "5613346a6562c172edb07a55d3cff23e8b0df78de64ea4894943e0c7ff7eb807",
+    "tail": [
+      "274 |     fn forced_import(&mut self, cx: &Context<'_>, uri: &str, prefix: Option<&str>, show: Option<&str>, use_show: bool, absolute: bool, relative: bool) -> String {",
+      "    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+      "    |",
+      "    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_arguments",
+      "",
+      "error: variant name starts with the enum's name",
+      "  --> crates/lsp/src/rename.rs:70:5",
+      "   |",
+      "70 |     ClassMember { target: Target, class: ClassId, concrete: Option<Concrete> },",
+      "   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+      "   |",
+      "   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#enum_variant_names",
+      "   = note: `-D clippy::enum-variant-names` implied by `-D warnings`",
+      "   = help: to override `-D warnings` add `#[allow(clippy::enum_variant_names)]`",
+      "",
+      "error: could not compile `dartforge-lsp` (lib) due to 16 previous errors",
+      "warning: build failed, waiting for other jobs to finish...",
+      "error: could not compile `dartforge-lsp` (lib test) due to 16 previous errors"
+    ]
+  },
+  {
+    "name": "workspace-fmt",
+    "command": [
+      "cargo",
+      "fmt",
+      "--all",
+      "--",
+      "--check"
+    ],
+    "exit": 1,
+    "log": "/tmp/forge-uri-workspace-fmt.log",
+    "bytes": 15737971,
+    "sha256": "afd5a9e693c47cc539814b2d37c28237143e2589d070142ba4ee8d6523ea69fc",
+    "tail": [
+      "+        );",
+      "         // dry-run check and determinism",
+      "         let inc = check_consistency(e, &roots, &m);",
+      "         check(inc.is_empty(), &format!(\"consistency check: {inc:?}\"));",
+      "Diff in /Volumes/ssd_dock/MyRustProjects/dartforge/crates/world/tests/world.rs:133:",
+      "         let mut perm = roots.clone();",
+      "         perm.selectors.insert(0, \"toJson\".into());",
+      "         let m2 = compute(e, &perm);",
+      "-        let same = (0..a.program.functions.len()).all(|i| m.is_live_function(FunctionElementId(i as u32)) == m2.is_live_function(FunctionElementId(i as u32)))",
+      "-            && (0..a.program.classes.len()).all(|i| m.class_level(ClassId(i as u32)) == m2.class_level(ClassId(i as u32)));",
+      "+        let same = (0..a.program.functions.len()).all(|i| {",
+      "+            m.is_live_function(FunctionElementId(i as u32))",
+      "+                == m2.is_live_function(FunctionElementId(i as u32))",
+      "+        }) && (0..a.program.classes.len())",
+      "+            .all(|i| m.class_level(ClassId(i as u32)) == m2.class_level(ClassId(i as u32)));",
+      "         check(same, \"determinism\");",
+      "         Ok(errors)",
+      "     })"
+    ]
+  },
+  {
+    "name": "workspace-clippy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--workspace",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 101,
+    "log": "/tmp/forge-uri-workspace-clippy.log",
+    "bytes": 29283,
+    "sha256": "70c9e562f7bdb12838b624e0b1917d174ab21d9db79149fbf0d72b5b681d417c",
+    "tail": [
+      "    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity",
+      "",
+      "error: consider using `sort_by_key`",
+      "   --> crates/emit_native/src/sdk_module.rs:928:5",
+      "    |",
+      "928 |     dirs.sort_by(|a, b| b.0.cmp(&a.0));",
+      "    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+      "    |",
+      "    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_sort_by",
+      "    = note: `-D clippy::unnecessary-sort-by` implied by `-D warnings`",
+      "    = help: to override `-D warnings` add `#[allow(clippy::unnecessary_sort_by)]`",
+      "help: try",
+      "    |",
+      "928 -     dirs.sort_by(|a, b| b.0.cmp(&a.0));",
+      "928 +     dirs.sort_by_key(|a| std::cmp::Reverse(a.0));",
+      "    |",
+      "",
+      "error: could not compile `dartforge-emit-native` (lib) due to 33 previous errors"
+    ]
+  },
+  {
+    "name": "workspace-doc",
+    "command": [
+      "cargo",
+      "doc",
+      "--locked",
+      "--workspace",
+      "--no-deps",
+      "--document-private-items"
+    ],
+    "exit": 101,
+    "log": "/tmp/forge-uri-workspace-doc.log",
+    "bytes": 12181,
+    "sha256": "47fa55d2ff81d67b00a5ab3dc262783852ebdd2d8dd905bc4d813e3082b0fa8b",
+    "tail": [
+      "warning: `dartforge-types` (lib doc) generated 18 warnings",
+      "error: failed to run custom build command for `dartforge-llvm v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/llvm)`",
+      "",
+      "Caused by:",
+      "  process didn't exit successfully: `/Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/build/dartforge-llvm-a730c1b088f648e8/build-script-build` (exit status: 101)",
+      "  --- stdout",
+      "  cargo::rerun-if-changed=build.rs",
+      "  cargo::rerun-if-env-changed=DARTFORGE_LLVM_DIR",
+      "  cargo::rerun-if-env-changed=DARTFORGE_LLVM_ZSTD_LIBRARY",
+      "  cargo::rerun-if-env-changed=LLVM_SYS_221_PREFIX",
+      "  cargo::rerun-if-env-changed=PATH",
+      "",
+      "  --- stderr",
+      "",
+      "  thread 'main' (1729105) panicked at crates/llvm/build.rs:261:29:",
+      "  LLVM 22.1 was not found. Set DARTFORGE_LLVM_DIR (or LLVM_SYS_221_PREFIX) to a complete installation, or put its llvm-config on PATH.",
+      "  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace",
+      "warning: build failed, waiting for other jobs to finish..."
+    ]
+  },
+  {
+    "name": "workspace-doc-configured",
+    "command": [
+      "cargo",
+      "doc",
+      "--locked",
+      "--workspace",
+      "--no-deps",
+      "--document-private-items"
+    ],
+    "environment": {
+      "DARTFORGE_LLVM_DIR": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+      "LLVM_SYS_221_PREFIX": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64"
+    },
+    "exit": 0,
+    "bytes": 11582,
+    "sha256": "2c5f08c590d4da35cfadbfe4b45f0b24e20bf40c21f85fa1a3bbb2c25eb1b1fd",
+    "tail": [
+      "    --> crates/types/src/inference/mod.rs:1058:41",
+      "     |",
+      "1058 |     /// `ErrorReporter`'s conversion ([`crate::display::Displayer::argumentos`],",
+      "     |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the struct `Displayer` has no field or associated item named `argumentos`",
+      "",
+      "warning: `dartforge-types` (lib doc) generated 18 warnings",
+      "   Compiling dartforge-llvm v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/llvm)",
+      "   Compiling dartforge-jit v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/jit)",
+      " Documenting dartforge-llvm v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/llvm)",
+      " Documenting dartforge-jit v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/jit)",
+      "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.56s",
+      "   Generated /Volumes/ssd_dock/MyRustProjects/dartforge/target/doc/dartforge_abi/index.html and 29 other files"
+    ]
+  },
+  {
+    "name": "lsp-tests",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "dartforge-lsp",
+      "--all-targets",
+      "--target-dir",
+      "target/impl-a"
+    ],
+    "exit": 0,
+    "passed": 258,
+    "sha256": "d52e206f2e0f99b6574866bd4e53b1bd247c6ba2600842eafe64da678b3f31ce"
+  }
+]

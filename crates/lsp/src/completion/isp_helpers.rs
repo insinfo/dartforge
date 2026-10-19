@@ -701,25 +701,10 @@ impl<'a, 'c> Isp<'a, 'c> {
         if !parent_uri.starts_with("file://") && scheme.is_some() {
             return;
         }
-        let dir_path = if let Some(r) = parent_uri.strip_prefix("file://") { std::path::PathBuf::from(r) } else { std::path::PathBuf::from(&parent_uri) };
-        let source_dir = file.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
-        let mut dir = dir_path.clone();
-        if dir.is_relative() {
-            dir = source_dir.join(&dir_path);
-            let normalize = |p: &std::path::Path| {
-                let mut v: Vec<std::path::Component> = Vec::new();
-                for c in p.components() {
-                    match c {
-                        std::path::Component::CurDir => {}
-                        std::path::Component::ParentDir => {
-                            v.pop();
-                        }
-                        x => v.push(x),
-                    }
-                }
-                v.iter().collect::<std::path::PathBuf>()
-            };
-            dir = normalize(&dir);
+        let relative = !parent_uri.starts_with("file://") && std::path::Path::new(&parent_uri).is_relative();
+        let Some(dir) = super::uri_paths::directory(&file, &parent_uri) else { return };
+        if relative {
+            let source_dir = file.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
             let in_lib = |p: &std::path::Path| p.components().any(|c| c.as_os_str() == "lib");
             if in_lib(&source_dir) && !in_lib(&dir) {
                 return;

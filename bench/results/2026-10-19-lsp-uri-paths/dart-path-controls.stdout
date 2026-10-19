@@ -1,0 +1,8 @@
+file:///tmp/folder%20space/ -> /tmp/folder space/
+file:///tmp/folder%2Fspace/ -> Unsupported operation: Illegal path character folder/space
+file:///tmp/hash#tag/ -> Unsupported operation: Cannot extract a file path from a URI with a fragment component
+file:///tmp/what?name/ -> Unsupported operation: Cannot extract a file path from a URI with a query component
+file://localhost/tmp/hello/ -> Unsupported operation: Cannot extract a non-Windows file path from a file URI with an authority
+file:///tmp/%FF/ -> FormatException: Invalid UTF-8 byte (at offset 0)
+file:///tmp/%2520/ -> /tmp/%20/
+file:///tmp/%zz/ -> /tmp/%zz/

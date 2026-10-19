@@ -1,0 +1,464 @@
+   Compiling dartforge-lsp v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/lsp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.82s
+     Running unittests src/lib.rs (target/impl-a/debug/deps/dartforge_lsp-17d2965a4811165f)
+
+running 45 tests
+test fix_all::tests::applicability ... ok
+test completion::uri_paths::tests::non_windows_file_authorities_are_rejected_like_dart ... ok
+test assists2::tests::digit_separators ... ok
+test dartdoc::tests::string_with_slashes_is_not_comment ... ok
+test fix_all::tests::constructor_conflicts ... ok
+test colors::tests::colors_and_presentations ... ok
+test fix_all::tests::merge_of_overlapping_edits ... ok
+test fix_all::tests::insertions_at_same_offset_keep_arrival_order ... ok
+test completion::uri_paths::tests::uri_components_and_encoded_separators_are_not_filesystem_paths ... ok
+test fix_all::tests::merge_of_two_passes ... ok
+test dartdoc::tests::block_with_asterisks_and_without_documentation ... ok
+test dartdoc::tests::line_block_and_references ... ok
+test dartdoc::tests::text_with_multibyte_characters ... ok
+test completion::uri_paths::tests::relative_paths_decode_once_and_keep_the_source_directory ... ok
+test organize_imports::tests::package_prefix_of_another_comes_first ... ok
+test ignore_diagnostic::tests::ignore_yaml ... ok
+test move_file::tests::paths_and_quotes ... ok
+test organize_imports::tests::special_comments ... ok
+test fuzzy_matcher::tests::spec_examples ... ok
+test registration::tests::reads_configuration_with_defaults ... ok
+test rename::tests::file_names ... ok
+test signature::tests::qualified_name_without_type_arguments ... ok
+test organize_imports::tests::spec_example_one ... ok
+test organize_imports::tests::edit_starts_at_offset_zero ... ok
+test snippets::tests::groups_with_suggestions_become_choices ... ok
+test snippets::tests::outside_text_exits ... ok
+test snippets::tests::selection_becomes_final_tab_stop ... ok
+test snippets::tests::single_choice_with_several_suggestions_is_not_zero ... ok
+test snippets::tests::single_group_without_selection_uses_zero ... ok
+test sort_members::tests::already_sorted_has_no_edit ... ok
+test sort_members::tests::directives_reordered_without_removing_duplicates ... ok
+test sort_members::tests::enum_with_comment_between_constants ... ok
+test sort_members::tests::top_level_with_main_first_and_classes_after_functions ... ok
+test utf16::tests::crlf_and_lone_cr_break_lines ... ok
+test links::tests::links_example_code_of_tool_block ... ok
+test structure::tests::arguments_on_several_lines ... ok
+test utf16::tests::emoji_counts_two_units_both_ways ... ok
+test sort_members::tests::spec_example ... ok
+test utf16::tests::outside_document_saturates_without_panic ... ok
+test utf16::tests::partial_recompute_preserves_prefix ... ok
+test structure::tests::class_method_comment_and_directives ... ok
+test outline::tests::class_with_documentation_and_annotation ... ok
+test workspace_symbols::tests::union_like_analyzer ... ok
+test workspace_symbols::tests::suffixes_by_return ... ok
+test registration::tests::registers_only_what_client_asks_and_applies_difference ... ok
+
+test result: ok. 45 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/impl-a/debug/deps/dartforge_lsp-d5e68a91f753af3d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/actions.rs (target/impl-a/debug/deps/actions-dfc8b1134d000b70)
+
+running 47 tests
+test announces_capability ... ok
+test encapsulate_field_assist ... ok
+test element_and_documentation_assists ... ok
+test conditional_to_if_else_assist ... ok
+test destructure_assist ... ok
+test field_parameter_and_shadow_assists ... ok
+test create_file_for_missing_uri ... ok
+test class_to_enum_assist ... ok
+test for_index_assist ... ok
+test flutter_to_stateful ... ok
+test for_to_map_assist ... ok
+test function_syntax_assist ... ok
+test if_case_assist ... ok
+test fixes_for_published_typed_diagnostics ... ok
+test if_case_chain_assist ... ok
+test import_from_outside_lib_uses_package_and_without_directives_inserts_at_top ... ok
+test incomplete_code_still_imports ... ok
+test import_library_from_sdk_and_project ... ok
+test import_uri_assists ... ok
+test insert_semicolon_on_published_diagnostic ... ok
+test map_literal_assist ... ok
+test flutter_assists_ ... ok
+test multiline_and_spread_assists ... ok
+test null_aware_assist ... ok
+test is_not_empty_and_int_literal_assists ... ok
+test quotes_assist ... ok
+test removes_unused_local_function ... ok
+test removes_unused_local_and_its_assignments ... ok
+test replace_with_var_assist ... ok
+test return_type_assist ... ok
+test snippets_in_assists ... ok
+test split_and_condition_assist ... ok
+test show_combinator_assist_on_import ... ok
+test set_literal_assist ... ok
+test super_parameters_assist ... ok
+test stale_version_typed_diagnostic_produces_no_fix ... ok
+test surround_with_assist ... ok
+test switch_statement_assist ... ok
+test versioned_edit_when_client_accepts ... ok
+test without_the_capability_the_edit_is_plain ... ok
+test switch_expression_assist ... ok
+test type_annotation_assist ... ok
+test fixes_for_final_field_abstract_condition_and_element ... ok
+test flutter_to_stateful_like_analysis_server ... ok
+test flutter_to_stateful_full ... ok
+test diagnostic_reference_like_analysis_server ... ok
+test flutter_to_stateless_like_analysis_server ... ok
+
+test result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.28s
+
+     Running tests/analyzer_conditional_context.rs (target/impl-a/debug/deps/analyzer_conditional_context-a290b5bd9104ae4e)
+
+running 1 test
+test missing_false_conditional_import_clears_verified_false_positive_in_editor ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/completion.rs (target/impl-a/debug/deps/completion-b336a180d40f0627)
+
+running 22 tests
+test announces_capability ... ok
+test deprecated_items_by_client_capability ... ok
+test edited_document_uses_current_text ... ok
+test class_name_call_targets_like_the_resolved_tree ... ok
+test fuzzy_and_relevance ... ok
+test import_prefix_and_statics ... ok
+test filters_by_typed_prefix_without_semicolon ... ok
+test generic_types_are_substituted ... ok
+test inherited_accessor_pairs_and_private_members ... ok
+test not_imported_types_in_a_declaration_name ... ok
+test call_snippets_when_client_accepts ... ok
+test nothing_in_comments_and_strings ... ok
+test members_by_receiver_type_with_dangling_dot ... ok
+test prefixed_constants_ranked_by_their_inferred_types ... ok
+test top_level_offers_declaration_keywords_and_types ... ok
+test resolve_brings_documentation ... ok
+test auto_import_from_sdk_and_project ... ok
+test named_arguments_not_yet_passed ... ok
+test statics_and_constructors_after_class_name_mid_name ... ok
+test part_file_uses_owning_library ... ok
+test scope_locals_parameters_members_top_level_and_keywords ... ok
+test type_position_offers_only_types ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/constant_pattern_navigation.rs (target/impl-a/debug/deps/constant_pattern_navigation-82a3d5a33fb9af59)
+
+running 4 tests
+test unresolved_pattern_name_does_not_acquire_an_unrelated_local_declaration ... ok
+test bare_constant_definition_and_rename_include_pattern_occurrences ... ok
+test imported_constant_identity_does_not_capture_other_library_or_local_binding ... ok
+test lexical_static_constant_and_enum_value_resolve_to_their_members ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/features.rs (target/impl-a/debug/deps/features-d19c74f1041fbf7b)
+
+running 11 tests
+test implementation_follows_the_index_relations ... ok
+test folds_and_selection ... ok
+test class_name_highlights_in_constructor ... ok
+test signature_help_like_dart ... ok
+test type_definition_like_the_dart_handler ... ok
+test call_hierarchy_targets_like_the_resolved_ast ... ok
+test operator_call_hierarchy ... ok
+test implementation_by_member_kind ... ok
+test call_hierarchy ... ok
+test type_hierarchy ... ok
+test highlights_implementations_and_type ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/fixes.rs (target/impl-a/debug/deps/fixes-8dd46245e217c508)
+
+running 8 tests
+test nested_type_and_collection_for_in_hints ... ok
+test basic_semantic_tokens ... ok
+test annotation_initializer_setter_and_pattern_hints ... ok
+test inlay_type_and_parameter_hints ... ok
+test rewrite_assists ... ok
+test create_method_function_class_and_getter_for_undefined_names ... ok
+test missing_overrides_abstract_class_and_no_such_method ... ok
+test create_function_keeps_the_declared_parameter_names ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/hover.rs (target/impl-a/debug/deps/hover-e53567ca953a743c)
+
+running 16 tests
+test homonymous_local_function_prevents_top_level_hover ... ok
+test homonymous_local_variable_prevents_top_level_hover ... ok
+test local_type_hover_uses_markdown_and_reference_range ... ok
+test homonymous_member_getter_prevents_top_level_hover ... ok
+test hover_of_symbol_missing_in_owner_returns_empty ... ok
+test imported_class_hover_formats_from_owner ... ok
+test hover_refuses_optional_signature_needing_full_formatting ... ok
+test imported_function_hover_shows_owner_signature ... ok
+test function_hover_with_two_typed_positionals ... ok
+test imported_variable_hover_shows_owner_type ... ok
+test prefixed_hover_does_not_invent_description ... ok
+test show_hover_does_not_invent_description ... ok
+test top_level_variable_hover_with_written_type ... ok
+test top_level_function_hover_without_parameters ... ok
+test plain_hover_and_refuses_generic_type_without_faithful_signature ... ok
+test typed_top_level_getter_hover_shows_signature_and_type ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/incremental.rs (target/impl-a/debug/deps/incremental-ec7956d22decca92)
+
+running 2 tests
+test directives_and_shape_drop_session ... ok
+test body_and_signature_edits_match_from_scratch ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.44s
+
+     Running tests/language_version.rs (target/impl-a/debug/deps/language_version-7c1d80ab58efe970)
+
+running 3 tests
+test package_and_marker_version ... ok
+test close_and_reopen_rereads_package_config ... ok
+test package_version_with_percent_encoded_uri ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/navigation.rs (target/impl-a/debug/deps/navigation-596621746d221352)
+
+running 10 tests
+test package_uri_does_not_invent_target ... ok
+test top_level_getter_read_navigates_to_declaration ... ok
+test type_homonymous_with_generic_parameter_does_not_navigate_to_class ... ok
+test single_local_type_navigates_to_declared_name ... ok
+test call_to_single_top_level_function_navigates_to_declaration ... ok
+test prefixed_use_does_not_invent_target_in_other_open_file ... ok
+test reference_to_single_top_level_variable_navigates_to_declaration ... ok
+test imported_use_navigates_to_declaration_in_other_open_file ... ok
+test existing_relative_part_definition_uses_utf16_position ... ok
+test mapped_package_uri_navigates_only_to_existing_file ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/pattern_selector_navigation.rs (target/impl-a/debug/deps/pattern_selector_navigation-7c1995fe98fdebb4)
+
+running 5 tests
+test nested_prefixed_pattern_resolves_inherited_field_not_same_named_getter ... ok
+test explicit_selector_rename_changes_only_the_resolved_member_family ... ok
+test extension_selector_resolves_actual_extension_getter ... ok
+test explicit_selector_resolves_cross_file_getter_and_preserves_binding_navigation ... ok
+test shorthand_binding_and_record_label_do_not_become_getter_references ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/plateau_documents.rs (target/impl-a/debug/deps/plateau_documents-05cfa706b34b481c)
+
+running 1 test
+test documents_plateau ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/plateau_protocol.rs (target/impl-a/debug/deps/plateau_protocol-088b23aca3de89cd)
+
+running 1 test
+test plateau_through_protocol ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/plateau_workspace.rs (target/impl-a/debug/deps/plateau_workspace-a2c3fe2b79f4c7e4)
+
+running 1 test
+test workspace_analysis_stays_out_of_the_server ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.09s
+
+     Running tests/protocol.rs (target/impl-a/debug/deps/protocol-9a0b2bde33bffc38)
+
+running 4 tests
+test correct_utf16 ... ok
+test clean_stdout ... ok
+test complete_session ... ok
+test cancellation ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.05s
+
+     Running tests/references.rs (target/impl-a/debug/deps/references-bc2325e76d756b24)
+
+running 14 tests
+test references_announces_provider ... ok
+test present_import_refuses_references ... ok
+test prefixed_import_refuses_references ... ok
+test local_shadow_refuses_references ... ok
+test closed_owner_refuses_references ... ok
+test top_level_function_lists_declaration_and_call ... ok
+test show_import_refuses_references ... ok
+test function_across_open_lists_declaration_and_calls ... ok
+test single_local_type_lists_declaration_and_uses ... ok
+test shadow_in_importer_skips_file ... ok
+test top_level_variable_lists_declaration_and_use ... ok
+test type_across_open_lists_declaration_and_uses ... ok
+test two_owners_refuses_references ... ok
+test variable_across_open_lists_declaration_and_uses ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/rename.rs (target/impl-a/debug/deps/rename-f1de2817e4a73f41)
+
+running 22 tests
+test announces_prepare_when_client_accepts ... ok
+test factory_redirection_outside_candidates ... ok
+test field_with_getter_setter_this_and_initializer ... ok
+test homonym_in_other_library_stays_intact ... ok
+test field_through_super_formal_and_unnamed_constructor_doc ... ok
+test conflicts_by_scope ... ok
+test family_through_implicit_extends_object ... ok
+test class_file_with_versioned_document_changes ... ok
+test enum_extension_getter_and_setter ... ok
+test field_with_positional_this_argument_and_docs_by_declaration ... ok
+test named_constructor ... ok
+test local_and_parameter ... ok
+test incomplete_code_in_file ... ok
+test named_parameter_through_hierarchy ... ok
+test member_with_overrides_and_instance_uses_in_other_file ... ok
+test import_prefix ... ok
+test named_parameter_renames_labels ... ok
+test named_in_overrides_and_documentation ... ok
+test package_import_from_bin ... ok
+test type_parameter_respects_shadowing ... ok
+test top_level_across_files_with_types_constructors_and_show ... ok
+test refusals ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/rename_pattern_fields.rs (target/impl-a/debug/deps/rename_pattern_fields-5de1532d9baf1e4a)
+
+running 3 tests
+test private_getter_rename_keeps_shorthand_selector_insertion ... ok
+test inherited_getter_and_nested_pattern_use_resolved_member_identity ... ok
+test field_rename_updates_resolved_selectors_without_renaming_bindings ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/rename_patterns.rs (target/impl-a/debug/deps/rename_patterns-d0cc1d3454ada982)
+
+running 4 tests
+test unrelated_local_does_not_rewrite_pattern_labels_or_comments ... ok
+test explicit_object_label_and_positional_record_need_no_insertions ... ok
+test nested_object_and_named_record_shorthands_preserve_labels ... ok
+test shorthand_object_binding_or_use_preserves_foreign_getter ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/semantic.rs (target/impl-a/debug/deps/semantic-be5ad3d27eeaeafe)
+
+running 1 test
+test imported_uses_types_and_current_text_without_retaining_versions ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s
+
+     Running tests/semantic_navigation.rs (target/impl-a/debug/deps/semantic_navigation-c24cb6e572ac598e)
+
+running 13 tests
+test class_references_in_new_and_const_creations ... ok
+test hover_of_writes_labels_and_unresolved_names ... ok
+test references_follow_the_searched_elements ... ok
+test hover_documentation_like_compute_documentation ... ok
+test documentation_references_like_the_index ... ok
+test definition_like_the_navigation_computer ... ok
+test member_references_through_family_and_sdk ... ok
+test definition_by_shape ... ok
+test uri_with_different_case_than_disk ... ok
+test hover_by_shape_with_documentation ... ok
+test open_texts_and_parts ... ok
+test references_without_false_positives_from_shadow_homonym_and_library ... ok
+test workspace_symbols_include_closed_project_files ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.89s
+
+     Running tests/session.rs (target/impl-a/debug/deps/session-300207bd76ddb82a)
+
+running 4 tests
+test zero_budget_never_retains ... ok
+test open_and_close_with_disk_text_keeps_session ... ok
+test reused_across_queries_and_dropped_on_edit ... ok
+test changed_disk_or_new_file_reloads ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/session_memory.rs (target/impl-a/debug/deps/session_memory-5beb3ce94b85e945)
+
+running 1 test
+test memory_returns_to_baseline_after_each_edit ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/symbols.rs (target/impl-a/debug/deps/symbols-beb49093603285f3)
+
+running 4 tests
+test client_without_hierarchical_support_receives_flat_symbols ... ok
+test enum_includes_constants_and_members ... ok
+test symbols_update_with_text_and_utf16_columns ... ok
+test workspace_search_uses_only_open_revisions_and_stable_order ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.66s
+
+     Running tests/typed.rs (target/impl-a/debug/deps/typed-f951ed1b59c3678b)
+
+running 8 tests
+test published_typed_code_reaches_editor ... ok
+test quick_edits_become_one_analysis ... ok
+test close_discards_pending_result ... ok
+test pulled_diagnostics_instead_of_pushed ... ok
+test only_published_codes_and_ignore_respected ... ok
+test stale_version_result_is_discarded ... ok
+test editing_imported_updates_importer ... ok
+test child_process_publishes_like_the_thread ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/uri_completion.rs (target/impl-a/debug/deps/uri_completion-980f7c0d813898bd)
+
+running 3 tests
+test encoded_absolute_file_uri_is_resolved_as_a_uri ... ok
+test unescaped_directory_and_package_prefix_behavior_are_preserved ... ok
+test encoded_relative_directories_match_dart_server_suggestions ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running unittests examples/diagnostics_latency.rs (target/impl-a/debug/examples/diagnostics_latency-fd5d1e919ed11a75)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests examples/features_latency.rs (target/impl-a/debug/examples/features_latency-f20d80fb7d575715)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests examples/lsp_memory.rs (target/impl-a/debug/examples/lsp_memory-acb92ed505de1df0)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests examples/references_latency.rs (target/impl-a/debug/examples/references_latency-2bb92f3c3fb1e985)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests examples/semantic_session.rs (target/impl-a/debug/examples/semantic_session-b0985a68407b6e01)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests examples/workspace_memory.rs (target/impl-a/debug/examples/workspace_memory-6a334f75e89d3085)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

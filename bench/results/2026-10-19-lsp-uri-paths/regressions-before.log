@@ -1,0 +1,39 @@
+   Compiling serde_core v1.0.229
+   Compiling serde v1.0.229
+   Compiling serde_json v1.0.151
+   Compiling dartforge-diagnostics v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/diagnostics)
+   Compiling dartforge-intern v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/intern)
+   Compiling postcard v1.1.3
+   Compiling dartforge-frontend v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/frontend)
+   Compiling dartforge-elements v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/elements)
+   Compiling dartforge-formatter v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/formatter)
+   Compiling dartforge-types v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/types)
+   Compiling dartforge-analysis v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/analysis)
+   Compiling dartforge-parity v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/parity)
+   Compiling dartforge-lsp v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/lsp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 18s
+     Running tests/uri_completion.rs (target/impl-a/debug/deps/uri_completion-980f7c0d813898bd)
+
+running 3 tests
+
+thread 'encoded_relative_directories_match_dart_server_suggestions' (1711260) panicked at crates/lsp/tests/uri_completion.rs:47:9:
+assertion `left == right` failed: folder%20space/: {"id":1,"jsonrpc":"2.0","result":{"isIncomplete":false,"items":[]}}
+  left: []
+ right: ["folder%20space/fancy é name.dart", "folder%20space/hello.dart"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'encoded_absolute_file_uri_is_resolved_as_a_uri' (1711259) panicked at crates/lsp/tests/uri_completion.rs:64:5:
+{"id":1,"jsonrpc":"2.0","result":{"isIncomplete":false,"items":[]}}
+test encoded_relative_directories_match_dart_server_suggestions ... FAILED
+test encoded_absolute_file_uri_is_resolved_as_a_uri ... FAILED
+test unescaped_directory_and_package_prefix_behavior_are_preserved ... ok
+
+failures:
+
+failures:
+    encoded_absolute_file_uri_is_resolved_as_a_uri
+    encoded_relative_directories_match_dart_server_suggestions
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p dartforge-lsp --test uri_completion`
