@@ -224,6 +224,16 @@ fn actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup() {
     assert!(inventory.reconcile(&refs, &HashSet::new(), &HashSet::new()));
     let (unique, known, pure) = inventory.counts();
     assert!(unique > 0 && known > 0 && pure > 0);
+    let declarations = inventory.table_declarations.len();
+    assert!(
+        declarations > 0,
+        "selected SDK has verified virtual table declarations"
+    );
+    for (symbol, cid) in &inventory.table_declarations {
+        assert!(inventory.table_declaration(*cid, symbol));
+        assert!(!inventory.call(symbol, &[], Type::Ptr));
+        assert!(!inventory.known_node(symbol));
+    }
     let startup = crate::sdk_module::sdk_records();
     assert!(!startup.is_empty());
     assert!(
@@ -233,6 +243,6 @@ fn actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup() {
     );
     println!(
         "{}",
-        serde_json::json!({"key":sdk.key,"unique_definitions":unique,"allocation_closures":known,"reviewed_empty_closures":pure,"startup_complete":false})
+        serde_json::json!({"key":sdk.key,"unique_definitions":unique,"allocation_closures":known,"reviewed_empty_closures":pure,"startup_complete":false,"table_declarations":declarations})
     );
 }

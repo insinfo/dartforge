@@ -91,13 +91,6 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
     {
         return Err("method table symbols are duplicated".into());
     }
-    for (cid, symbol) in &module.table_functions {
-        if tables.get(cid).map(|table| table.as_str()) != Some(symbol.as_str()) {
-            return Err(format!(
-                "table function {symbol} for class {cid} has no matching table"
-            ));
-        }
-    }
     for class in &module.classes {
         if !module.pruning_class_ids.contains(&class.id) {
             return Err(format!(
@@ -166,6 +159,15 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
         }
         Some(inventory)
     };
+    for (cid, symbol) in &module.table_functions {
+        if tables.get(cid).map(|table| table.as_str()) != Some(symbol.as_str())
+            && !imports.is_some_and(|inventory| inventory.table_declaration(*cid, symbol))
+        {
+            return Err(format!(
+                "table function {symbol} for class {cid} has no matching table"
+            ));
+        }
+    }
     // External entry inputs do not supply a closed class universe. An imported
     // startup is admitted only as a zero-argument void call with a pure closure.
     for symbol in module

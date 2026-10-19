@@ -1306,6 +1306,17 @@ fn checked_scalar_sdk(
     Summary,
     std::sync::Arc<super::super::allocation_inventory::imports::Inventory>,
 ) {
+    checked_sdk(ir, &[])
+}
+
+fn checked_sdk(
+    ir: &str,
+    tables: &[super::super::ModuleTable],
+) -> (
+    tempfile::TempDir,
+    Summary,
+    std::sync::Arc<super::super::allocation_inventory::imports::Inventory>,
+) {
     let directory = tempfile::tempdir().unwrap();
     let runtime = directory.path().join("runtime.a");
     std::fs::write(&runtime, b"test binding, not executable runtime code").unwrap();
@@ -1314,7 +1325,7 @@ fn checked_scalar_sdk(
         b"test binding, not executable object code",
     )
     .unwrap();
-    let summary = super::super::summarize(ir, "dart:test", &[]);
+    let summary = super::super::summarize(ir, "dart:test", tables);
     std::fs::write(directory.path().join("test.poda"), summary.to_text()).unwrap();
     let artifacts = vec!["test.o".to_string(), "test.poda".to_string()];
     let bundle = super::super::allocation_inventory::closure::audit(&[("dart:test", ir)]);
@@ -1433,4 +1444,67 @@ fn rejection_identifies_the_boundary_and_discards_previous_class_coverage() {
     assert!(reason.contains("df.test.main value ValueId(1)"), "{reason}");
     assert!(reason.contains("AllocList"), "{reason}");
     assert!(module.closed_class_tables.is_none());
+}
+
+#[test]
+fn verified_unused_sdk_table_declarations_do_not_require_local_definitions() {
+    let tables = vec![(900, "df.mt.imported".into(), vec![])];
+    let (_directory, summary, inventory) = checked_sdk("", &tables);
+    let mut module = fixture();
+    module.table_functions.insert(900, "df.mt.imported".into());
+    module.imported_allocation_inventory = Some(inventory);
+    assert!(audit(&mut module, &[&summary]).is_ok());
+    assert_eq!(
+        module.closed_class_tables.as_ref().unwrap(),
+        &HashSet::from([300])
+    );
+}
+
+#[test]
+fn imported_table_declarations_do_not_authorize_calls_allocations_or_collisions() {
+    for variant in 0..8 {
+        let tables = vec![(900, "df.mt.imported".into(), vec![])];
+        let (_directory, mut summary, inventory) = checked_sdk("", &tables);
+        let mut module = fixture();
+        module.table_functions.insert(900, "df.mt.imported".into());
+        module.imported_allocation_inventory = Some(inventory);
+        match variant {
+            0 => {
+                module.table_functions.insert(901, "df.mt.imported".into());
+            }
+            1 => {
+                module
+                    .table_functions
+                    .insert(900, "df.mt.unverified".into());
+            }
+            2 => {
+                module.imported_allocation_inventory = None;
+            }
+            3 => {
+                summary.tables[0].cid = 901;
+            }
+            4 => module.functions[0].blocks[0].instructions.push((
+                ValueId(1),
+                Instruction::CallStatic {
+                    symbol: "df.mt.imported".into(),
+                    args: vec![],
+                    ret_ty: Type::Ptr,
+                },
+                Type::Ptr,
+            )),
+            5 => module.functions[0].blocks[0].instructions.push((
+                ValueId(1),
+                Instruction::AllocObject {
+                    class_id: 900,
+                    fields: vec![],
+                },
+                Type::Ref,
+            )),
+            6 => module.functions.push(function("df.mt.imported", vec![])),
+            _ => {}
+        }
+        let selected = if variant == 7 { vec![] } else { vec![&summary] };
+        assert!(audit(&mut module, &selected).is_err(), "variant {variant}");
+        assert!(module.closed_class_tables.is_none(), "variant {variant}");
+    }
 }

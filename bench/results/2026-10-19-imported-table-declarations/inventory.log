@@ -1,0 +1,17 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.27s
+     Running unittests src/lib.rs (target/impl-a/debug/deps/dartforge_emit_native-58f242ef6e261ae4)
+
+running 9 tests
+test pruning::allocation_inventory::imports::tables::tests::declaration_identity_requires_unique_cid_symbols_and_exact_virtual_body ... ok
+test pruning::allocation_inventory::imports::tests::verified_scalar_closure_requires_its_actual_abi_and_graph_snapshot ... ok
+test pruning::allocation_inventory::imports::tests::runtime_key_profile_and_manifest_bind_the_snapshot ... ok
+test pruning::allocation_inventory::imports::tests::private_dependencies_and_recursive_scalar_components_are_checked ... ok
+test pruning::allocation_inventory::imports::tests::local_native_bytes_are_distinct_from_managed_or_public_images ... ok
+test pruning::allocation_inventory::imports::tests::weak_or_ambiguous_definitions_and_runtime_interposition_are_not_authorized ... ok
+test pruning::allocation_inventory::imports::tests::allocation_coverage_does_not_imply_exposure_coverage ... ok
+test pruning::allocation_inventory::imports::tests::inconsistent_graph_claims_do_not_become_facts_even_with_a_matching_marker ... ok
+test pruning::allocation_inventory::imports::tests::actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup has been running for over 60 seconds
+{"allocation_closures":428,"key":"28d1b912a84cdb743d25e6d42ffdad2f","reviewed_empty_closures":428,"startup_complete":false,"table_declarations":662,"unique_definitions":32676}
+test pruning::allocation_inventory::imports::tests::actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 817 filtered out; finished in 106.55s

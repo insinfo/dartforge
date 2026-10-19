@@ -10,6 +10,8 @@ use serde::Deserialize;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
+mod tables;
+
 const SCOPE: &str =
     "allocation closure only; import pruning and native/registry exposure remain unverified";
 
@@ -81,6 +83,7 @@ pub(crate) struct Inventory {
     definitions: HashSet<String>,
     summaries: Vec<Summary>,
     known_allocations: usize,
+    table_declarations: HashMap<String, u32>,
 }
 fn digest(text: &str) -> bool {
     text.len() == 64
@@ -351,12 +354,14 @@ impl Inventory {
             .values()
             .flat_map(|names| names.keys().map(|s| (*s).to_string()))
             .collect();
+        let table_declarations = tables::declarations(&summaries);
         Some(Self {
             facts,
             bytes: byte_keys,
             definitions,
             summaries,
             known_allocations,
+            table_declarations,
         })
     }
 
@@ -403,6 +408,11 @@ impl Inventory {
                     .chain(&s.ambiguous_classes)
                     .all(|cid| u32::try_from(*cid).is_ok_and(|cid| !class_ids.contains(&cid)))
         })
+    }
+    /// Identity only: the table must come from this verified SDK snapshot.
+    /// Reachable table bodies and allocations still need independent coverage.
+    pub(crate) fn table_declaration(&self, cid: u32, symbol: &str) -> bool {
+        self.table_declarations.get(symbol) == Some(&cid)
     }
     pub(crate) fn known_node(&self, key: &str) -> bool {
         self.bytes.contains(key)

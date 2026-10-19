@@ -343,6 +343,19 @@ de classes e mantém o registro amplo. Sem a opção de trace, a rejeição é s
 A primeira fronteira pode ocultar outras; resolver uma mensagem não prova que
 as etapas seguintes estejam cobertas.
 
+Declarações de funções de tabela importadas agora são distintas das tabelas
+locais. O inventário deriva pares de símbolo/CID dos resumos conferidos:
+exige declaração externa única, definição virtual que referencia exatamente
+seus dados, nome dos dados e CID sem colisões. A análise só usa essa identidade
+após reconciliar o inventário com os resumos efetivamente selecionados e os
+símbolos/classes locais. Isso permite uma declaração importada não alcançada;
+não autoriza chamá-la nem criar objetos dessa classe. Corpos alcançáveis,
+alocações e inicialização do SDK continuam exigindo provas independentes.
+Na validação com Dart 3.6.2, 662 declarações foram identificadas; a inicialização
+continua aberta. O teste real de poda ainda rejeita os metadados de `Object`,
+CID 0, sem tabela própria. A separação entre metadados nominais e classes
+alocáveis permanece pendente; o teste de remoção dos backends não foi alterado.
+
 O leitor verifica a mesma publicação contra o compilador, o runtime e os objetos
 selecionados; relê os bytes de `.poda` com hash conferido, reconcilia os resumos
 usados no grafo e recalcula os fechamentos por componentes fortemente conexos.

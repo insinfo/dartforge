@@ -1,0 +1,7 @@
+{
+  "crates/emit_native/src/pruning/allocation_inventory/imports.rs": "cb1d0ca56d1f03bf1b2ee6d95c3a2c1656986b531e4044ed6e7c92917c73a20a",
+  "crates/emit_native/src/pruning/allocation_inventory/imports/tables.rs": "6dbed4d45cec446ada6375dc0dc1a0a2ad797c4ee7002f707e61fc53abcc601f",
+  "crates/emit_native/src/pruning/allocation_inventory/imports/tests.rs": "f5ad01660a17eb90e2e4d8ff6a83253a2d99f24f395b5ef96495962d5e3e6679",
+  "crates/emit_native/src/pruning/class_reachability.rs": "6b47b8fce8d037ce1e96bdcadc67005736a1185951ce09fc1cbb426e7d1e4ec0",
+  "crates/emit_native/src/pruning/class_reachability/tests.rs": "54e1ed520bd1536279d0c17db15cb6c27fcd34b05d2e592e769ea113b3db6716"
+}

@@ -1,0 +1,50 @@
+[
+  {
+    "file": "before.log",
+    "source": "/tmp/forge-imported-table-before.log",
+    "raw_sha256": "b56f100d0f6269f124ad001137b5122c894a599d84ce93d6a24436963a270882",
+    "stored_sha256": "b56f100d0f6269f124ad001137b5122c894a599d84ce93d6a24436963a270882"
+  },
+  {
+    "file": "directed.log",
+    "source": "/tmp/forge-imported-table-directed-final.log",
+    "raw_sha256": "318c4a8e7a71a469e60b1fcdb71b47c9c29b90d210f76ab0cfdd45ff16eac2b5",
+    "stored_sha256": "d376e32fdc7c071f89ba6223dcfc0cce881c1ccf35b5479e9f61bf713fe538a6"
+  },
+  {
+    "file": "inventory.log",
+    "source": "/tmp/forge-imported-table-inventory-final.log",
+    "raw_sha256": "4f20eb3afd842f84eab2d2bbb02eace2eba0041152e39851411b730c0a18b67c",
+    "stored_sha256": "c3ecd2e5580188c2fa9e0729065ece4597b211c46753fb42c75f8fa2bf197562"
+  },
+  {
+    "file": "production.log",
+    "source": "/tmp/forge-imported-table-production-final.log",
+    "raw_sha256": "a18afdc78197e3e4dd2be4b7c9735308742bdf34e3ea6d65a5c43931ee6e51f1",
+    "stored_sha256": "a18afdc78197e3e4dd2be4b7c9735308742bdf34e3ea6d65a5c43931ee6e51f1"
+  },
+  {
+    "file": "clippy.log",
+    "source": "/tmp/forge-imported-table-checks-final/clippy.log",
+    "raw_sha256": "0347c187c6fcd5b68d4c64747f84d64cf95e473e5b648a864a2400b4ac539476",
+    "stored_sha256": "0347c187c6fcd5b68d4c64747f84d64cf95e473e5b648a864a2400b4ac539476"
+  },
+  {
+    "file": "doc.log",
+    "source": "/tmp/forge-imported-table-checks-final/doc.log",
+    "raw_sha256": "24eaa9ee4a86a27c147b7ce59c33ce398c7b69b941fc3b9b27725bac16e3f6f1",
+    "stored_sha256": "24eaa9ee4a86a27c147b7ce59c33ce398c7b69b941fc3b9b27725bac16e3f6f1"
+  },
+  {
+    "file": "checks.json",
+    "source": "/tmp/forge-imported-table-checks-final/results.json",
+    "raw_sha256": "217fa0744fdc069b8ea20f1191cb2a29c8c4344dec6d40caada3cc7c74bac696",
+    "stored_sha256": "217fa0744fdc069b8ea20f1191cb2a29c8c4344dec6d40caada3cc7c74bac696"
+  },
+  {
+    "file": "native-before-final-guard-order.log",
+    "source": "/tmp/forge-imported-table-native.log",
+    "raw_sha256": "3efb991ae319ce8156d2e29d8b26d43db8eea57dc59781b5da11198a64777a71",
+    "stored_sha256": "17d250048ed95104bbbfb8f001bf538c77ee02d2163b6d8205b9c7f9b18dbc70"
+  }
+]

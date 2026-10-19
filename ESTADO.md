@@ -2,6 +2,21 @@
 
 ## Atualização de 19/10/2026
 
+- A prova experimental distingue declarações de tabelas importadas das definições
+  locais. O inventário confere identidade símbolo/CID, corpo virtual e unicidade
+  nos resumos verificados; o uso só ocorre após reconciliar o SDK selecionado e
+  o universo local. Não autoriza chamadas nem alocações da classe importada.
+  A regressão positiva falhava antes; passaram 28 testes finais da prova e nove
+  do inventário, incluindo 662 declarações do SDK real. Os 826 testes unitários
+  nativos passaram antes do ajuste final de ordem do guard e novas assertivas;
+  os testes dirigidos finais cobrem esse refinamento. Clippy/docs estritos do
+  workspace passam; fmt global segue pendente. O teste de produção continua
+  falhando e agora aponta primeiro `Object` (CID 0), sem tabela própria, antes
+  da checagem das declarações importadas. Metadados nominais/classes alocáveis
+  e outras fronteiras ainda exigem prova; sem alegação de redução do explorador,
+  aprovação global ou execução nova nas VMs. Evidências:
+  `bench/results/2026-10-19-imported-table-declarations/README.md`.
+
 - A prova experimental de tabelas fechadas tem diagnóstico opcional com
   `DARTFORGE_TRACE_CLASS_REACHABILITY=1`, junto à opção experimental já existente.
   Identifica a primeira fronteira sem relaxar a prova e descarta cobertura
