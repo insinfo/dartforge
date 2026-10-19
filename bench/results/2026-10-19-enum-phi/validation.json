@@ -1,0 +1,294 @@
+{
+  "producer_sha256": "0526a9130a2547d0a92403e89d1dc92646cf14d8a2d1933c7d84f1f4cbd2e161",
+  "inputs": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge": "0526a9130a2547d0a92403e89d1dc92646cf14d8a2d1933c7d84f1f4cbd2e161",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json": "c5c1c22ad085905aa6341ddf11b3999b001cb6ac128a61f117a1fb8d532ec934",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/enum_pattern_identity/main.dart": "37164cf6b8a7ad395bf3ca9e48bea03ef7724168ff1495572fc7863f9c05353c",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric.dart": "d1dd06b17ec373922dbda23dbb4b5a4667f2a2e1c225e387b73d6b7deab87cd3",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/enum_pattern_identity/a.dart": "a4f1aa2ab41bf0b0870098beb55fcc357815ad86ae0aa56a59bfcf1569bdab80",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/enum_pattern_identity/b.dart": "a4f1aa2ab41bf0b0870098beb55fcc357815ad86ae0aa56a59bfcf1569bdab80"
+  },
+  "cases": {
+    "enum": {
+      "profiles": {
+        "off": {
+          "compile": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+              "compile-native",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/enum_pattern_identity/main.dart",
+              "--sdk",
+              "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+              "--packages",
+              "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+              "--optimize",
+              "--memory=tracing",
+              "--exceptions=check",
+              "--roots=shadow",
+              "--stack-trace=none",
+              "-o",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-phi-validation/enum/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "artifact": {
+            "bytes": 3014080,
+            "sha256": "3ff39fe8e841fee8df6f441a458c8d5e9032c513fb861f9d6a6801254bfd980d"
+          },
+          "normal": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-phi-validation/enum/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "b1a4187799d0a41884770523bda169c16c3397b17007b7e00a2706b789afd6eb",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "stress": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-phi-validation/enum/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "b1a4187799d0a41884770523bda169c16c3397b17007b7e00a2706b789afd6eb",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "ir": {
+            ".df_tmp/program.ll": {
+              "bytes": 759851,
+              "sha256": "94896ed216166a0055a6e45ab90f999eeda4553a4ac71f2e80a13f58a5db6c2b"
+            }
+          }
+        },
+        "on": {
+          "compile": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+              "compile-native",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/enum_pattern_identity/main.dart",
+              "--sdk",
+              "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+              "--packages",
+              "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+              "--optimize",
+              "--memory=tracing",
+              "--exceptions=check",
+              "--roots=shadow",
+              "--stack-trace=none",
+              "-o",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-phi-validation/enum/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "artifact": {
+            "bytes": 3014080,
+            "sha256": "1b2cf08454370001c3651e286295f761d3f3359c618750354c20edf6b4bbe961"
+          },
+          "normal": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-phi-validation/enum/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "b1a4187799d0a41884770523bda169c16c3397b17007b7e00a2706b789afd6eb",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "stress": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-phi-validation/enum/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "b1a4187799d0a41884770523bda169c16c3397b17007b7e00a2706b789afd6eb",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "ir": {
+            ".df_tmp/program.ll": {
+              "bytes": 758653,
+              "sha256": "344a8dd38d48767751f7ccc10fbea06600426c80203efb6859d463274f7617f1"
+            }
+          }
+        }
+      },
+      "vm": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/enum_pattern_identity/main.dart"
+        ],
+        "exit": 0,
+        "stdout_sha256": "b1a4187799d0a41884770523bda169c16c3397b17007b7e00a2706b789afd6eb",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "official_compile": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "exe",
+          "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/enum_pattern_identity/main.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-phi-validation/enum/official"
+        ],
+        "exit": 0,
+        "stdout_sha256": "2b3dcc4fd5fe2bf3702354d7af506e051a4230eeb718f369ebc3dbe713360d44",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "official": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-phi-validation/enum/official"
+        ],
+        "exit": 0,
+        "stdout_sha256": "b1a4187799d0a41884770523bda169c16c3397b17007b7e00a2706b789afd6eb",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "exact": true
+      }
+    },
+    "color": {
+      "profiles": {
+        "off": {
+          "compile": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+              "compile-native",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric.dart",
+              "--sdk",
+              "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+              "--packages",
+              "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+              "--optimize",
+              "--memory=tracing",
+              "--exceptions=check",
+              "--roots=shadow",
+              "--stack-trace=none",
+              "-o",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-phi-validation/color/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "artifact": {
+            "bytes": 3129664,
+            "sha256": "88b0c6d7d6318069eefd3eeab5ad8ce877e81c3af7c27ad13cf129ad96a0bdd5"
+          },
+          "normal": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-phi-validation/color/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "stress": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-phi-validation/color/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "ir": {
+            ".df_tmp/program.ll": {
+              "bytes": 1187809,
+              "sha256": "dc2d941a48246080b9d679081e395276ef8006853c0b00cc5988666147df4e37"
+            }
+          }
+        },
+        "on": {
+          "compile": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+              "compile-native",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric.dart",
+              "--sdk",
+              "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+              "--packages",
+              "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+              "--optimize",
+              "--memory=tracing",
+              "--exceptions=check",
+              "--roots=shadow",
+              "--stack-trace=none",
+              "-o",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-phi-validation/color/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "artifact": {
+            "bytes": 3129664,
+            "sha256": "88b0c6d7d6318069eefd3eeab5ad8ce877e81c3af7c27ad13cf129ad96a0bdd5"
+          },
+          "normal": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-phi-validation/color/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "stress": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-phi-validation/color/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "ir": {
+            ".df_tmp/program.ll": {
+              "bytes": 1187809,
+              "sha256": "dc2d941a48246080b9d679081e395276ef8006853c0b00cc5988666147df4e37"
+            }
+          }
+        }
+      },
+      "vm": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric.dart"
+        ],
+        "exit": 0,
+        "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "official_compile": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "exe",
+          "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-phi-validation/color/official"
+        ],
+        "exit": 0,
+        "stdout_sha256": "e8054588b368fcdf2f60468a176dc2fb67a8f9c94bd7d1a5de7f0f4edbb99b29",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "official": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-phi-validation/color/official"
+        ],
+        "exit": 0,
+        "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "exact": true
+      }
+    }
+  },
+  "scope": "One frozen producer, tracing/check/shadow; constant specialization OFF/ON only. Consumed output and GC stress comparison, no performance claim.",
+  "inputs_unchanged": true
+}

@@ -15,6 +15,14 @@
   Evidências: `bench/results/2026-10-19-clamp-embedded/`.
 
 
+- Corrigida a disponibilidade de enums canônicos em arestas de `phi`, incluindo
+  a leitura quente do cache sob sua própria guarda de inicialização. Sete testes
+  dirigidos passaram; suíte nativa: 769 passaram, duas falhas anteriores restam,
+  nove ignorados. Binários OFF/ON do teste de identidade de enums e de 2.736
+  saídas de cor coincidiram com VM/AOT oficiais e sob GC stress. A correção não
+  remove getters/checks nem ativa a especialização experimental por padrão.
+  Detalhes: `RELATORIO-ENUM-PHI.md`.
+
 ## Consolidação de 13–15/10/2026: últimas 48 horas
 
 Esta seção atualiza o retrato geral. As seções anteriores permanecem como

@@ -1,0 +1,836 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib test) generated 1 warning (run `cargo fix --lib -p dartforge-emit-native --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.99s
+     Running unittests src/lib.rs (target/impl-a/debug/deps/dartforge_emit_native-a5bcb89ad9cddb24)
+
+running 1 test
+ENUM MAIN Function {
+    symbol: "dart_main",
+    name: "main",
+    params: [],
+    return_ty: Void,
+    blocks: [
+        BasicBlock {
+            id: BlockId(
+                0,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        0,
+                    ),
+                    LoadGlobal {
+                        symbol: "dfg.main$2edart.Simple.a$ok",
+                        ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        1,
+                    ),
+                    ICmp(
+                        Eq,
+                        Val(
+                            ValueId(
+                                0,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                1,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        1,
+                    ),
+                ),
+                then_block: BlockId(
+                    1,
+                ),
+                else_block: BlockId(
+                    2,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                1,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        2,
+                    ),
+                    LoadGlobal {
+                        symbol: "dfg.main$2edart.Simple.a",
+                        ty: Ref,
+                    },
+                    Ref,
+                ),
+            ],
+            terminator: Branch(
+                BlockId(
+                    3,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                2,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        3,
+                    ),
+                    CallStatic {
+                        symbol: "df.main$2edart.Simple.a",
+                        args: [],
+                        ret_ty: Ref,
+                    },
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        4,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_exception_pending",
+                        args: [],
+                        ret_ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        5,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                4,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        5,
+                    ),
+                ),
+                then_block: BlockId(
+                    5,
+                ),
+                else_block: BlockId(
+                    4,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                3,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        6,
+                    ),
+                    Phi {
+                        incoming: [
+                            (
+                                BlockId(
+                                    1,
+                                ),
+                                Val(
+                                    ValueId(
+                                        2,
+                                    ),
+                                ),
+                            ),
+                            (
+                                BlockId(
+                                    4,
+                                ),
+                                Val(
+                                    ValueId(
+                                        3,
+                                    ),
+                                ),
+                            ),
+                        ],
+                        ty: Ref,
+                    },
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        7,
+                    ),
+                    LoadGlobal {
+                        symbol: "dfg.main$2edart.Simple.b$ok",
+                        ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        8,
+                    ),
+                    ICmp(
+                        Eq,
+                        Val(
+                            ValueId(
+                                7,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                1,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        8,
+                    ),
+                ),
+                then_block: BlockId(
+                    6,
+                ),
+                else_block: BlockId(
+                    7,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                4,
+            ),
+            instructions: [],
+            terminator: Branch(
+                BlockId(
+                    3,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                5,
+            ),
+            instructions: [],
+            terminator: Return(
+                None,
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                6,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        9,
+                    ),
+                    LoadGlobal {
+                        symbol: "dfg.main$2edart.Simple.b",
+                        ty: Ref,
+                    },
+                    Ref,
+                ),
+            ],
+            terminator: Branch(
+                BlockId(
+                    8,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                7,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        10,
+                    ),
+                    CallStatic {
+                        symbol: "df.main$2edart.Simple.b",
+                        args: [],
+                        ret_ty: Ref,
+                    },
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        11,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_exception_pending",
+                        args: [],
+                        ret_ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        12,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                11,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        12,
+                    ),
+                ),
+                then_block: BlockId(
+                    10,
+                ),
+                else_block: BlockId(
+                    9,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                8,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        13,
+                    ),
+                    Phi {
+                        incoming: [
+                            (
+                                BlockId(
+                                    6,
+                                ),
+                                Val(
+                                    ValueId(
+                                        9,
+                                    ),
+                                ),
+                            ),
+                            (
+                                BlockId(
+                                    9,
+                                ),
+                                Val(
+                                    ValueId(
+                                        10,
+                                    ),
+                                ),
+                            ),
+                        ],
+                        ty: Ref,
+                    },
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        14,
+                    ),
+                    ICmp(
+                        Eq,
+                        Val(
+                            ValueId(
+                                6,
+                            ),
+                        ),
+                        Val(
+                            ValueId(
+                                13,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+                (
+                    ValueId(
+                        15,
+                    ),
+                    Box {
+                        op: Val(
+                            ValueId(
+                                14,
+                            ),
+                        ),
+                        from: I1,
+                    },
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        16,
+                    ),
+                    CallStatic {
+                        symbol: "df.dart$3acore..print",
+                        args: [
+                            Val(
+                                ValueId(
+                                    15,
+                                ),
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+                (
+                    ValueId(
+                        17,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_exception_pending",
+                        args: [],
+                        ret_ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        18,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                17,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        18,
+                    ),
+                ),
+                then_block: BlockId(
+                    12,
+                ),
+                else_block: BlockId(
+                    11,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                9,
+            ),
+            instructions: [],
+            terminator: Branch(
+                BlockId(
+                    8,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                10,
+            ),
+            instructions: [],
+            terminator: Return(
+                None,
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                11,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        19,
+                    ),
+                    LoadGlobal {
+                        symbol: "dfg.main$2edart.Enhanced.a$ok",
+                        ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        20,
+                    ),
+                    ICmp(
+                        Eq,
+                        Val(
+                            ValueId(
+                                19,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                1,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        20,
+                    ),
+                ),
+                then_block: BlockId(
+                    13,
+                ),
+                else_block: BlockId(
+                    14,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                12,
+            ),
+            instructions: [],
+            terminator: Return(
+                None,
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                13,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        21,
+                    ),
+                    LoadGlobal {
+                        symbol: "dfg.main$2edart.Enhanced.a",
+                        ty: Ref,
+                    },
+                    Ref,
+                ),
+            ],
+            terminator: Branch(
+                BlockId(
+                    15,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                14,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        22,
+                    ),
+                    CallStatic {
+                        symbol: "df.main$2edart.Enhanced.a",
+                        args: [],
+                        ret_ty: Ref,
+                    },
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        23,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_exception_pending",
+                        args: [],
+                        ret_ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        24,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                23,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        24,
+                    ),
+                ),
+                then_block: BlockId(
+                    17,
+                ),
+                else_block: BlockId(
+                    16,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                15,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        25,
+                    ),
+                    Phi {
+                        incoming: [
+                            (
+                                BlockId(
+                                    13,
+                                ),
+                                Val(
+                                    ValueId(
+                                        21,
+                                    ),
+                                ),
+                            ),
+                            (
+                                BlockId(
+                                    16,
+                                ),
+                                Val(
+                                    ValueId(
+                                        22,
+                                    ),
+                                ),
+                            ),
+                        ],
+                        ty: Ref,
+                    },
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        26,
+                    ),
+                    DeclaredFieldCall {
+                        declaration: FieldDeclaration {
+                            library_uri: "file:///private/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/.tmpbY2tMN/main.dart",
+                            owner: "Enhanced",
+                            name: "x",
+                            is_final: true,
+                            is_late: false,
+                            layout_index: 2,
+                            storage_type: I64,
+                        },
+                        name: "dartforge_object_get",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        25,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        2,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                        ],
+                        ret_ty: I64,
+                    },
+                    I64,
+                ),
+                (
+                    ValueId(
+                        27,
+                    ),
+                    Box {
+                        op: Val(
+                            ValueId(
+                                26,
+                            ),
+                        ),
+                        from: I64,
+                    },
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        28,
+                    ),
+                    CallStatic {
+                        symbol: "df.dart$3acore..print",
+                        args: [
+                            Val(
+                                ValueId(
+                                    27,
+                                ),
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+                (
+                    ValueId(
+                        29,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_exception_pending",
+                        args: [],
+                        ret_ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        30,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                29,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        30,
+                    ),
+                ),
+                then_block: BlockId(
+                    19,
+                ),
+                else_block: BlockId(
+                    18,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                16,
+            ),
+            instructions: [],
+            terminator: Branch(
+                BlockId(
+                    15,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                17,
+            ),
+            instructions: [],
+            terminator: Return(
+                None,
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                18,
+            ),
+            instructions: [],
+            terminator: Return(
+                None,
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                19,
+            ),
+            instructions: [],
+            terminator: Return(
+                None,
+            ),
+        },
+    ],
+    debug_info: None,
+}
+
+thread '<unnamed>' (950584) panicked at crates/emit_native/src/optimize/enum_constants/tests.rs:354:35:
+assertion failed: calls.iter().all(|value| inventory.token_for_call(main, *value).is_some())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'optimize::enum_constants::tests::ordinary_simple_enum_lowering_certifies_current_getter_and_rejects_enhanced_shape' (950583) panicked at crates/emit_native/src/optimize/enum_constants/tests.rs:361:24:
+called `Result::unwrap()` on an `Err` value: Any { .. }
+test optimize::enum_constants::tests::ordinary_simple_enum_lowering_certifies_current_getter_and_rejects_enhanced_shape ... FAILED
+
+failures:
+
+failures:
+    optimize::enum_constants::tests::ordinary_simple_enum_lowering_certifies_current_getter_and_rejects_enhanced_shape
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 775 filtered out; finished in 0.45s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

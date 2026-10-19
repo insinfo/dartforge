@@ -1,0 +1,30 @@
+{
+  "native_suite": {
+    "passed": 769,
+    "failed": 2,
+    "ignored": 9,
+    "remaining_failures": [
+      "optimize::arc::fields::class_cases::tests::ordinary_late_generic_notifier_dispatch_prepares_without_erasing_field_guards",
+      "optimize::constant_specialize::tests::actual_color_context_reports_post_prune_specialization_eligibility"
+    ],
+    "removed_failure": "optimize::enum_constants::tests::ordinary_simple_enum_lowering_certifies_current_getter_and_rejects_enhanced_shape",
+    "new_failures": []
+  },
+  "enum_tests": {
+    "passed": 7,
+    "negative_cache_phi_variants": 12,
+    "legacy_negative_variants": 11
+  },
+  "workspace": {
+    "fmt_exit": 1,
+    "clippy_exit": 101,
+    "tests_exit": 101,
+    "doc_exit": 0,
+    "limits": "Existing formatting/lints and default Apple LLVM21 linker versus LLVM22 bitcode; documentation builds with warnings."
+  },
+  "package_clippy": {
+    "exit": 101,
+    "diagnostics_in_changed_enum_file": 0,
+    "scope": "--no-deps --lib -p dartforge-emit-native; other existing package diagnostics remain."
+  }
+}

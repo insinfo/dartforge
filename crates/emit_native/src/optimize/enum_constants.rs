@@ -36,6 +36,7 @@ impl EnumToken {
 pub(crate) struct Inventory<'a> {
     getters: HashMap<String, EnumToken>,
     callers: HashMap<String, &'a Function>,
+    cached_values: HashMap<String, EnumToken>,
     calls: HashMap<String, HashMap<ValueId, EnumToken>>,
 }
 impl<'a> Inventory<'a> {
@@ -43,6 +44,7 @@ impl<'a> Inventory<'a> {
         let mut result = Self {
             getters: HashMap::new(),
             callers: HashMap::new(),
+            cached_values: HashMap::new(),
             calls: HashMap::new(),
         };
         if !module.arc_fixed_ancestry
@@ -176,13 +178,19 @@ impl<'a> Inventory<'a> {
                 },
             );
         }
+        for (getter, token) in &result.getters {
+            result.cached_values.insert(
+                module.simple_enum_constants[getter].global.clone(),
+                token.clone(),
+            );
+        }
         for function in &module.functions {
             if duplicates.contains(function.symbol.as_str()) {
                 continue;
             }
             result.calls.insert(
                 function.symbol.clone(),
-                successful_calls(function, &result.getters),
+                successful_values(function, &result.getters, &result.cached_values),
             );
             result.callers.insert(function.symbol.clone(), function);
         }
@@ -201,7 +209,7 @@ impl<'a> Inventory<'a> {
         function: &mut Function,
         formals: &HashMap<ValueId, EnumToken>,
     ) -> usize {
-        let mut facts = successful_calls(function, &self.getters);
+        let mut facts = successful_values(function, &self.getters, &self.cached_values);
         for (value, token) in formals {
             if function
                 .params
@@ -415,9 +423,10 @@ fn dominates(cfg: &Cfg, dominator: usize, mut block: usize) -> bool {
         block = parent;
     }
 }
-fn successful_calls(
+fn successful_values(
     function: &Function,
     getters: &HashMap<String, EnumToken>,
+    cached_values: &HashMap<String, EnumToken>,
 ) -> HashMap<ValueId, EnumToken> {
     let mut result = HashMap::new();
     if function.blocks.is_empty() || function.blocks.len() > 4096 {
@@ -438,7 +447,60 @@ fn successful_calls(
     {
         return result;
     }
+    // Specialized clones may be analyzed before rejoining the module. Never
+    // carry the module's cache audit across a newly introduced writer/exposure.
+    if function
+        .blocks
+        .iter()
+        .flat_map(|block| &block.instructions)
+        .any(|(_, instruction, _)| match instruction {
+            Instruction::StoreGlobal { symbol, .. } => {
+                cached_values.contains_key(symbol)
+                    || symbol
+                        .strip_suffix("$ok")
+                        .is_some_and(|global| cached_values.contains_key(global))
+            }
+            Instruction::NativeCall { .. }
+            | Instruction::CompositeNativeCall { .. }
+            | Instruction::ArcStoreStrong { .. } => true,
+            Instruction::CallRuntime { name, .. }
+            | Instruction::CallStatic { symbol: name, .. } => matches!(
+                name.as_str(),
+                "dartforge_globals_area"
+                    | "dartforge_globals_area_id"
+                    | "dartforge_ffi_native_symbol"
+            ),
+            _ => false,
+        })
+    {
+        return result;
+    }
     let cfg = Cfg::new(function);
+    // A value is consumed on a phi's incoming edge, not in the join block.
+    // Reject malformed SSA rather than manufacturing an availability proof.
+    let mut definitions: HashSet<_> = function.params.iter().map(|(value, _, _)| *value).collect();
+    if definitions.len() != function.params.len() {
+        return result;
+    }
+    for (block_index, block) in function.blocks.iter().enumerate() {
+        for (value, instruction, _) in &block.instructions {
+            if !definitions.insert(*value) {
+                return result;
+            }
+            if let Instruction::Phi { incoming, .. } = instruction {
+                let edges: HashSet<_> = incoming.iter().map(|(edge, _)| *edge).collect();
+                if edges.len() != incoming.len()
+                    || edges.len() != cfg.predecessors[block_index].len()
+                    || cfg.predecessors[block_index]
+                        .iter()
+                        .any(|p| !edges.contains(&function.blocks[*p].id))
+                {
+                    return result;
+                }
+            }
+        }
+    }
+    let mut available = HashMap::new();
     for (block_index, block) in function.blocks.iter().enumerate() {
         if !cfg.reachable(block_index) {
             continue;
@@ -489,38 +551,134 @@ fn successful_calls(
             }
             let Terminator::CondBranch {
                 cond: Operand::Val(branch),
+                then_block,
                 else_block,
-                ..
             } = &block.terminator
             else {
                 continue;
             };
-            if branch != condition {
+            if branch != condition || then_block == else_block {
                 continue;
             }
             let success = positions[else_block];
             if cfg.predecessors[success].as_slice() != [block_index] {
                 continue;
             }
-            let mut all_successful = true;
-            for (use_block, candidate) in function.blocks.iter().enumerate() {
-                for (_, instruction, _) in &candidate.instructions {
-                    operands(instruction, &mut |operand| {
-                        if *operand == Operand::Val(*value) && !dominates(&cfg, success, use_block)
-                        {
-                            all_successful = false;
-                        }
-                    });
-                }
-                terminator_operands(&candidate.terminator, &mut |operand| {
-                    if *operand == Operand::Val(*value) && !dominates(&cfg, success, use_block) {
-                        all_successful = false;
-                    }
-                });
-            }
-            if all_successful {
+            if uses_available(function, &cfg, &positions, *value, success, None) {
                 result.insert(*value, token.clone());
+                available.insert(*value, (success, None));
             }
+        }
+    }
+    // The warm path must test the audited cache's own initialization flag.
+    // An unguarded read can still be null and is never an enum constant fact.
+    for (block_index, block) in function.blocks.iter().enumerate() {
+        if !cfg.reachable(block_index) || cfg.predecessors[block_index].len() != 1 {
+            continue;
+        }
+        let parent = cfg.predecessors[block_index][0];
+        let guard = &function.blocks[parent];
+        let [
+            ..,
+            (
+                flag,
+                Instruction::LoadGlobal {
+                    symbol: flag_name,
+                    ty: Type::I8,
+                },
+                Type::I8,
+            ),
+            (
+                condition,
+                Instruction::ICmp(
+                    ICmpOp::Eq,
+                    Operand::Val(tested),
+                    Operand::Constant(Constant::Int(1)),
+                ),
+                Type::I1,
+            ),
+        ] = guard.instructions.as_slice()
+        else {
+            continue;
+        };
+        if flag != tested
+            || !matches!(&guard.terminator, Terminator::CondBranch { cond: Operand::Val(branch), then_block, else_block }
+                if branch == condition && *then_block == block.id && else_block != then_block)
+        {
+            continue;
+        }
+        for (index, (value, instruction, ty)) in block.instructions.iter().enumerate() {
+            let Instruction::LoadGlobal {
+                symbol,
+                ty: Type::Ref,
+            } = instruction
+            else {
+                continue;
+            };
+            if *ty != Type::Ref || flag_name.strip_suffix("$ok") != Some(symbol.as_str()) {
+                continue;
+            }
+            let Some(token) = cached_values.get(symbol) else {
+                continue;
+            };
+            if uses_available(function, &cfg, &positions, *value, block_index, Some(index)) {
+                result.insert(*value, token.clone());
+                available.insert(*value, (block_index, Some(index)));
+            }
+        }
+    }
+    // Only merge identical proven handles. No optimistic facts seed cycles;
+    // the bound limits work while leaving unresolved phis conservatively unknown.
+    for _ in 0..function.blocks.len().min(128) {
+        let mut changed = false;
+        for &block_index in &cfg.rpo {
+            let block = &function.blocks[block_index];
+            for (index, (value, instruction, ty)) in block.instructions.iter().enumerate() {
+                if result.contains_key(value) {
+                    continue;
+                }
+                let Instruction::Phi {
+                    incoming,
+                    ty: Type::Ref,
+                } = instruction
+                else {
+                    continue;
+                };
+                if *ty != Type::Ref || incoming.is_empty() {
+                    continue;
+                }
+                let mut token = None;
+                let mut valid = true;
+                for (edge, operand) in incoming {
+                    let Operand::Val(source) = operand else {
+                        valid = false;
+                        break;
+                    };
+                    let Some(source_token) = result.get(source) else {
+                        valid = false;
+                        break;
+                    };
+                    let (origin, definition) = available[source];
+                    if !available_on_edge(&cfg, origin, definition, positions[edge], block_index)
+                        || token.as_ref().is_some_and(|prior| prior != source_token)
+                    {
+                        valid = false;
+                        break;
+                    }
+                    token = Some(source_token.clone());
+                }
+                if valid
+                    && uses_available(function, &cfg, &positions, *value, block_index, Some(index))
+                    && let Some(token) = token
+                {
+                    result.insert(*value, token);
+                    available.insert(*value, (block_index, Some(index)));
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            break;
         }
     }
     result
@@ -528,3 +686,59 @@ fn successful_calls(
 
 #[cfg(test)]
 mod tests;
+
+/// Check ordinary uses at their instruction and phi uses at the predecessor exit.
+fn uses_available(
+    function: &Function,
+    cfg: &Cfg,
+    positions: &HashMap<BlockId, usize>,
+    value: ValueId,
+    origin: usize,
+    definition: Option<usize>,
+) -> bool {
+    let mut valid = true;
+    for (block_index, block) in function.blocks.iter().enumerate() {
+        for (index, (_, instruction, _)) in block.instructions.iter().enumerate() {
+            if let Instruction::Phi { incoming, .. } = instruction {
+                for (edge, operand) in incoming {
+                    if *operand == Operand::Val(value)
+                        && !available_on_edge(cfg, origin, definition, positions[edge], block_index)
+                    {
+                        valid = false;
+                    }
+                }
+            } else {
+                operands(instruction, &mut |operand| {
+                    if *operand == Operand::Val(value)
+                        && (!dominates(cfg, origin, block_index)
+                            || (origin == block_index
+                                && definition.is_some_and(|defined| index <= defined)))
+                    {
+                        valid = false;
+                    }
+                });
+            }
+        }
+        terminator_operands(&block.terminator, &mut |operand| {
+            if *operand == Operand::Val(value) && !dominates(cfg, origin, block_index) {
+                valid = false;
+            }
+        });
+    }
+    valid
+}
+
+/// A pending check proves the success edge itself, including a phi directly at
+/// its destination. Ordinary definitions must already dominate the predecessor.
+fn available_on_edge(
+    cfg: &Cfg,
+    origin: usize,
+    definition: Option<usize>,
+    predecessor: usize,
+    destination: usize,
+) -> bool {
+    dominates(cfg, origin, predecessor)
+        || (definition.is_none()
+            && origin == destination
+            && cfg.predecessors[origin].as_slice() == [predecessor])
+}
