@@ -11,24 +11,55 @@ pub(super) fn narrow(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
     if std::env::var("DARTFORGE_CLOSED_CLASS_REACHABILITY").as_deref() != Ok("1") {
         return None;
     }
-    narrow_enabled(module, sdk)
+    match audit(module, sdk) {
+        Ok(reach) => Some(reach),
+        Err(reason) => {
+            if std::env::var("DARTFORGE_TRACE_CLASS_REACHABILITY").as_deref() == Ok("1") {
+                eprintln!("  Closed class reachability: {reason}; retaining broad registration");
+            }
+            None
+        }
+    }
 }
 
+#[cfg(test)]
 fn narrow_enabled(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
+    audit(module, sdk).ok()
+}
+
+/// Reports the first unproved boundary without publishing a partial class set.
+fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
     // A failed re-audit must never retain a certificate for an older body.
     module.closed_class_tables = None;
-    if !module.arc_fixed_ancestry
-        || module.arc_memory
-        || module.arc_prepared
-        || module.arc_aot_ports.is_some()
-        || module.sdk_library
-        || !module.pruning_ambiguous_class_ids.is_empty()
-        || !super::receiver_provenance::registry::closed(&[module])
-        || !module.ffi_callbacks.is_empty()
-        || !module.ffi_composites.is_empty()
-        || !module.helpers.is_empty()
-    {
-        return None;
+    if !module.arc_fixed_ancestry {
+        return Err("class ancestry is not fixed".into());
+    }
+    if module.arc_memory {
+        return Err("ARC memory mode is active".into());
+    }
+    if module.arc_prepared {
+        return Err("ARC preparation is active".into());
+    }
+    if module.arc_aot_ports.is_some() {
+        return Err("ARC AOT ports are active".into());
+    }
+    if module.sdk_library {
+        return Err("module is an SDK library".into());
+    }
+    if !module.pruning_ambiguous_class_ids.is_empty() {
+        return Err("class IDs are ambiguous".into());
+    }
+    if !super::receiver_provenance::registry::closed(&[module]) {
+        return Err("class registry is not closed".into());
+    }
+    if !module.ffi_callbacks.is_empty() {
+        return Err("FFI callbacks are not covered".into());
+    }
+    if !module.ffi_composites.is_empty() {
+        return Err("FFI composites are not covered".into());
+    }
+    if !module.helpers.is_empty() {
+        return Err("module helpers are not covered".into());
     }
     let functions: HashMap<_, _> = module
         .functions
@@ -41,30 +72,58 @@ fn narrow_enabled(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
         .iter()
         .map(|(cid, s, _)| (*cid, s))
         .collect();
-    if functions.len() != module.functions.len()
-        || classes.len() != module.classes.len()
-        || tables.len() != module.method_tables.len()
-        || module
-            .method_tables
-            .iter()
-            .map(|(_, s, _)| s.as_str())
-            .collect::<HashSet<_>>()
-            .len()
-            != tables.len()
-        || module
-            .table_functions
-            .iter()
-            .any(|(cid, s)| tables.get(cid).map(|t| t.as_str()) != Some(s.as_str()))
-        || module
-            .classes
-            .iter()
-            .any(|c| !module.pruning_class_ids.contains(&c.id) || !tables.contains_key(&c.id))
-        || module.method_tables.iter().any(|(cid, s, _)| {
-            !classes.contains_key(cid) || module.table_functions.get(cid) != Some(s)
-        })
-        || functions.keys().any(|s| s.starts_with("dartforge_"))
+    if functions.len() != module.functions.len() {
+        return Err("function symbols are duplicated".into());
+    }
+    if classes.len() != module.classes.len() {
+        return Err("class IDs are duplicated".into());
+    }
+    if tables.len() != module.method_tables.len() {
+        return Err("method table class IDs are duplicated".into());
+    }
+    if module
+        .method_tables
+        .iter()
+        .map(|(_, symbol, _)| symbol.as_str())
+        .collect::<HashSet<_>>()
+        .len()
+        != tables.len()
     {
-        return None;
+        return Err("method table symbols are duplicated".into());
+    }
+    for (cid, symbol) in &module.table_functions {
+        if tables.get(cid).map(|table| table.as_str()) != Some(symbol.as_str()) {
+            return Err(format!(
+                "table function {symbol} for class {cid} has no matching table"
+            ));
+        }
+    }
+    for class in &module.classes {
+        if !module.pruning_class_ids.contains(&class.id) {
+            return Err(format!(
+                "class {} ({}) has unproved ancestry",
+                class.name, class.id
+            ));
+        }
+        if !tables.contains_key(&class.id) {
+            return Err(format!(
+                "class {} ({}) has no method table",
+                class.name, class.id
+            ));
+        }
+    }
+    for (cid, symbol, _) in &module.method_tables {
+        if !classes.contains_key(cid) || module.table_functions.get(cid) != Some(symbol) {
+            return Err(format!(
+                "method table {symbol} for class {cid} has no matching class/table function"
+            ));
+        }
+    }
+    if let Some(symbol) = functions
+        .keys()
+        .find(|symbol| symbol.starts_with("dartforge_"))
+    {
+        return Err(format!("function {symbol} overlaps the runtime namespace"));
     }
     // Function, table and data names share the emitted symbol namespace.
     let mut definitions: HashSet<String> = functions.keys().map(|s| (*s).to_string()).collect();
@@ -74,13 +133,13 @@ fn narrow_enabled(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
             .iter()
             .any(|(selector, _)| !selectors.insert(super::selector_hash(selector)))
         {
-            return None;
+            return Err("selector hashes collide".into());
         }
         if table.starts_with("dartforge_")
             || !definitions.insert(table.clone())
             || !definitions.insert(format!("{table}$d"))
         {
-            return None;
+            return Err("table symbol definitions collide".into());
         }
     }
     for (_, _, global) in &module.globals {
@@ -88,19 +147,22 @@ fn narrow_enabled(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
             || !definitions.insert(global.clone())
             || !definitions.insert(format!("{global}$ok"))
         {
-            return None;
+            return Err("global symbol definitions collide".into());
         }
     }
     if !definitions.insert("dartforge_entry".into()) {
-        return None;
+        return Err("entry symbol definition collides".into());
     }
     let imports = if sdk.is_empty() {
         None
     } else {
-        let inventory = module.imported_allocation_inventory.as_deref()?;
+        let inventory = module
+            .imported_allocation_inventory
+            .as_deref()
+            .ok_or("SDK allocation inventory is unavailable")?;
         let cids = classes.keys().copied().collect();
         if !inventory.reconcile(sdk, &definitions, &cids) {
-            return None;
+            return Err("SDK inventory does not match the selected image".into());
         }
         Some(inventory)
     };
@@ -118,7 +180,11 @@ fn narrow_enabled(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
         match functions.get(symbol.as_str()) {
             Some(body) if !body.params.iter().any(|(_, _, ty)| *ty == Type::Ref) => {}
             None if imports.is_some_and(|inventory| inventory.call(symbol, &[], Type::Void)) => {}
-            _ => return None,
+            _ => {
+                return Err(format!(
+                    "entry root {symbol} has an unproved body or input ABI"
+                ));
+            }
         }
     }
     // Primitive boxing, strings and exception paths create runtime classes
@@ -148,7 +214,9 @@ fn narrow_enabled(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
             || covered_runtime(symbol) && !imports.is_some_and(|i| i.contains_definition(symbol))
             || imports.is_some_and(|i| i.known_node(symbol));
         if reach.live(node as u32) && !covered {
-            return None;
+            return Err(format!(
+                "reachable symbol {symbol} has no covered definition"
+            ));
         }
     }
     let index: HashMap<_, _> = reach
@@ -171,15 +239,20 @@ fn narrow_enabled(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
             ]
         })
         .collect();
-    let mut covered = true;
     let closure_targets = closures::targets(module);
     for function in &module.functions {
         if !live(&function.symbol) {
             continue;
         }
-        let shape = super::receiver_provenance::Shape::new(function).ok()?;
-        let closure_proof =
-            closures::prove(function, &functions, &closure_targets, &shape)?;
+        let shape = super::receiver_provenance::Shape::new(function)
+            .map_err(|_| format!("function {} has an unproved SSA/CFG shape", function.symbol))?;
+        let closure_proof = closures::prove(function, &functions, &closure_targets, &shape)
+            .ok_or_else(|| {
+                format!(
+                    "function {} has an unproved closure boundary",
+                    function.symbol
+                )
+            })?;
         let stack_slots: HashMap<_, _> = function
             .blocks
             .iter()
@@ -201,10 +274,9 @@ fn narrow_enabled(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
                     Instruction::AllocObject { class_id, fields } => {
                         *result == Type::Ref && valid_allocation(*class_id, fields.len())
                     }
-                    Instruction::AllocClosure { .. } | Instruction::AllocClosureTyped { .. }
-                    | Instruction::TearOff { .. } => {
-                        closure_proof.handles.contains(value)
-                    }
+                    Instruction::AllocClosure { .. }
+                    | Instruction::AllocClosureTyped { .. }
+                    | Instruction::TearOff { .. } => closure_proof.handles.contains(value),
                     Instruction::TypedCall { .. } => closure_proof.calls.contains(value),
                     Instruction::CallClosure { closure, .. } => {
                         matches!(closure, Operand::Val(id) if closure_proof.handles.contains(id))
@@ -375,17 +447,23 @@ fn narrow_enabled(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
                     | Instruction::ConcatStrings { .. } => true,
                 };
             if !valid {
-                covered = false;
-                break;
+                return Err(format!(
+                    "function {} value {value:?} has an unproved instruction: {instruction:?}",
+                    function.symbol
+                ));
             }
         }
         for block in &function.blocks {
+            let mut address_exposed = false;
             crate::optimize::operands::terminator_operands(&block.terminator, &mut |operand| {
-                covered &= !matches!(operand, Operand::Constant(Constant::Function(_)));
+                address_exposed |= matches!(operand, Operand::Constant(Constant::Function(_)));
             });
-        }
-        if !covered {
-            break;
+            if address_exposed {
+                return Err(format!(
+                    "function {} terminator exposes a function address",
+                    function.symbol
+                ));
+            }
         }
     }
     // Protocol references do not appear as HIR calls, but still need an actual
@@ -400,15 +478,20 @@ fn narrow_enabled(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
             .iter()
             .any(|(_, target)| !functions.contains_key(target.as_str()))
         {
-            return None;
+            return Err(format!(
+                "class {} has a vtable target without a local body",
+                class.name
+            ));
         }
         if let Some(symbol) = &class.to_string_symbol {
-            let body = functions.get(symbol.as_str())?;
+            let body = functions.get(symbol.as_str()).ok_or_else(|| {
+                format!("class {} has no local toString body: {symbol}", class.name)
+            })?;
             if body.return_ty != Type::Ref
                 || body.params.len() != 1
                 || body.params[0].2 != Type::Ref
             {
-                return None;
+                return Err(format!("class {} has an unproved toString ABI", class.name));
             }
         }
     }
@@ -419,19 +502,19 @@ fn narrow_enabled(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
             if table_node
                 .is_some_and(|&node| reach.live_table_pair(node, super::selector_hash(selector)))
             {
-                let body = functions.get(target.as_str())?;
+                let body = functions.get(target.as_str()).ok_or_else(|| {
+                    format!("table {table} selector {selector} has no local body: {target}")
+                })?;
                 if body.return_ty != Type::Ref
                     || body.params.iter().map(|(_, _, ty)| *ty).collect::<Vec<_>>()
                         != [Type::Ref, Type::Ptr, Type::Ptr]
                 {
-                    return None;
+                    return Err(format!(
+                        "table {table} selector {selector} has an unproved uniform ABI"
+                    ));
                 }
             }
         }
-    }
-    if !covered {
-        module.closed_class_tables = None;
-        return None;
     }
     let mut active = runtime_classes;
     for (cid, symbol, _) in &module.method_tables {
@@ -440,7 +523,7 @@ fn narrow_enabled(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
         }
     }
     module.closed_class_tables = Some(active);
-    Some(reach)
+    Ok(reach)
 }
 
 /// Explicit creation/field/pending APIs admitted by this closed-image proof.

@@ -2,6 +2,19 @@
 
 ## Atualização de 19/10/2026
 
+- A prova experimental de tabelas fechadas tem diagnóstico opcional com
+  `DARTFORGE_TRACE_CLASS_REACHABILITY=1`, junto à opção experimental já existente.
+  Identifica a primeira fronteira sem relaxar a prova e descarta cobertura
+  anterior/parcial ao rejeitar. No teste real, a primeira rejeição observada foi
+  uma declaração de tabela importada de `dart:io` sem tabela local; o lowering
+  declara tabelas do SDK, enquanto essa verificação exige definições locais.
+  A poda de backends continua falhando; construtores estrangeiros já saem, mas
+  getters/adaptadores/tabelas permanecem. Passaram 823 testes unitários nativos
+  antes do refinamento das mensagens e 26 dirigidos na versão final, Clippy
+  estrito e docs do workspace sem avisos. Fmt global segue pendente; sem nova
+  aprovação global ou execução Windows/Linux. Evidências:
+  `bench/results/2026-10-19-class-pruning-diagnostics/README.md`.
+
 - A suíte global de `81e6762b` terminou com **exit 101**: builders nativos
   passaram (2410,20 s), assim como os quatro testes Angular (614,15 s), mas o
   gate do corpus exigia VM para oito casos JS-only que já declaravam referência

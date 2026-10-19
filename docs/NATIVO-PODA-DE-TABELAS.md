@@ -333,6 +333,16 @@ diretas de ABI compatível. Alocação conhecida, sozinha, não autoriza poda.
 Chamadas nativas, registro de imagens, memória bruta e funções interponíveis
 continuam desconhecidos. Os casos fora dessa cobertura mantêm o registro amplo.
 
+Com a opção experimental ativa, `DARTFORGE_TRACE_CLASS_REACHABILITY=1`
+mostra em stderr a primeira fronteira que a análise não conseguiu provar:
+configuração, consistência das declarações, inventário, raiz importada,
+símbolo alcançável, corpo/ABI, instrução ou endereço de função exposto.
+O diagnóstico identifica funções, símbolos e instruções quando disponíveis.
+Ele não muda a decisão de poda: qualquer rejeição descarta o conjunto temporário
+de classes e mantém o registro amplo. Sem a opção de trace, a rejeição é silenciosa.
+A primeira fronteira pode ocultar outras; resolver uma mensagem não prova que
+as etapas seguintes estejam cobertas.
+
 O leitor verifica a mesma publicação contra o compilador, o runtime e os objetos
 selecionados; relê os bytes de `.poda` com hash conferido, reconcilia os resumos
 usados no grafo e recalcula os fechamentos por componentes fortemente conexos.

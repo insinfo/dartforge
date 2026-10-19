@@ -1,0 +1,44 @@
+[
+  {
+    "file": "directed.log",
+    "source": "/tmp/forge-class-diagnostic-directed-final.log",
+    "raw_sha256": "bd4e94226735c3f727bbfb060909e702ec5f7bcd4bcf5bfd9f57bd58ec287bad",
+    "stored_sha256": "9c66d0d6e941433bd23b6a170153d325b761847b8af6ba2543fe51439be691d7"
+  },
+  {
+    "file": "native-before-detail-refinement.log",
+    "source": "/tmp/forge-class-diagnostic-native.log",
+    "raw_sha256": "34da7254c69f2f27c84ced14006669f294624e39987eb25888b1dfbcf4699172",
+    "stored_sha256": "c9445400f9e53d49435ad674eaebc1df0c73adb44cbb9de7396e00c0d1dc567d"
+  },
+  {
+    "file": "clippy.log",
+    "source": "/tmp/forge-class-diagnostic-checks-final/clippy.log",
+    "raw_sha256": "a72a762ba1cf148852186f59c1d36b9fcc4da7a874376244898889c615b3cd27",
+    "stored_sha256": "a72a762ba1cf148852186f59c1d36b9fcc4da7a874376244898889c615b3cd27"
+  },
+  {
+    "file": "doc.log",
+    "source": "/tmp/forge-class-diagnostic-checks-final/doc.log",
+    "raw_sha256": "b670a803e17afa32a71e91fe18ab84776afa721e2448dba067471fa505ec9fe7",
+    "stored_sha256": "b670a803e17afa32a71e91fe18ab84776afa721e2448dba067471fa505ec9fe7"
+  },
+  {
+    "file": "checks.json",
+    "source": "/tmp/forge-class-diagnostic-checks-final/results.json",
+    "raw_sha256": "217fa0744fdc069b8ea20f1191cb2a29c8c4344dec6d40caada3cc7c74bac696",
+    "stored_sha256": "217fa0744fdc069b8ea20f1191cb2a29c8c4344dec6d40caada3cc7c74bac696"
+  },
+  {
+    "file": "ir-comparison.json",
+    "source": "/tmp/forge-class-pruning-ir-comparison.json",
+    "raw_sha256": "26ed4d46f88787d5f9ad0ef6d8c669b9652db2d41c32e1ddffac700f87457943",
+    "stored_sha256": "26ed4d46f88787d5f9ad0ef6d8c669b9652db2d41c32e1ddffac700f87457943"
+  },
+  {
+    "file": "production.log",
+    "source": "/tmp/forge-production-diagnostic-final.log",
+    "raw_sha256": "f87672b8f95cf977ea1c83ed6e1de1fbdd78d463fe62f0df8273a3436099141c",
+    "stored_sha256": "f87672b8f95cf977ea1c83ed6e1de1fbdd78d463fe62f0df8273a3436099141c"
+  }
+]

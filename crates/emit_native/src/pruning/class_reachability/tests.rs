@@ -1408,3 +1408,29 @@ fn changed_or_unproved_imports_do_not_hide_missing_allocation_coverage() {
         assert!(module.closed_class_tables.is_none());
     }
 }
+
+#[test]
+fn rejection_identifies_the_boundary_and_discards_previous_class_coverage() {
+    let mut module = fixture();
+    assert!(audit(&mut module, &[]).is_ok());
+    assert!(module.closed_class_tables.is_some());
+    module.source_roots.push("df.external.startup".into());
+    assert_eq!(
+        audit(&mut module, &[]).err().as_deref(),
+        Some("entry root df.external.startup has an unproved body or input ABI")
+    );
+    assert!(module.closed_class_tables.is_none());
+
+    module.source_roots.clear();
+    module.functions[0].blocks[0].instructions.push((
+        ValueId(1),
+        Instruction::AllocList { elements: vec![] },
+        Type::Ref,
+    ));
+    let reason = audit(&mut module, &[])
+        .err()
+        .expect("list allocation is not covered");
+    assert!(reason.contains("df.test.main value ValueId(1)"), "{reason}");
+    assert!(reason.contains("AllocList"), "{reason}");
+    assert!(module.closed_class_tables.is_none());
+}
