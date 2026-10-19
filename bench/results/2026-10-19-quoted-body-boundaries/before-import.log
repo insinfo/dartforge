@@ -1,0 +1,19 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.30s
+     Running unittests src/lib.rs (target/impl-a/debug/deps/dartforge_emit_native-845e7f740af4002d)
+
+running 1 test
+
+thread 'pruning::allocation_inventory::imports::tests::quoted_header_cannot_turn_an_allocator_into_an_empty_import' (2172258) panicked at crates/emit_native/src/pruning/allocation_inventory/imports/tests.rs:34:5:
+assertion failed: !inventory.call(LEAF, &[Type::I64], Type::I64)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test pruning::allocation_inventory::imports::tests::quoted_header_cannot_turn_an_allocator_into_an_empty_import ... FAILED
+
+failures:
+
+failures:
+    pruning::allocation_inventory::imports::tests::quoted_header_cannot_turn_an_allocator_into_an_empty_import
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 859 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

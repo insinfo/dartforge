@@ -27,6 +27,14 @@ fn fixtures(ir: &str) -> (tempfile::TempDir, Vec<String>, std::path::PathBuf) {
     (dir, names, runtime)
 }
 #[test]
+fn quoted_header_cannot_turn_an_allocator_into_an_empty_import() {
+    let ir = format!("define i64 @{LEAF}(i64 %\"{{ ret i64 0 }}\") {{\n %o = call i64 @dartforge_object_new(i64 399, i64 0)\n ret i64 7\n}}\n");
+    let (dir, names, runtime) = fixtures(&ir);
+    let inventory = Inventory::load(dir.path(), "test-key", true, &names, &runtime).unwrap();
+    assert!(!inventory.call(LEAF, &[Type::I64], Type::I64));
+}
+
+#[test]
 fn verified_scalar_closure_requires_its_actual_abi_and_graph_snapshot() {
     let ir = format!("define i64 @{LEAF}(i64 %x) {{\n %v = add i64 %x, 1\n ret i64 %v\n}}\n");
     let (dir, names, runtime) = fixtures(&ir);

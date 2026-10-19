@@ -3,6 +3,20 @@
 ## Atualização de 19/10/2026
 
 
+- Corrigida uma aprovação indevida do inventário: chaves dentro de parâmetros
+  LLVM entre aspas ou atributos textuais podiam ocultar o corpo real e sua
+  alocação. Dois testes falharam antes: observação de fechamento vazio e aceitação
+  da função alocadora como importação vazia. O coletor respeita aspas/escapes,
+  comentários e os limites entre funções; o CID real chega ao wrapper e o leitor
+  recusa a importação vazia. Cinco fixtures foram compiladas pelo Clang 22.
+  Passaram 41 testes de inventário, incluindo reconstrução/carregamento real do
+  SDK, e 48 da prova de classes; Clippy/docs estritos passam. Schema permanece 2,
+  com cache invalidado pelo fingerprint das fontes. Registro SDK e poda completa
+  continuam pendentes, assim como fmt e aprovação integral. Sem nova matriz
+  desktop ou ganho comprovado de tamanho/desempenho. Evidências:
+  `bench/results/2026-10-19-quoted-body-boundaries/README.md`.
+
+
 - Corrigida a invalidação do certificado de classes antes da construção do grafo
   amplo da poda HIR. Antes, uma análise anterior podia reduzir as raízes do
   fallback mesmo após a nova prova ser recusada. A regressão reproduziu a

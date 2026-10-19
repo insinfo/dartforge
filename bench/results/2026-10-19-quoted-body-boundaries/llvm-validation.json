@@ -1,0 +1,87 @@
+[
+  {
+    "command": [
+      "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+      "-target",
+      "arm64-apple-macos14.0",
+      "-x",
+      "ir",
+      "-c",
+      "bench/results/2026-10-19-quoted-body-boundaries/valid-0.ll",
+      "-o",
+      "/tmp/forge-quoted-boundary-0.o"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": "warning: overriding the module target triple with arm64-apple-macosx14.0.0 [-Woverride-module]\n1 warning generated.\n",
+    "object_sha256": "ef9c036810d7d5707ee19abad3e42f4071e07592779d94fec10b95583699c57d"
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+      "-target",
+      "arm64-apple-macos14.0",
+      "-x",
+      "ir",
+      "-c",
+      "bench/results/2026-10-19-quoted-body-boundaries/valid-1.ll",
+      "-o",
+      "/tmp/forge-quoted-boundary-1.o"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": "warning: overriding the module target triple with arm64-apple-macosx14.0.0 [-Woverride-module]\n1 warning generated.\n",
+    "object_sha256": "ef9c036810d7d5707ee19abad3e42f4071e07592779d94fec10b95583699c57d"
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+      "-target",
+      "arm64-apple-macos14.0",
+      "-x",
+      "ir",
+      "-c",
+      "bench/results/2026-10-19-quoted-body-boundaries/valid-2.ll",
+      "-o",
+      "/tmp/forge-quoted-boundary-2.o"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": "warning: overriding the module target triple with arm64-apple-macosx14.0.0 [-Woverride-module]\n1 warning generated.\n",
+    "object_sha256": "ef9c036810d7d5707ee19abad3e42f4071e07592779d94fec10b95583699c57d"
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+      "-target",
+      "arm64-apple-macos14.0",
+      "-x",
+      "ir",
+      "-c",
+      "bench/results/2026-10-19-quoted-body-boundaries/valid-3.ll",
+      "-o",
+      "/tmp/forge-quoted-boundary-3.o"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": "warning: overriding the module target triple with arm64-apple-macosx14.0.0 [-Woverride-module]\n1 warning generated.\n",
+    "object_sha256": "ef9c036810d7d5707ee19abad3e42f4071e07592779d94fec10b95583699c57d"
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+      "-target",
+      "arm64-apple-macos14.0",
+      "-x",
+      "ir",
+      "-c",
+      "bench/results/2026-10-19-quoted-body-boundaries/valid-4.ll",
+      "-o",
+      "/tmp/forge-quoted-boundary-4.o"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": "warning: overriding the module target triple with arm64-apple-macosx14.0.0 [-Woverride-module]\n1 warning generated.\n",
+    "object_sha256": "2d9645ea532c735bbf75c64b1261682ae4e08d4d311d206453ccdfa850827748"
+  }
+]

@@ -1,0 +1,5 @@
+{
+  "crates/emit_native/src/pruning/allocation_inventory/closure.rs": "c2822533d0c5c3b1a5229451a1a89828a787aff908b4f3b886a6a26b71ad5327",
+  "crates/emit_native/src/pruning/allocation_inventory/closure/tests.rs": "fe0a3e7ca073ccdc9f43b511a51f675d75106b028cc75ea40a663f37b3a7bb09",
+  "crates/emit_native/src/pruning/allocation_inventory/imports/tests.rs": "fdec53d9b914c498e44e7d341158b17b25b1c9b5bb35e683f3ab5c23edd5108f"
+}

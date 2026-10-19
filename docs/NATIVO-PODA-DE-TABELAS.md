@@ -583,3 +583,12 @@ região. Esses resultados continuam sem autorização no consumidor de chamadas.
 Resultados escalares e void conservam as regras de fechamento/exposição.
 A validação dos dados de imagem estática e dos bindings dos helpers do SDK
 continua necessária para autorizar suas rotinas de registro.
+
+A extração do corpo também respeita aspas e comentários. Chaves em nomes de
+parâmetros ou atributos textuais não delimitam uma função inline; o fechamento
+multilinha pode ter comentário ao lado. Uma regressão com IR válido no LLVM
+reproduziu o coletor ignorando a alocação real e publicando fechamento vazio.
+O corpo completo agora conserva o CID alocado, inclusive nas funções que o
+chamam, e o consumidor recusa a importação como fechamento vazio. O formato
+continua no schema 2; a mudança no coletor participa do fingerprint do compilador
+e invalida o cache SDK produzido pelo código anterior.

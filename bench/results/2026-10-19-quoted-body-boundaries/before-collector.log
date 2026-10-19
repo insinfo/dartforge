@@ -1,0 +1,27 @@
+   Compiling ring v0.17.14
+   Compiling libz-sys v1.1.29
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+   Compiling flate2 v1.1.10
+   Compiling rustls v0.23.45
+   Compiling dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+   Compiling rustls-webpki v0.103.15
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.11s
+     Running unittests src/lib.rs (target/impl-a/debug/deps/dartforge_emit_native-845e7f740af4002d)
+
+running 1 test
+
+thread 'pruning::allocation_inventory::closure::tests::quoted_header_braces_cannot_hide_the_allocating_body' (2171684) panicked at crates/emit_native/src/pruning/allocation_inventory/closure/tests.rs:22:9:
+assertion `left == right` failed: define i64 @allocate(i64 %"{ ret i64 0 }") {
+  left: Some([])
+ right: Some([399])
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test pruning::allocation_inventory::closure::tests::quoted_header_braces_cannot_hide_the_allocating_body ... FAILED
+
+failures:
+
+failures:
+    pruning::allocation_inventory::closure::tests::quoted_header_braces_cannot_hide_the_allocating_body
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

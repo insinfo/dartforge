@@ -112,6 +112,26 @@ fn uncomment(text: &str) -> Option<&str> {
     }
     Some(text)
 }
+
+/// Locate body delimiters without interpreting quoted identifiers or attributes
+/// as LLVM structure. The caller removes comments before scanning.
+fn structural_braces(text: &str) -> Option<Vec<(usize, u8)>> {
+    let bytes = text.as_bytes();
+    let mut braces = Vec::new();
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' => index = quoted_end(bytes, index)?,
+            brace @ (b'{' | b'}') => {
+                braces.push((index, brace));
+                index += 1;
+            }
+            _ => index += 1,
+        }
+    }
+    Some(braces)
+}
+
 fn signature(text: &str) -> Option<(String, Abi, Vec<String>)> {
     let (prefix, after) = text.split_once('@')?;
     let result = prefix.split_whitespace().last()?;
@@ -242,13 +262,19 @@ pub(crate) fn audit(modules: &[(&str, &str)]) -> Bundle {
             let unique_linkage = !prefix.split_whitespace().any(|part| part.starts_with("weak") || part.starts_with("linkonce") || part == "available_externally");
             let abi = signature(header).map(|(_, abi, _)| abi);
             let mut body = Vec::new(); let mut text = format!("{header}\n"); let mut complete = false;
-            let structural_header = header.split(';').next().unwrap_or_default();
-            if let Some((_, inline)) = structural_header.split_once('{')
-                && let Some((inline, _)) = inline.rsplit_once('}') { body.push(inline); complete = true; }
+            let structural_header = uncomment(header).unwrap_or_default();
+            let braces = structural_braces(structural_header).unwrap_or_default();
+            if let Some(&(start, b'{')) = braces.first()
+                && let Some(&(end, b'}')) = braces.last()
+                && start < end
+            {
+                body.push(&structural_header[start + 1..end]);
+                complete = true;
+            }
             if !complete {
                 for line in lines.by_ref() {
                     text.push_str(line); text.push('\n');
-                    if line.trim() == "}" { complete = true; break }
+                    if uncomment(line).is_some_and(|line| line.trim() == "}") { complete = true; break }
                     body.push(line);
                 }
             }

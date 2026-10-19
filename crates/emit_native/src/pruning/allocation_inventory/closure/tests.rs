@@ -10,6 +10,34 @@ fn scalar_return_does_not_hide_an_allocation_and_wrappers_propagate_it() {
     assert_eq!(state(&bundle, "allocate"), Some(vec![300]));
     assert_eq!(state(&bundle, "wrapper"), Some(vec![300]));
 }
+
+#[test]
+fn quoted_header_braces_cannot_hide_the_allocating_body() {
+    for header in [
+        "define i64 @allocate(i64 %\"{ ret i64 0 }\") {",
+        "define i64 @allocate(i64 %x) \"probe\"=\"{ ret i64 0 }\" {",
+        "define i64 @allocate(i64 %\"; { ret i64 0 }\") {",
+        "define i64 @allocate(i64 %\"\\22{ ret i64 0 }\\22\") {",
+    ] {
+        let ir = format!(
+            "{header}\n %o = call i64 @dartforge_object_new(i64 399, i64 0)\n ret i64 7\n}}\ndefine i64 @wrapper() {{\n %v = call i64 @allocate(i64 0)\n ret i64 %v\n}}\n"
+        );
+        let bundle = audit(&[("sdk", &ir)]);
+        assert_eq!(state(&bundle, "allocate"), Some(vec![399]), "{header}");
+        assert_eq!(state(&bundle, "wrapper"), Some(vec![399]), "{header}");
+    }
+}
+
+#[test]
+fn quoted_inline_returns_and_commented_closing_braces_keep_body_boundaries() {
+    let ir = "define i64 @identity(i64 %\"}\") { ret i64 %\"}\" }\ndefine i64 @allocate() {\n %o = call i64 @dartforge_object_new(i64 399, i64 0)\n ret i64 7\n} ; a closing comment with an unmatched quote \"\ndefine i64 @following() { ret i64 8 }\n";
+    let bundle = audit(&[("sdk", ir)]);
+    assert_eq!(bundle.definitions.len(), 3);
+    assert_eq!(state(&bundle, "identity"), Some(vec![]));
+    assert_eq!(state(&bundle, "allocate"), Some(vec![399]));
+    assert_eq!(state(&bundle, "following"), Some(vec![]));
+}
+
 #[test]
 fn mutually_recursive_finite_allocation_union_is_complete() {
     let ir = "define void @a() {\n %x = call i64 @dartforge_object_new(i64 300, i64 1)\n call void @b()\n ret void\n}\ndefine void @b() {\n %x = call i64 @dartforge_object_new(i64 301, i64 2)\n call void @a()\n ret void\n}\n";

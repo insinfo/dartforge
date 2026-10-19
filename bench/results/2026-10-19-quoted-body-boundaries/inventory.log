@@ -1,0 +1,49 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.33s
+     Running unittests src/lib.rs (target/impl-a/debug/deps/dartforge_emit_native-845e7f740af4002d)
+
+running 41 tests
+test pruning::allocation_inventory::closure::tests::globals_function_addresses_and_indirect_calls_keep_distinct_open_obligations ... ok
+test pruning::allocation_inventory::closure::tests::direct_calls_publish_typed_operands_without_changing_allocation_facts ... ok
+test pruning::allocation_inventory::closure::tests::comment_brace_does_not_hide_a_real_allocating_body ... ok
+test pruning::allocation_inventory::closure::tests::duplicate_modules_and_hidden_inline_calls_never_gain_empty_closure ... ok
+test pruning::allocation_inventory::closure::tests::mutually_recursive_finite_allocation_union_is_complete ... ok
+test pruning::allocation_inventory::closure::tests::neutral_runtime_abi_and_local_actual_helpers_are_not_name_only_proofs ... ok
+test pruning::allocation_inventory::closure::tests::call_bundles_neutral_image_registration_and_initializer_comments_stay_open ... ok
+test pruning::allocation_inventory::closure::tests::only_exact_module_target_and_abi_can_close_a_direct_call ... ok
+test pruning::allocation_inventory::closure::tests::quoted_inline_returns_and_commented_closing_braces_keep_body_boundaries ... ok
+test pruning::allocation_inventory::closure::tests::valid_inline_heap_bump_allocation_is_not_a_proven_empty_footprint ... ok
+test pruning::allocation_inventory::closure::tests::scalar_return_does_not_hide_an_allocation_and_wrappers_propagate_it ... ok
+test pruning::allocation_inventory::imports::tables::tests::declaration_identity_requires_unique_cid_symbols_and_exact_virtual_body ... ok
+test pruning::allocation_inventory::closure::tests::quoted_section_operands_keep_the_direct_registration_call_visible ... ok
+test pruning::allocation_inventory::closure::tests::quoted_operand_delimiters_escapes_and_comments_do_not_change_the_call_abi ... ok
+test pruning::allocation_inventory::closure::tests::opaque_runtime_selector_and_helper_boundaries_poison_the_complete_scc ... ok
+test pruning::allocation_inventory::closure::tests::quoted_header_braces_cannot_hide_the_allocating_body ... ok
+test pruning::allocation_inventory::closure::tests::actual_emitter_helpers_keep_unresolved_memory_allocations_unknown ... ok
+test pruning::allocation_inventory::closure::tests::unsupported_body_syntax_nonconstant_cid_and_weak_definitions_are_unknown ... ok
+test pruning::allocation_inventory::imports::tests::previous_inventory_schema_does_not_supply_missing_operand_observations ... ok
+test pruning::allocation_inventory::closure::tests::malformed_lists_and_unreviewed_abis_stay_unproved ... ok
+test pruning::allocation_inventory::imports::tests::llvm_scalar_results_are_not_managed_reference_or_packet_certificates ... ok
+test pruning::allocation_inventory::imports::tests::quoted_header_cannot_turn_an_allocator_into_an_empty_import ... ok
+test pruning::allocation_inventory::imports::tests::quoted_scalar_ssa_operands_can_close_a_verified_local_call ... ok
+test pruning::allocation_inventory::imports::tests::local_native_bytes_are_distinct_from_managed_or_public_images ... ok
+test pruning::allocation_inventory::imports::tests::runtime_key_profile_and_manifest_bind_the_snapshot ... ok
+test pruning::allocation_inventory::publication::tests::absent_old_duplicate_or_traversing_publication_does_not_verify ... ok
+test pruning::allocation_inventory::imports::tests::reconciliation_reports_the_rejected_snapshot_symbol_or_class_boundary ... ok
+test pruning::allocation_inventory::tests::actual_scalar_leaf_gets_empty_audit_but_allocating_scalar_return_stays_unknown ... ok
+test pruning::allocation_inventory::imports::tests::verified_scalar_closure_requires_its_actual_abi_and_graph_snapshot ... ok
+test pruning::allocation_inventory::tests::memory_globals_pointer_conversion_and_unterminated_bodies_are_unknown ... ok
+test pruning::allocation_inventory::tests::all_possible_emitted_definitions_must_agree_on_coverage ... ok
+test pruning::allocation_inventory::transport_tests::allocation_audits_and_ambiguous_classes_roundtrip_independently ... ok
+test pruning::allocation_inventory::transport_tests::malformed_duplicate_old_and_nondefinition_audits_are_rejected ... ok
+test pruning::allocation_inventory::transport_tests::explicit_known_empty_and_cid_union_roundtrip_distinct_from_absent_or_unknown ... ok
+test pruning::allocation_inventory::imports::tests::private_dependencies_and_recursive_scalar_components_are_checked ... ok
+test pruning::allocation_inventory::publication::tests::selected_objects_runtime_profile_key_and_abi_payload_are_bound ... ok
+test pruning::allocation_inventory::imports::tests::allocation_coverage_does_not_imply_exposure_coverage ... ok
+test pruning::allocation_inventory::imports::tests::weak_or_ambiguous_definitions_and_runtime_interposition_are_not_authorized ... ok
+test pruning::allocation_inventory::imports::tests::observed_call_operands_require_matching_abi_syntax_even_with_recomputed_integrity ... ok
+test pruning::allocation_inventory::imports::tests::inconsistent_graph_claims_do_not_become_facts_even_with_a_matching_marker ... ok
+test pruning::allocation_inventory::imports::tests::actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup has been running for over 60 seconds
+test pruning::allocation_inventory::imports::tests::actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup ... ok
+
+test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 820 filtered out; finished in 97.70s

@@ -1,0 +1,13 @@
+{
+  "base_revision": "410250f4",
+  "host": "macOS ARM64",
+  "DARTFORGE_LLVM_DIR": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+  "LLVM_SYS_221_PREFIX": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+  "commands": [
+    "cargo test --locked -p dartforge-emit-native --lib --target-dir target/impl-a pruning::allocation_inventory -- --include-ignored",
+    "cargo test --locked -p dartforge-emit-native --lib --target-dir target/impl-a pruning::class_reachability -- --include-ignored"
+  ],
+  "documentation_environment": {
+    "RUSTDOCFLAGS": "-Dwarnings"
+  }
+}
