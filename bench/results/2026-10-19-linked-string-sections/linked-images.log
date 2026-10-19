@@ -1,0 +1,21 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.65s
+     Running unittests src/lib.rs (target/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 6 tests
+test linked_images::tests::relocatable_objects_and_unrecognized_data_do_not_become_image_records ... ok
+test linked_images::tests::altered_headers_hash_metadata_lengths_and_padding_are_refused ... ok
+test linked_images::tests::complete_bytes_cover_zero_words_empty_latin1_utf16_and_surrogates ... ok
+test linked_images::tests::saturated_header_word_count_still_uses_bounded_actual_length ... ok
+{"executed":false,"fresh_target":"aarch64-apple-darwin","image_digest":"882a3a58b5738f0c2917dd404a71d6467a579f27736674a75101c85c9f735419","mutated_hash_refused":true,"strings":1}
+{"executed":false,"fresh_target":"x86_64-apple-darwin","image_digest":"a1894856fc684171a42d66852d9b0e1974de53c07732dec3781a0c2ae051824d","mutated_hash_refused":true,"strings":1}
+{"executed":false,"fresh_target":"aarch64-unknown-linux-gnu","image_digest":"888e11bfa3d0cc346ce2f82c4f704c73bc780bb88508979ec76f71ef706ea4e9","mutated_hash_refused":true,"strings":1}
+{"executed":false,"fresh_target":"x86_64-unknown-linux-gnu","image_digest":"fb6889ab34544c75b140a10a06082853369dbba2e8a1398dfa971eb12cba7249","mutated_hash_refused":true,"strings":1}
+{"executed":false,"fresh_target":"x86_64-pc-windows-msvc","image_digest":"7dc1e0148e90c19ee8861f77b46c7930294933947de8e67a3616b4a4c81205e1","mutated_hash_refused":true,"strings":1}
+test linked_images::tests::fresh_linked_sections_match_storage_and_reject_mutated_file_bytes ... ok
+{"architecture":"Aarch64","cids":{"6":14360,"7":36},"digest":"9ea00072e5ddc08aca0c318ffc9f1b936772a795b335e8afa8e5f7f8ac7075a3","executed":false,"format":"MachO","path":"target/desktop-matrix/macos-arm64/explorer","relocations_verified":false,"section_bytes":850904,"section_digest":"27a7faf5b18881f31608969a644298811928cb8b8687055e3dcac5859d31f6a2","strings":14396,"zero_words":0}
+{"architecture":"Aarch64","cids":{"6":14512,"7":36},"digest":"37b0c607c0f5cadf7d19f53a1e199c2d519ad903469588a99460892df0615396","executed":false,"format":"Elf","path":"target/desktop-matrix/cross-linux-arm64/explorer","relocations_verified":false,"section_bytes":854760,"section_digest":"33e7ca71add1ec2d663553a27722f89c5f0fb1ce8e4a39a2ac2d459314790be5","strings":14548,"zero_words":0}
+{"architecture":"X86_64","cids":{"6":14498,"7":36},"digest":"50e55af979345e2d446588183df1decd9c503ebd7bc34c00749584d7e45d6cf2","executed":false,"format":"Pe","path":"target/desktop-matrix/cross-windows-x64/explorer.exe","relocations_verified":false,"section_bytes":871040,"section_digest":"9c1dabad67776d500ee85641fb330d7a290abb60e731c1416720c65289645a7a","strings":14534,"zero_words":4}
+test linked_images::tests::recorded_desktop_images_are_read_back_without_authorizing_relocations ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 898 filtered out; finished in 1.93s

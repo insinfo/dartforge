@@ -1,0 +1,73 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.47s
+     Running unittests src/lib.rs (target/impl-a/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 64 tests
+test pruning::allocation_inventory::closure::tests::globals_function_addresses_and_indirect_calls_keep_distinct_open_obligations ... ok
+test pruning::allocation_inventory::closure::tests::direct_calls_publish_typed_operands_without_changing_allocation_facts ... ok
+test pruning::allocation_inventory::closure::tests::mutually_recursive_finite_allocation_union_is_complete ... ok
+test pruning::allocation_inventory::closure::tests::call_bundles_neutral_image_registration_and_initializer_comments_stay_open ... ok
+test pruning::allocation_inventory::closure::tests::comment_brace_does_not_hide_a_real_allocating_body ... ok
+test pruning::allocation_inventory::closure::tests::native_byte_arrays_preserve_exact_escaped_contents_and_lengths ... ok
+test pruning::allocation_inventory::closure::tests::duplicate_modules_and_hidden_inline_calls_never_gain_empty_closure ... ok
+test pruning::allocation_inventory::closure::tests::only_exact_module_target_and_abi_can_close_a_direct_call ... ok
+test pruning::allocation_inventory::closure::tests::neutral_runtime_abi_and_local_actual_helpers_are_not_name_only_proofs ... ok
+test pruning::allocation_inventory::closure::tests::quoted_inline_returns_and_commented_closing_braces_keep_body_boundaries ... ok
+test pruning::allocation_inventory::closure::tests::scalar_return_does_not_hide_an_allocation_and_wrappers_propagate_it ... ok
+test pruning::allocation_inventory::closure::tests::quoted_header_braces_cannot_hide_the_allocating_body ... ok
+test pruning::allocation_inventory::closure::tests::quoted_section_operands_keep_the_direct_registration_call_visible ... ok
+test pruning::allocation_inventory::closure::tests::valid_inline_heap_bump_allocation_is_not_a_proven_empty_footprint ... ok
+test pruning::allocation_inventory::images::census::tests::canonical_marker_protocols_cover_all_three_object_formats ... ok
+test pruning::allocation_inventory::closure::tests::unsupported_body_syntax_nonconstant_cid_and_weak_definitions_are_unknown ... ok
+test pruning::allocation_inventory::closure::tests::quoted_operand_delimiters_escapes_and_comments_do_not_change_the_call_abi ... ok
+test pruning::allocation_inventory::images::census::tests::quoted_names_strings_and_comments_do_not_invent_section_directives ... ok
+test pruning::allocation_inventory::images::census::tests::image_contributions_cannot_hide_in_functions_assembly_or_continuations ... ok
+test pruning::allocation_inventory::closure::tests::opaque_runtime_selector_and_helper_boundaries_poison_the_complete_scc ... ok
+test pruning::allocation_inventory::images::census::tests::marker_overrides_missing_roles_and_mixed_formats_stay_open ... ok
+test pruning::allocation_inventory::images::tests::altered_identity_header_hash_size_padding_and_section_are_not_certified ... ok
+test pruning::allocation_inventory::images::tests::noncanonical_utf16_latin1_storage_is_not_an_emitter_literal ... ok
+test pruning::allocation_inventory::imports::tables::tests::declaration_identity_requires_unique_cid_symbols_and_exact_virtual_body ... ok
+test pruning::allocation_inventory::images::census::tests::reviewed_tsd_read_does_not_authorize_variants_or_raw_memory_calls ... ok
+test pruning::allocation_inventory::images::tests::all_emitted_section_spellings_are_observable_not_link_certificates ... ok
+test pruning::allocation_inventory::closure::tests::actual_emitter_helpers_keep_unresolved_memory_allocations_unknown ... ok
+test pruning::allocation_inventory::images::tests::real_emitter_literals_cover_empty_latin1_utf16_surrogates_and_padding ... ok
+test pruning::allocation_inventory::closure::tests::malformed_or_nonliteral_byte_initializers_remain_unclassified ... ok
+test pruning::allocation_inventory::closure::tests::malformed_lists_and_unreviewed_abis_stay_unproved ... ok
+test pruning::allocation_inventory::imports::registry::tests::shared_zero_requires_the_existing_universal_parent_certificate ... ok
+test pruning::allocation_inventory::imports::tests::literal_at_signs_do_not_publish_address_edges_from_name_bytes ... ok
+test pruning::allocation_inventory::imports::tests::exact_private_utf8_names_extend_the_entry_only_metadata_domain ... ok
+test pruning::allocation_inventory::imports::tests::llvm_scalar_results_are_not_managed_reference_or_packet_certificates ... ok
+test pruning::allocation_inventory::imports::registry::tests::nominal_ownership_and_summary_edges_are_independent_premises ... ok
+test pruning::allocation_inventory::imports::tests::local_native_bytes_are_distinct_from_managed_or_public_images ... ok
+test pruning::allocation_inventory::imports::tests::nominal_startup_certificate_is_entry_only_and_owns_its_graph_edges ... ok
+test pruning::allocation_inventory::imports::tests::allocation_coverage_does_not_imply_exposure_coverage ... ok
+test pruning::allocation_inventory::imports::tests::previous_inventory_schema_does_not_supply_missing_operand_observations ... ok
+test pruning::allocation_inventory::imports::tests::quoted_header_cannot_turn_an_allocator_into_an_empty_import ... ok
+test pruning::allocation_inventory::imports::tests::managed_initializer_classification_is_recomputed_after_integrity_validation ... ok
+test pruning::allocation_inventory::imports::tests::quoted_scalar_ssa_operands_can_close_a_verified_local_call ... ok
+test pruning::allocation_inventory::imports::tests::runtime_key_profile_and_manifest_bind_the_snapshot ... ok
+test pruning::allocation_inventory::imports::tests::private_dependencies_and_recursive_scalar_components_are_checked ... ok
+test pruning::allocation_inventory::imports::tests::initializer_records_are_rechecked_after_integrity_validation ... ok
+test pruning::allocation_inventory::imports::tests::reconciliation_reports_the_rejected_snapshot_symbol_or_class_boundary ... ok
+test pruning::allocation_inventory::imports::tests::verified_scalar_closure_requires_its_actual_abi_and_graph_snapshot ... ok
+test pruning::allocation_inventory::imports::tests::static_block_observations_do_not_authorize_handles_or_image_registration ... ok
+test pruning::allocation_inventory::imports::tests::text_metadata_startups_do_not_require_a_subtype_call ... ok
+test pruning::allocation_inventory::tests::actual_scalar_leaf_gets_empty_audit_but_allocating_scalar_return_stays_unknown ... ok
+test pruning::allocation_inventory::tests::all_possible_emitted_definitions_must_agree_on_coverage ... ok
+test pruning::allocation_inventory::tests::memory_globals_pointer_conversion_and_unterminated_bodies_are_unknown ... ok
+test pruning::allocation_inventory::publication::tests::absent_old_duplicate_or_traversing_publication_does_not_verify ... ok
+test pruning::allocation_inventory::transport_tests::allocation_audits_and_ambiguous_classes_roundtrip_independently ... ok
+test pruning::allocation_inventory::imports::tests::observed_call_operands_require_matching_abi_syntax_even_with_recomputed_integrity ... ok
+test pruning::allocation_inventory::transport_tests::explicit_known_empty_and_cid_union_roundtrip_distinct_from_absent_or_unknown ... ok
+test pruning::allocation_inventory::transport_tests::malformed_duplicate_old_and_nondefinition_audits_are_rejected ... ok
+test pruning::allocation_inventory::publication::tests::selected_objects_runtime_profile_key_and_abi_payload_are_bound ... ok
+test pruning::allocation_inventory::imports::tests::metadata_names_require_exact_lengths_local_literals_and_valid_utf8 ... ok
+test pruning::allocation_inventory::imports::tests::weak_or_ambiguous_definitions_and_runtime_interposition_are_not_authorized ... ok
+test pruning::allocation_inventory::imports::tests::inconsistent_graph_claims_do_not_become_facts_even_with_a_matching_marker ... ok
+test pruning::allocation_inventory::imports::tests::source_image_census_is_bound_to_the_module_and_stored_global_observations ... ok
+test pruning::allocation_inventory::imports::tests::nominal_startup_rejects_unproved_operands_effects_and_identities ... ok
+test pruning::allocation_inventory::imports::tests::actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup has been running for over 60 seconds
+{"allocation_closures":428,"checked_static_strings":5240,"clean_source_images":15,"image_string_cids":[6],"key":"98aab21ff937fe515dbf46ef5ca4f9b3","reviewed_empty_closures":428,"startup_complete":false,"table_declarations":662,"unique_definitions":32676}
+test pruning::allocation_inventory::imports::tests::actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup ... ok
+
+test result: ok. 64 passed; 0 failed; 0 ignored; 0 measured; 840 filtered out; finished in 99.73s

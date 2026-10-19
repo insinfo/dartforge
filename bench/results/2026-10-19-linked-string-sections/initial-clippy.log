@@ -1,0 +1,25 @@
+    Checking object v0.39.1
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+error: manual implementation of `.is_multiple_of()`
+  --> crates/emit_native/src/pruning/allocation_inventory/images.rs:78:8
+   |
+78 |     if size % 8 != 0 {
+   |        ^^^^^^^^^^^^^ help: replace with: `!size.is_multiple_of(8)`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#manual_is_multiple_of
+   = note: `-D clippy::manual-is-multiple-of` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::manual_is_multiple_of)]`
+
+error: could not compile `dartforge-emit-native` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: using `chunks_exact` with a constant chunk size
+   --> crates/emit_native/src/linked_images/tests.rs:115:10
+    |
+115 |         .chunks_exact(8)
+    |          ^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<8>().0.iter()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
+    = note: `-D clippy::chunks-exact-to-as-chunks` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::chunks_exact_to_as_chunks)]`
+
+error: could not compile `dartforge-emit-native` (lib test) due to 2 previous errors

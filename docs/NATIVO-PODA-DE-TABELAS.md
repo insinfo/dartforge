@@ -778,3 +778,43 @@ não executa os sistemas estrangeiros nem inspeciona os runtimes Windows/Linux.
 A nova dependência atualiza `Cargo.lock`, que participa do hash de fontes do
 runtime: bundles antigos precisam ser reexportados, embora o digest do arquivo
 production local tenha permanecido igual ao da rodada anterior.
+
+
+### Leitura das seções de strings no arquivo ligado
+
+`dartforge_emit_native::linked_images::inspect` lê imagens Mach-O, ELF e PE
+64-bit little-endian para ARM64/x64. Exige uma única seção reconhecida
+(`__DATA_CONST,__dfimg`, `dfimg` ou `.dfimg`), alinhada e inteiramente armazenada
+no arquivo. O endereço observado é o endereço virtual preferido do arquivo,
+não um ponteiro de um processo em execução.
+
+O percurso cobre todos os bytes da região como palavras zeradas ou blocos de
+string. Palavras zeradas são observadas como padding; não recebem identidade
+certificada de âncora. Cada bloco exige header permanente RAW exato, CID de
+string, comprimento limitado pelos bytes disponíveis, hash VM, codificação
+Latin-1/UTF-16 canônica e padding zerado. Surrogates isolados são válidos. O número
+de palavras saturado do header não substitui o comprimento real para delimitar
+strings grandes. Truncamento, classes/formas não revisadas e conteúdo alterado
+encerram a leitura sem publicar resultado parcial.
+
+A validação dos bytes é compartilhada com o inventário de inicializadores LLVM;
+a análise textual continua exigindo símbolo/chave canônica, seção e propriedades
+de armazenamento. O núcleo devolve um digest de tamanho fixo, sem introduzir uma
+alocação de String para cada inicializador validado nas fontes. A alocação da
+chave em String só ocorre ao publicar os registros da leitura final. A enumeração fallível
+de comandos Mach-O é compartilhada com o leitor de entradas nativas.
+
+Foram lidos os três exploradores já registrados na matriz desktop: macOS ARM64
+(14.396 strings, 850.904 bytes de seção), Linux ARM64 (14.548, 854.760 bytes) e
+Windows x64 (14.534, 871.040 bytes). Os SHA-256 dos arquivos coincidem com a
+publicação anterior. Todas as strings observadas têm CID 6/7; cada arquivo tem
+36 strings de dois bytes. Isso não é nova execução ou recompilação do explorador.
+Fixtures C de layout foram compiladas/ligadas novamente para os cinco destinos;
+modificar o hash de uma string no arquivo final foi recusado em todos eles.
+
+Esses fatos ainda não autorizam registro de imagem ou poda: a leitura observa
+bytes do arquivo, enquanto rebases/binds/relocações do carregador podem modificar
+a memória. Permissões, limites realmente passados a `register_image`, resolução
+de marcadores, opções/entradas do ligador e proveniência das contribuições
+continuam exigindo cobertura própria. Não houve alteração dos gates de classes
+ou do schema do inventário, nem ganho de tamanho/desempenho comprovado.

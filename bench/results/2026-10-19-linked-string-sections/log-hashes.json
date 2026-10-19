@@ -1,0 +1,65 @@
+[
+  {
+    "file": "linked-images.log",
+    "original_bytes": 3047,
+    "original_sha256": "18185f4f6d06a7b140bb3d1c6c3ef25edccd1b7262ac9ddee2a9f2f63a6b5cd2",
+    "stored_sha256": "11810fdb3e2a4d19a86bc11a149329216971c622386a9120e1954ab9070ef030",
+    "excerpt": false
+  },
+  {
+    "file": "inventory.log",
+    "original_bytes": 8846,
+    "original_sha256": "a54aadc9ac0a3b1627696e942ada4dcd8d5caafb97fa925fe050363959c23d74",
+    "stored_sha256": "f3339ee7f931d97367f7d5ac3422378b42aa2dbe40aa353b5850477733d69ce2",
+    "excerpt": false
+  },
+  {
+    "file": "native-inputs.log",
+    "original_bytes": 3821,
+    "original_sha256": "09b508794ed92ab5a54e168fdac7d377968579b49d49aa16b823684d95075b16",
+    "stored_sha256": "564d374409ac2500acd536bd0ccd661f5038a210429dc2c3533709bccc788da2",
+    "excerpt": false
+  },
+  {
+    "file": "doctest.log",
+    "original_bytes": 595,
+    "original_sha256": "6104cd60b44dc2887e8add356ed2d081a5ae2d58cf13824942265cd67fbb4362",
+    "stored_sha256": "6104cd60b44dc2887e8add356ed2d081a5ae2d58cf13824942265cd67fbb4362",
+    "excerpt": false
+  },
+  {
+    "file": "clippy.log",
+    "original_bytes": 377,
+    "original_sha256": "a961d39b3badafb2bca08395535c742565c3415f284102a947a5414f38d80e9a",
+    "stored_sha256": "a961d39b3badafb2bca08395535c742565c3415f284102a947a5414f38d80e9a",
+    "excerpt": false
+  },
+  {
+    "file": "feature-clippy.log",
+    "original_bytes": 178,
+    "original_sha256": "029be1e9c5fba48dd43e1d5b5b27a3be78cced8901f050cd95d7348e45f43208",
+    "stored_sha256": "029be1e9c5fba48dd43e1d5b5b27a3be78cced8901f050cd95d7348e45f43208",
+    "excerpt": false
+  },
+  {
+    "file": "doc.log",
+    "original_bytes": 504,
+    "original_sha256": "b9526e120dcca07a71d3565ba153fc0a092346e5aade67a346d4454cfbaeb50f",
+    "stored_sha256": "b9526e120dcca07a71d3565ba153fc0a092346e5aade67a346d4454cfbaeb50f",
+    "excerpt": false
+  },
+  {
+    "file": "initial-clippy.log",
+    "original_bytes": 1428,
+    "original_sha256": "8ca9346686d13a33f715c62917aaff015b934b14ad81d6b9573e13504cff5fdc",
+    "stored_sha256": "8ca9346686d13a33f715c62917aaff015b934b14ad81d6b9573e13504cff5fdc",
+    "excerpt": false
+  },
+  {
+    "file": "fmt-excerpt.log",
+    "original_bytes": 15760076,
+    "original_sha256": "2b0a772626248aa07e51bc0aa01c49118fb1c6d9fe18ec6cda0102b3198da2bd",
+    "stored_sha256": "b72814a0f65e5a5539705b89cf410a7e053928a67c578bf29f4102975febdb76",
+    "excerpt": true
+  }
+]

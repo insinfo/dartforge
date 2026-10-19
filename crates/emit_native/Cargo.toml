@@ -27,7 +27,7 @@ tempfile = "3"
 # Clang on the machine of whoever uses dartforge.
 dartforge-llvm = { path = "../llvm", optional = true }
 # Inspect native archive members without a subprocess or target execution.
-object = { version = "0.39.1", default-features = false, features = ["read_core", "archive", "coff", "elf", "macho", "std"] }
+object = { version = "0.39.1", default-features = false, features = ["read_core", "archive", "coff", "elf", "macho", "pe", "std"] }
 
 [features]
 embedded-llvm = ["dep:dartforge-llvm"]

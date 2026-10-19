@@ -1,0 +1,10 @@
+{
+  "base": "6a20bfb24d0098e52d86736cd1187252ce6b38fe",
+  "host": "Darwin arm64",
+  "llvm": "22.1.8",
+  "object": "0.39.1 with PE reading enabled",
+  "dart_source_sdk": "3.6.2",
+  "llvm_prefix": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+  "loader_fixups_verified": false,
+  "registered_range_verified": false
+}

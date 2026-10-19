@@ -49,6 +49,35 @@ pub(super) fn static_string(line: &str) -> Option<StaticString> {
             "@body = private constant [{size} x i8] {body}"
         ))?
     };
+    let storage = validate_storage(
+        header,
+        u64::from(hash),
+        u64::try_from(length).ok()?,
+        &content,
+    )?;
+    (&storage.digest.to_hex()[..32] == key).then_some(StaticString { cid: storage.cid })
+}
+
+/// Pointer-free string storage facts, independent of LLVM spelling or symbols.
+pub(crate) struct StringStorage {
+    pub cid: u32,
+    pub digest: blake3::Hash,
+}
+
+/// Validate the shared permanent string layout against exactly bounded bytes.
+/// This does not authorize a containing section or registration range.
+pub(crate) fn validate_storage(
+    header: u64,
+    hash: u64,
+    length: u64,
+    content: &[u8],
+) -> Option<StringStorage> {
+    let size = content.len();
+    let length = usize::try_from(length).ok()?;
+    let hash = u32::try_from(hash).ok()?;
+    if !size.is_multiple_of(8) {
+        return None;
+    }
     let class = (header >> 32) as i32;
     let width = match class {
         cid::ONE_BYTE_STRING => 1,
@@ -81,10 +110,10 @@ pub(super) fn static_string(line: &str) -> Option<StaticString> {
     let mut digest = blake3::Hasher::new();
     digest.update(&class.to_le_bytes());
     digest.update(&content[..used]);
-    if &digest.finalize().to_hex()[..32] != key {
-        return None;
-    }
-    Some(StaticString { cid: class as u32 })
+    Some(StringStorage {
+        cid: class as u32,
+        digest: digest.finalize(),
+    })
 }
 
 #[cfg(test)]

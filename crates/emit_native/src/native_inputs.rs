@@ -74,15 +74,12 @@ fn marker_name(name: &[u8]) -> bool {
     matches(name) || name.strip_prefix(b"_").is_some_and(matches)
 }
 
-fn member(name: &[u8], bytes: &[u8], offset: u64) -> Result<Member, String> {
-    let file = object::File::parse(bytes).map_err(|e| e.to_string())?;
-    if file.kind() != object::ObjectKind::Relocatable {
-        return Err("native input is not a relocatable object".into());
-    }
+/// Walk commands fallibly even when the unified file parser is permissive.
+pub(crate) fn macho_commands(file: &object::File<'_>) -> Result<Vec<String>, String> {
     let mut macho_linker_options = Vec::new();
     // The unified Mach-O parser tolerates failed load-command iteration. Walk
     // it explicitly: malformed commands must not look like absent sections.
-    let mut commands = match &file {
+    let mut commands = match file {
         object::File::MachO32(file) => Some(file.macho_load_commands()),
         object::File::MachO64(file) => Some(file.macho_load_commands()),
         _ => None,
@@ -96,6 +93,15 @@ fn member(name: &[u8], bytes: &[u8], offset: u64) -> Result<Member, String> {
             }
         }
     }
+    Ok(macho_linker_options)
+}
+
+fn member(name: &[u8], bytes: &[u8], offset: u64) -> Result<Member, String> {
+    let file = object::File::parse(bytes).map_err(|e| e.to_string())?;
+    if file.kind() != object::ObjectKind::Relocatable {
+        return Err("native input is not a relocatable object".into());
+    }
+    let macho_linker_options = macho_commands(&file)?;
     let mut sections = Vec::new();
     for section in file.sections() {
         let name = section.name_bytes().map_err(|e| e.to_string())?.to_vec();

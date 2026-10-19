@@ -1,0 +1,9 @@
+{
+  "crates/emit_native/Cargo.toml": "3184ae70c688586742c2d23899e43379c13fb08d6f3a8cea8a38ea87db6333dc",
+  "crates/emit_native/src/lib.rs": "73ef68cd3eee2b7d3511d0e8bf77ace2b0bd115972b670860288408ed396f56f",
+  "crates/emit_native/src/native_inputs.rs": "1914ef6ccec1f7de98f8b9f919e6344c6bfb9ae055fad8875e332f79fbb187f0",
+  "crates/emit_native/src/linked_images.rs": "3c4ad859a31df2616ce741261c133e5b5f73c1576bda79388f968b666fea5800",
+  "crates/emit_native/src/linked_images/tests.rs": "6355cf05a0a92b2b169e8c815426186723a2ada8c597e0c7821f0f05c989f499",
+  "crates/emit_native/src/pruning/allocation_inventory.rs": "6b7b8c596ab959aee34dd166b7f4d4279e1b61fef90f513e2a0b5571cdae4c84",
+  "crates/emit_native/src/pruning/allocation_inventory/images.rs": "0f457324cabf947ba220b0caf5ef994e85621d92a967a5aa0a4dad0d19be77e7"
+}

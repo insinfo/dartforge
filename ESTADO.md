@@ -3,6 +3,24 @@
 ## Atualização de 19/10/2026
 
 
+- A nova API `linked_images::inspect` confere todos os bytes das seções de
+  strings em arquivos ligados Mach-O/ELF/PE 64-bit LE. Compartilha a validação
+  canônica com o inventário LLVM e registra palavras zeradas como padding,
+  sem certificar âncoras. Os três exploradores da matriz anterior, com SHA-256
+  conferido, passaram: 14.396 strings macOS, 14.548 Linux e 14.534 Windows;
+  cada arquivo tem 36 strings de dois bytes. Fixtures de layout recém-ligadas
+  para cinco destinos passaram e hashes alterados no arquivo final foram
+  recusados. Passaram seis testes novos, 64 de inventário com SDK real, 11 de
+  entradas nativas e o exemplo da API; Clippy/docs estritos passam. Inventário,
+  registros dos módulos e tamanho do schema 5 permaneceram iguais ao anterior.
+  Fmt global e aprovação integral seguem pendentes. A API ainda não é um gate
+  automático do ligador: relocações/rebases/binds, limites registrados,
+  marcadores, entradas/opções e permissões continuam sem prova. Sem autorização
+  nova de classes/imagens, recompilação/execução nova do explorador ou ganho
+  de binário comprovado. Evidências:
+  `bench/results/2026-10-19-linked-string-sections/README.md`.
+
+
 - A nova API `native_inputs::inspect` observa objetos Mach-O/ELF/COFF e membros
   de bibliotecas sem executar destinos ou seguir caminhos externos. Preserva
   nomes/duplicatas, faixas, digests, seções e estados de marcadores; distingue

@@ -1,0 +1,11 @@
+{
+  "current_key": "98aab21ff937fe515dbf46ef5ca4f9b3",
+  "current_path": "target/native_cache/sdk/98aab21ff937fe515dbf46ef5ca4f9b3/allocation-inventory.json",
+  "current_sha256": "b0316a673a5f64e6182a51802b46e345f6b6671213fe09f7afb3440413c4ad38",
+  "current_bytes": 69945429,
+  "schema": 5,
+  "module_records_match_prior": true,
+  "inventory_matches_prior": true,
+  "prior_path": "target/native_cache/sdk/2a56c339041dbb4e12c4056c9af637a3/allocation-inventory.json",
+  "prior_sha256": "01c7b102101421a331e75a21113843e19c3b5c67f529af81abf179657e29bd56"
+}
