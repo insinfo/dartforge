@@ -1,0 +1,26 @@
+{
+  "inventory.log": {
+    "original_sha256": "61c53d74e5509f333ceed4eccf755245804bca7581f81dba1e6ec4fc0342f8c8",
+    "stored_sha256": "af5cb9521555e9702db0ab5e7dbf770af03ee76dd836bf2179055c92b9a0d094"
+  },
+  "class-proof.log": {
+    "original_sha256": "59f3faee566cfa9a4148fcba70e682fa6f8858b0ee23c44095cf4911edfbc248",
+    "stored_sha256": "54f2cd495c1812cec290cdc755bca5751d1520197a64737ce03b12fd632a414e"
+  },
+  "pruning.log": {
+    "original_sha256": "9643d8357724f23b126f9a6f0ffbdcbfefb68b2b6b991e2caddaeea41168ee5f",
+    "stored_sha256": "6e62d92feac33af81aa55519804e5a0fcf19b71d888aa25b729d4d28b2f8569d"
+  },
+  "clippy.log": {
+    "original_sha256": "c59e40dcce6bb30d9825fc73efb6ba5419b3b2f4ed8cb3e20660443e5a72607a",
+    "stored_sha256": "c59e40dcce6bb30d9825fc73efb6ba5419b3b2f4ed8cb3e20660443e5a72607a"
+  },
+  "doc.log": {
+    "original_sha256": "7592b20daaefbedb165edc922f965bf49962e151f850ab2035f9ec61fcb33b51",
+    "stored_sha256": "7592b20daaefbedb165edc922f965bf49962e151f850ab2035f9ec61fcb33b51"
+  },
+  "initial-harness-link-failure.log": {
+    "original_sha256": "8bc65a72b187456c052686d580861a2bbfcbcb6b8af372ead744784df03b8f4e",
+    "stored_sha256": "8bc65a72b187456c052686d580861a2bbfcbcb6b8af372ead744784df03b8f4e"
+  }
+}

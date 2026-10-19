@@ -3,6 +3,21 @@
 ## Atualização de 19/10/2026
 
 
+- A prova de classes ganhou certificado separado para startups `void ()` que
+  somente publicam arestas nominais literais por `register_subclass`. Exige
+  corpo/ABI/identidade únicos, CIDs e arestas do snapshot reconciliado; pai 0
+  compartilhado mantém seu certificado próprio. O grafo temporário descarrega
+  apenas arestas pertencentes ao startup certificado, sem autorizar chamadas
+  comuns ou a API globalmente. Passaram 45 testes de inventário com SDK real,
+  51 de classes e 14 gerais de poda; executáveis amplo/certificado conservaram
+  consultas transitivas/inversas, normais e com GC sob estresse. Clippy/docs
+  estritos passam, fmt global segue pendente. O teste real confirma que os
+  startups completos do SDK continuam recusados: nomes, argumentos, imagens,
+  tabelas e helpers precisam de contratos próprios. Sem poda completa, nova
+  matriz desktop/JIT ou ganho comprovado de tamanho/desempenho. Evidências:
+  `bench/results/2026-10-19-nominal-subtype-startup/README.md`.
+
+
 - Corrigida uma aprovação indevida do inventário: chaves dentro de parâmetros
   LLVM entre aspas ou atributos textuais podiam ocultar o corpo real e sua
   alocação. Dois testes falharam antes: observação de fechamento vazio e aceitação

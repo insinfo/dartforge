@@ -215,7 +215,7 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
     }
     // Managed references and raw argument-packet pointers from external entries
     // do not supply a closed class universe. Imported startup remains limited
-    // to zero-argument void calls with a pure closure.
+    // to zero-argument void calls with a pure or certified nominal startup body.
     for symbol in module
         .entry_symbol
         .iter()
@@ -226,7 +226,7 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
     {
         match functions.get(symbol.as_str()) {
             Some(body) if body.params.iter().all(|(_, _, ty)| scalar_entry_type(*ty)) => {}
-            None if imports.is_some_and(|inventory| inventory.call(symbol, &[], Type::Void)) => {}
+            None if imports.is_some_and(|inventory| inventory.entry(symbol)) => {}
             _ => {
                 return Err(format!(
                     "entry root {symbol} has an unproved body or input ABI"
@@ -257,7 +257,8 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
     }
     // The tentative lazy roots were used only to construct this probe summary.
     // Publish an active set only after every reachable definition is checked.
-    let mut all = sdk.to_vec();
+    let proof_sdk = imports.map(|inventory| inventory.class_proof_summaries());
+    let mut all: Vec<&Summary> = proof_sdk.as_ref().map_or_else(|| sdk.to_vec(), |summaries| summaries.iter().collect());
     all.push(&summary);
     let reach = super::reach(&all, true);
     if let Some(symbol) = &event_entry

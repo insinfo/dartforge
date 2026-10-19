@@ -1,0 +1,16 @@
+{
+  "README.md": "6a5f0952b554117a3de163656ccf3a2e5a008f1cb9cd18b7676aa4365590f12d",
+  "checks.json": "217fa0744fdc069b8ea20f1191cb2a29c8c4344dec6d40caada3cc7c74bac696",
+  "class-proof.log": "54f2cd495c1812cec290cdc755bca5751d1520197a64737ce03b12fd632a414e",
+  "clippy.log": "c59e40dcce6bb30d9825fc73efb6ba5419b3b2f4ed8cb3e20660443e5a72607a",
+  "doc.log": "7592b20daaefbedb165edc922f965bf49962e151f850ab2035f9ec61fcb33b51",
+  "environment.json": "46647067fee563d5658be42a604534140c871956d5447fc83363601c08531a68",
+  "fmt-excerpt.log": "c81626b08228bbb164c04c52ccdba9c6183c95d146e62ba1bcf50b4375b8096f",
+  "fmt-original.json": "6a8b4eb764213222c58f585f50295f35baf9379d514d68ea01ce77101c6ffd75",
+  "initial-harness-link-failure.log": "8bc65a72b187456c052686d580861a2bbfcbcb6b8af372ead744784df03b8f4e",
+  "inventory.log": "af5cb9521555e9702db0ab5e7dbf770af03ee76dd836bf2179055c92b9a0d094",
+  "log-normalization.json": "9ebab96c9f8731e32957def78908bd46c663471ca08c617cee34cf7951f8a4a7",
+  "pruning.log": "6e62d92feac33af81aa55519804e5a0fcf19b71d888aa25b729d4d28b2f8569d",
+  "runtime-contract.json": "f4ef0d3dbbfd9067a5327568a51e036f7b58bb1c80e6322a83c28e78507d04ef",
+  "sources.json": "189937c3cbcb2da28342e882c1785fd47a89f759d01f16e7d8937c928de50833"
+}

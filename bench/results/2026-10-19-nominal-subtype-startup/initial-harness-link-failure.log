@@ -1,0 +1,24 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.02s
+     Running unittests src/lib.rs (target/impl-a/debug/deps/dartforge_emit_native-845e7f740af4002d)
+
+running 3 tests
+test pruning::class_reachability::tests::verified_nominal_subtype_startup_can_seed_the_closed_image ... ok
+test pruning::class_reachability::tests::subtype_startup_certificate_does_not_authorize_ordinary_calls_or_unowned_edges ... ok
+
+thread '<unnamed>' (2182159) panicked at crates/emit_native/src/pruning/class_reachability/tests.rs:1456:116:
+called `Result::unwrap()` on an `Err` value: "ld64.lld failed to link (exit status: 1):\nld64.lld: error: duplicate symbol: _main\n>>> defined in /Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/0f/0ffa0f62a4b12830ecde6c3e727a7857.obj\n>>> defined in /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/build/dartforge-emit-native-fd70b14585a53b2b/out/dartforge_runtime_727d7e778e2f5a32c85544fd199d5ca9.a(dartforge_runtime_static-a5911fc152c6c4b5.dartforge_runtime-547ceed18ab3c413.dartforge_runtime.b37615af68d14499-cgu.0.rcgu.o.rcgu.o)\nld64.lld: warning: /Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/0f/0ffa0f62a4b12830ecde6c3e727a7857.obj has version 28.0.0, which is newer than target minimum of 11.0"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'pruning::class_reachability::tests::compiled_subtype_startup_preserves_nominal_queries_with_gc_stress' (2182156) panicked at crates/emit_native/src/pruning/class_reachability/tests.rs:1465:24:
+called `Result::unwrap()` on an `Err` value: Any { .. }
+test pruning::class_reachability::tests::compiled_subtype_startup_preserves_nominal_queries_with_gc_stress ... FAILED
+
+failures:
+
+failures:
+    pruning::class_reachability::tests::compiled_subtype_startup_preserves_nominal_queries_with_gc_stress
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 863 filtered out; finished in 0.37s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

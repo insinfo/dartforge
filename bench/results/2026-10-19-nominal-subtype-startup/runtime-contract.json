@@ -1,0 +1,16 @@
+{
+  "file": "crates/runtime/src/core.rs",
+  "source_sha256": "7e367b200e26acba51b3fda3e7b7c54fa3d705c1b95009e67b9bf9cb7c5a4cf5",
+  "symbol": "dartforge_register_subclass",
+  "abi": "void(i64,i64)",
+  "effects": [
+    "publishes direct nominal subtype edge",
+    "invalidates native subtype caches"
+  ],
+  "no_dart_allocation_or_callback": true,
+  "preconditions": [
+    "exact selected runtime artifact and compiler fingerprint",
+    "fixed nominal image reconciled against the same SDK summaries",
+    "literal valid unambiguous CIDs and matching declared parent edges"
+  ]
+}

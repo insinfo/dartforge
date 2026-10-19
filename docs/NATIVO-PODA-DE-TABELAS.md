@@ -592,3 +592,28 @@ O corpo completo agora conserva o CID alocado, inclusive nas funções que o
 chamam, e o consumidor recusa a importação como fechamento vazio. O formato
 continua no schema 2; a mudança no coletor participa do fingerprint do compilador
 e invalida o cache SDK produzido pelo código anterior.
+
+### Startup nominal com certificado separado
+
+A prova de classes aceita como raiz um startup `void ()` cujo corpo completo
+publica somente relações literais por `dartforge_register_subclass`. A função
+deve ter o símbolo de registro do módulo, definição única e não interponível,
+sem alocação direta, dependências executáveis ou obrigações adicionais. Cada
+chamada exige a ABI exata, CIDs nominais válidos e não ambíguos, o filho declarado
+no próprio módulo e a aresta presente no resumo verificado. CIDs compartilhados
+entre módulos são recusados, salvo o pai universal 0 com seu certificado próprio.
+
+O contrato foi conferido em `runtime/src/core.rs`: a publicação altera o mapa
+de subtipos e invalida caches nativos, sem criar objetos Dart nem chamar helpers.
+Isso não torna a função uma importação pura. Chamadas comuns ao startup e usos
+diretos da API continuam sem autorização. Depois da reconciliação do snapshot,
+uma cópia temporária do grafo elimina somente as arestas nativas pertencentes
+aos startups certificados; os outros usuários da API permanecem visíveis. Os
+resumos originais, os corpos executáveis e o formato do inventário não mudam.
+Sem candidatos certificados, a prova reutiliza os resumos verificados sem cópia.
+
+Registros de nomes de classes, argumentos, tabelas, imagens estáticas e helpers
+ainda exigem contratos próprios. Os startups completos do SDK real continuam
+recusados; este certificado não conclui a poda do explorador. A regressão
+compilada conserva consultas nominais transitivas e inversas com registro amplo
+e certificado, em execução normal e sob estresse de GC.

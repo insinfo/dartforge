@@ -1,0 +1,58 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.65s
+     Running unittests src/lib.rs (target/impl-a/debug/deps/dartforge_emit_native-845e7f740af4002d)
+
+running 51 tests
+test pruning::class_reachability::tests::canonical_type_identity_cannot_be_relabelled_as_nominal_or_authorize_native_factories ... ok
+test pruning::class_reachability::tests::canonical_type_table_stays_live_without_explicit_allocations_or_runtime_vector ... ok
+test pruning::class_reachability::tests::a_fully_covered_image_without_queue_producers_eliminates_its_event_bridge ... ok
+test pruning::class_reachability::tests::broad_fallback_does_not_reuse_roots_from_a_previous_class_certificate ... ok
+test pruning::class_reachability::tests::deferred_work_registrars_are_not_implicitly_allocation_only_boundaries ... ok
+test pruning::class_reachability::tests::bounded_uniform_closures_keep_transitive_allocations_and_drop_unrelated_tables ... ok
+test pruning::class_reachability::tests::an_imported_queue_source_keeps_the_original_event_entry ... ok
+test pruning::class_reachability::tests::external_root_argument_packets_require_a_proved_input_domain ... ok
+test pruning::class_reachability::tests::failed_reaudit_discards_the_tentative_and_previous_active_sets ... ok
+test pruning::class_reachability::tests::global_storage_requires_its_local_declaration_and_exact_representation ... ok
+test pruning::class_reachability::tests::image_entry_names_do_not_authorize_runtime_shadowing_or_unproved_bodies ... ok
+test pruning::class_reachability::tests::image_initialization_names_keep_native_exports_disjoint ... ok
+test pruning::class_reachability::tests::implicit_boxing_keeps_runtime_class_tables_without_declared_registration_ids ... ok
+test pruning::class_reachability::tests::erased_import_abis_do_not_certify_managed_values_or_argument_packets ... ok
+test pruning::class_reachability::tests::escaped_mutated_unresolved_or_mismatched_closures_keep_wide_registration ... ok
+test pruning::class_reachability::tests::incompatible_static_call_does_not_prove_allocation_coverage ... ok
+test pruning::class_reachability::tests::inactive_foreign_body_is_not_mistaken_for_an_active_exposure ... ok
+test pruning::class_reachability::tests::inherited_implementation_transitively_activates_its_allocated_class ... ok
+test pruning::class_reachability::tests::local_stack_addresses_keep_identity_casts_without_opening_external_inputs ... ok
+test pruning::class_reachability::tests::local_calls_retain_their_transitive_allocations_and_runtime_abi_is_checked ... ok
+test pruning::class_reachability::tests::local_typed_closure_entries_have_bounded_allocation_reachability ... ok
+test pruning::class_reachability::tests::malformed_bodies_and_uniform_entry_signatures_cannot_publish_a_certificate ... ok
+test pruning::class_reachability::tests::protocol_references_cannot_smuggle_an_unchecked_runtime_or_missing_body ... ok
+test pruning::class_reachability::tests::queue_producers_exposure_and_unproved_bodies_keep_the_event_bridge ... ok
+test pruning::class_reachability::tests::changed_or_unproved_imports_do_not_hide_missing_allocation_coverage ... ok
+test pruning::class_reachability::tests::raw_argument_packet_addresses_cannot_be_fabricated_by_casts_or_unboxing ... ok
+test pruning::class_reachability::tests::rejection_identifies_the_boundary_and_discards_previous_class_coverage ... ok
+test pruning::class_reachability::tests::scalar_native_memory_access_does_not_close_managed_creation ... ok
+test pruning::class_reachability::tests::scalar_external_inputs_keep_their_closed_class_proof ... ok
+test pruning::class_reachability::tests::stack_storage_is_bounded_and_foreign_or_retyped_slots_remain_unknown ... ok
+test pruning::class_reachability::tests::subtype_startup_certificate_does_not_authorize_ordinary_calls_or_unowned_edges ... ok
+test pruning::class_reachability::tests::tableless_metadata_does_not_cover_allocations_runtime_classes_or_open_ancestry ... ok
+test pruning::class_reachability::tests::tableless_nominal_ancestors_keep_subtype_metadata_without_becoming_allocatable ... ok
+test pruning::class_reachability::tests::imported_table_declarations_do_not_authorize_calls_allocations_or_collisions ... ok
+test pruning::class_reachability::tests::typed_scalar_representations_match_the_encoded_entry_abi ... ok
+test pruning::class_reachability::tests::shared_universal_parent_requires_both_declarations_and_never_authorizes_allocation ... ok
+test pruning::class_reachability::tests::unallocated_tables_protocol_methods_and_emitted_dispatch_disappear ... ok
+test pruning::class_reachability::tests::unknown_roots_function_addresses_and_symbol_collisions_keep_tables_wide ... ok
+test pruning::class_reachability::tests::unknown_creation_exposure_and_entry_inputs_keep_original_wide_behavior ... ok
+test pruning::class_reachability::tests::unresolved_live_selector_target_cannot_close_the_image ... ok
+test pruning::class_reachability::tests::typed_code_addresses_and_signatures_cannot_escape_or_be_forged ... ok
+test pruning::class_reachability::tests::verified_nominal_subtype_startup_can_seed_the_closed_image ... ok
+test pruning::class_reachability::tests::verified_imported_scalar_closures_can_close_the_program_graph ... ok
+test pruning::class_reachability::tests::verified_unused_sdk_table_declarations_do_not_require_local_definitions ... ok
+test pruning::class_reachability::tests::compiled_subtype_startup_preserves_nominal_queries_with_gc_stress ... ok
+test pruning::class_reachability::tests::compiled_runtime_type_factory_matches_the_emitter_cid_and_scalar_payload ... ok
+test pruning::class_reachability::tests::compiled_closed_selector_matches_eager_registration ... ok
+test pruning::class_reachability::tests::compiled_empty_event_domain_matches_the_eager_loop_under_gc_stress ... ok
+test pruning::class_reachability::tests::lowering_marks_only_nominal_ancestors_and_preserves_the_premises_when_joining ... ok
+test pruning::class_reachability::tests::compiled_uniform_closures_match_eager_registration_with_stress_gc ... ok
+test pruning::class_reachability::tests::compiled_typed_closures_preserve_dispatch_and_stress_gc ... ok
+
+test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 817 filtered out; finished in 8.92s

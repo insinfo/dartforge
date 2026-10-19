@@ -1,15 +1,16 @@
 //! Artifact-bound allocation inventory consumption for fixed-image analysis.
 //!
-//! Allocation closure and exposure closure are distinct. This first consumer
-//! admits only source functions whose complete closure is allocation-free and
-//! consists of direct, ABI-matched definitions and reviewed LLVM expect calls.
-//! Raw memory, native calls, image registration and unknown records stay open.
+//! Allocation closure and exposure closure are distinct. Ordinary imports need
+//! an allocation-free closure of direct, ABI-matched source definitions and
+//! reviewed LLVM expect calls. A separate entry-only certificate covers literal
+//! nominal subtype startup. Raw memory, images and helper bindings stay open.
 use super::super::Summary;
 use crate::hir::Type;
 use serde::Deserialize;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
+mod registry;
 mod tables;
 
 const SCOPE: &str =
@@ -85,6 +86,7 @@ pub(crate) struct Inventory {
     summaries: Vec<Summary>,
     known_allocations: usize,
     table_declarations: HashMap<String, u32>,
+    subtype_startups: HashSet<String>,
 }
 fn digest(text: &str) -> bool {
     text.len() == 64
@@ -342,6 +344,7 @@ impl Inventory {
                 }
             }
         }
+        let subtype_startups = registry::subtype_startups(&raw.functions, &summaries, &by_key);
         let known_allocations = allocations.iter().filter(|c| c.is_some()).count();
         let mut facts = HashMap::new();
         for (index, f) in raw.functions.into_iter().enumerate() {
@@ -369,6 +372,7 @@ impl Inventory {
             summaries,
             known_allocations,
             table_declarations,
+            subtype_startups,
         })
     }
 
@@ -475,6 +479,7 @@ impl Inventory {
     }
     pub(crate) fn known_node(&self, key: &str) -> bool {
         self.bytes.contains(key)
+            || self.subtype_startups.contains(key)
             || self.facts.get(key).is_some_and(|f| f.pure)
             || matches!(key, "llvm.expect.i1" | "llvm.expect.i64")
                 && !self.definitions.contains(key)
@@ -489,6 +494,33 @@ impl Inventory {
         self.facts.get(symbol).is_some_and(|f| {
             !f.local && f.pure && f.abi.as_ref().is_some_and(|abi| abi.matches(args, result))
         })
+    }
+    /// Startup-only metadata publication is not an ordinary pure Dart call.
+    pub(crate) fn entry(&self, symbol: &str) -> bool {
+        self.call(symbol, &[], Type::Void) || self.subtype_startups.contains(symbol)
+    }
+    /// Discharge only edges owned by certified subtype startup bodies. Other
+    /// uses of the runtime API remain visible and require their own proof.
+    pub(crate) fn class_proof_summaries(&self) -> std::borrow::Cow<'_, [Summary]> {
+        if self.subtype_startups.is_empty() {
+            return std::borrow::Cow::Borrowed(&self.summaries);
+        }
+        let mut summaries = self.summaries.clone();
+        for summary in &mut summaries {
+            for definition in &mut summary.definitions {
+                if summary
+                    .names
+                    .get(definition.name as usize)
+                    .is_some_and(|symbol| self.subtype_startups.contains(symbol))
+                {
+                    definition.refs.retain(|node| {
+                        summary.names.get(*node as usize).map(String::as_str)
+                            != Some(registry::SUBCLASS)
+                    });
+                }
+            }
+        }
+        std::borrow::Cow::Owned(summaries)
     }
     pub(crate) fn contains_definition(&self, key: &str) -> bool {
         self.definitions.contains(key)

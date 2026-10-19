@@ -1411,6 +1411,96 @@ fn checked_sdk(
 }
 
 #[test]
+fn subtype_startup_certificate_does_not_authorize_ordinary_calls_or_unowned_edges() {
+    let ir = "; df.cone-class 900\n; df.cone-class 901\n; df.cone-parent 900 901\ndefine void @df.register.dart$3atest() {\n call void @dartforge_register_subclass(i64 900, i64 901)\n ret void\n}\n";
+    for direct_runtime in [false, true] {
+        let (_directory, summary, inventory) = checked_scalar_sdk(ir);
+        let mut module = fixture();
+        module.sdk_records.push("df.register.dart$3atest".into());
+        module.imported_allocation_inventory = Some(inventory);
+        let instruction = if direct_runtime {
+            Instruction::CallRuntime {
+                name: "dartforge_register_subclass".into(),
+                args: vec![
+                    (Operand::Constant(Constant::Int(900)), Type::I64),
+                    (Operand::Constant(Constant::Int(901)), Type::I64),
+                ],
+                ret_ty: Type::Void,
+            }
+        } else {
+            Instruction::CallStatic {
+                symbol: "df.register.dart$3atest".into(),
+                args: vec![],
+                ret_ty: Type::Void,
+            }
+        };
+        module.functions[0].blocks[0]
+            .instructions
+            .push((ValueId(1), instruction, Type::Void));
+        assert!(audit(&mut module, &[&summary]).is_err());
+        assert!(module.closed_class_tables.is_none());
+    }
+}
+
+#[test]
+#[ignore = "requires Clang and the native runtime"]
+fn compiled_subtype_startup_preserves_nominal_queries_with_gc_stress() {
+    std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+        let ir = "; df.cone-class 900\n; df.cone-class 901\n; df.cone-class 902\n; df.cone-parent 900 901\n; df.cone-parent 901 902\ndefine void @df.register.dart$3atest() {\n call void @dartforge_register_subclass(i64 900, i64 901)\n call void @dartforge_register_subclass(i64 901, i64 902)\n ret void\n}\n";
+        let (directory, summary, inventory) = checked_scalar_sdk(ir);
+        for closed in [false, true] {
+            let mut module = fixture();
+            module.runtime_cids = dartforge_runtime::layout::cid::SDK_CLASSES.iter()
+                .map(|(cid, _, _)| i64::from(*cid)).collect();
+            module.sdk_records.push("df.register.dart$3atest".into());
+            module.imported_allocation_inventory = Some(inventory.clone());
+            if closed { audit(&mut module, &[&summary]).unwrap(); }
+            let emitted = crate::llvm::LlvmEmitter::new(&module).emit_all();
+            let declaration = "declare void @df.register.dart$3atest()\n";
+            assert_eq!(emitted.matches(declaration).count(), 1);
+            let emitted = emitted.replacen(declaration, ir, 1);
+            let wrapper = "define i32 @main() {\n  %r = call i32 @dartforge_init(ptr @dartforge_entry, ptr @dartforge_dispatch_toString)\n  ret i32 %r\n}\n";
+            assert_eq!(emitted.matches(wrapper).count(), 1);
+            // Use the runtime-owned C main. Add an observation-only oracle at
+            // entry completion, after the certified startup has executed.
+            let emitted = emitted.replacen(wrapper, "", 1);
+            let start = emitted.find("define void @dartforge_entry() {").unwrap();
+            let end = start + emitted[start..].find("\n}\n").unwrap();
+            let position = start + emitted[start..end].rfind("  ret void").unwrap();
+            let mut emitted = emitted;
+            emitted.insert_str(position, "  call void @df.test.subtype_probe()\n");
+            if !emitted.contains("declare void @llvm.trap()") {
+                emitted.push_str("\ndeclare void @llvm.trap()\n");
+            }
+            emitted.push_str("\ndefine void @df.test.subtype_probe() {\n %yes = call i8 @dartforge_is_subclass(i64 900, i64 902)\n %no = call i8 @dartforge_is_subclass(i64 902, i64 900)\n %a = icmp eq i8 %yes, 1\n %b = icmp eq i8 %no, 0\n %ok = and i1 %a, %b\n br i1 %ok, label %pass, label %fail\npass:\n ret void\nfail:\n call void @llvm.trap()\n unreachable\n}\n");
+            let executable = directory.path().join(crate::target::executable_name(&format!("subtype-{closed}")));
+            crate::driver::compile_and_link(&emitted, &executable, &crate::driver::NativeDriverOptions::default()).unwrap();
+            for stressed in [false, true] {
+                let mut command = std::process::Command::new(&executable);
+                if stressed { command.env("DARTFORGE_GC_STRESS", "1"); }
+                let output = command.output().unwrap();
+                assert!(output.status.success(), "closed={closed}, stressed={stressed}: {}", String::from_utf8_lossy(&output.stderr));
+                assert!(output.stdout.is_empty() && output.stderr.is_empty());
+            }
+        }
+    }).unwrap().join().unwrap();
+}
+
+#[test]
+fn verified_nominal_subtype_startup_can_seed_the_closed_image() {
+    let ir = "; df.cone-class 900\n; df.cone-class 901\n; df.cone-parent 900 901\ndefine void @df.register.dart$3atest() {\n call void @dartforge_register_subclass(i64 900, i64 901)\n ret void\n}\n";
+    let (_directory, summary, inventory) = checked_scalar_sdk(ir);
+    let mut module = fixture();
+    module.sdk_records.push("df.register.dart$3atest".into());
+    module.imported_allocation_inventory = Some(inventory);
+    audit(&mut module, &[&summary]).unwrap();
+    assert_eq!(
+        module.closed_class_tables.as_ref().unwrap(),
+        &HashSet::from([300])
+    );
+}
+
+#[test]
 fn verified_imported_scalar_closures_can_close_the_program_graph() {
     let ir = "define i64 @df.dart$3atest..leaf(i64 %x) {\n %sum = add i64 %x, 1\n ret i64 %sum\n}\ndefine void @df.dart$3atest..startup() {\n ret void\n}\n";
     let (_directory, summary, inventory) = checked_scalar_sdk(ir);

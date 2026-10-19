@@ -2,6 +2,7 @@ use super::*;
 
 const MODULE: &str = "dart:test";
 const LEAF: &str = "df.dart$3atest..leaf";
+const SUBTYPE_STARTUP: &str = "; df.cone-class 900\n; df.cone-class 901\n; df.cone-parent 900 901\ndefine void @df.register.dart$3atest() {\n call void @dartforge_register_subclass(i64 900, i64 901)\n ret void\n}\n";
 fn fixtures(ir: &str) -> (tempfile::TempDir, Vec<String>, std::path::PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let runtime = dir.path().join("runtime.a");
@@ -27,8 +28,104 @@ fn fixtures(ir: &str) -> (tempfile::TempDir, Vec<String>, std::path::PathBuf) {
     (dir, names, runtime)
 }
 #[test]
+fn nominal_startup_certificate_is_entry_only_and_owns_its_graph_edges() {
+    let ir = format!(
+        "{SUBTYPE_STARTUP}define void @df.dart$3atest..other() {{\n call void @dartforge_register_subclass(i64 900, i64 901)\n ret void\n}}\n"
+    );
+    let (dir, names, runtime) = fixtures(&ir);
+    let inventory = Inventory::load(dir.path(), "test-key", true, &names, &runtime).unwrap();
+    let startup = "df.register.dart$3atest";
+    assert!(inventory.entry(startup));
+    assert!(!inventory.call(startup, &[], Type::Void));
+    assert!(inventory.known_node(startup));
+    assert!(!inventory.known_node("dartforge_register_subclass"));
+    assert!(!inventory.entry("df.dart$3atest..other"));
+    let proof = inventory.class_proof_summaries();
+    for (symbol, keeps_edge) in [(startup, false), ("df.dart$3atest..other", true)] {
+        let edges = |summary: &Summary| {
+            let definition = summary
+                .definitions
+                .iter()
+                .find(|d| summary.names[d.name as usize] == symbol)
+                .unwrap();
+            definition
+                .refs
+                .iter()
+                .map(|n| summary.names[*n as usize].clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            edges(&proof[0]).contains(&"dartforge_register_subclass".into()),
+            keeps_edge
+        );
+        assert!(edges(&inventory.summaries[0]).contains(&"dartforge_register_subclass".into()));
+    }
+}
+
+#[test]
+fn nominal_startup_rejects_unproved_operands_effects_and_identities() {
+    for variant in 0..18 {
+        let ir = match variant {
+            0 => SUBTYPE_STARTUP.replace("; df.cone-class 901\n", ""),
+            1 => SUBTYPE_STARTUP.replace("; df.cone-parent 900 901\n", ""),
+            2 => SUBTYPE_STARTUP.replace("i64 900, i64 901", "i64 900, i64 902"),
+            3 => SUBTYPE_STARTUP.replace("i64 900, i64 901", "i64 -1, i64 901"),
+            4 => SUBTYPE_STARTUP.replace("i64 900, i64 901", "i64 2147483648, i64 901"),
+            5 => SUBTYPE_STARTUP
+                .replace("() {", "(i64 %cid) {")
+                .replace("i64 900,", "i64 %cid,"),
+            6 => SUBTYPE_STARTUP.replace(
+                "call void @dartforge_register_subclass",
+                "call void @opaque",
+            ),
+            7 => SUBTYPE_STARTUP.replace(
+                " ret void",
+                " call void @dartforge_register_image(ptr null, ptr null)\n ret void",
+            ),
+            8 => SUBTYPE_STARTUP.replace(
+                " ret void",
+                " %o = call i64 @dartforge_object_new(i64 900, i64 0)\n ret void",
+            ),
+            9 => SUBTYPE_STARTUP.replace("define void", "define internal void"),
+            10 => SUBTYPE_STARTUP.replace("define void", "define weak void"),
+            11 => SUBTYPE_STARTUP.replace(
+                "call void @dartforge_register_subclass(i64 900, i64 901)",
+                "call void @dartforge_register_subclass(i32 900, i32 901)",
+            ),
+            12 => format!(
+                "{SUBTYPE_STARTUP}define void @dartforge_register_subclass(i64 %a, i64 %b) {{\n ret void\n}}\n"
+            ),
+            13 => format!(
+                "{SUBTYPE_STARTUP}define internal void @dartforge_register_subclass(i64 %a, i64 %b) {{\n ret void\n}}\n"
+            ),
+            14 => SUBTYPE_STARTUP.replace(
+                " ret void",
+                " call void @dartforge_register_helper(ptr null, i64 0, ptr null)\n ret void",
+            ),
+            15 => SUBTYPE_STARTUP.replace(
+                " ret void",
+                " call void @dartforge_register_table(i64 900, ptr null)\n ret void",
+            ),
+            16 => SUBTYPE_STARTUP.replace(
+                " ret void",
+                " call void @dartforge_register_class_name(i64 900, ptr null, i64 0)\n ret void",
+            ),
+            _ => SUBTYPE_STARTUP.replace(" ret void", " fence seq_cst\n ret void"),
+        };
+        let (dir, names, runtime) = fixtures(&ir);
+        let inventory = Inventory::load(dir.path(), "test-key", true, &names, &runtime).unwrap();
+        assert!(
+            !inventory.entry("df.register.dart$3atest"),
+            "variant {variant}"
+        );
+    }
+}
+
+#[test]
 fn quoted_header_cannot_turn_an_allocator_into_an_empty_import() {
-    let ir = format!("define i64 @{LEAF}(i64 %\"{{ ret i64 0 }}\") {{\n %o = call i64 @dartforge_object_new(i64 399, i64 0)\n ret i64 7\n}}\n");
+    let ir = format!(
+        "define i64 @{LEAF}(i64 %\"{{ ret i64 0 }}\") {{\n %o = call i64 @dartforge_object_new(i64 399, i64 0)\n ret i64 7\n}}\n"
+    );
     let (dir, names, runtime) = fixtures(&ir);
     let inventory = Inventory::load(dir.path(), "test-key", true, &names, &runtime).unwrap();
     assert!(!inventory.call(LEAF, &[Type::I64], Type::I64));
@@ -264,6 +361,10 @@ fn actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup() {
     }
     let startup = crate::sdk_module::sdk_records();
     assert!(!startup.is_empty());
+    assert!(
+        startup.iter().all(|symbol| !inventory.entry(symbol)),
+        "actual SDK startups still require image/helper certificates"
+    );
     assert!(
         startup
             .iter()
