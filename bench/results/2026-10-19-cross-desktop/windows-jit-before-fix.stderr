@@ -1,0 +1,6 @@
+dartforge.exe : LLVM ERROR: IMAGE_REL_AMD64_ADDR32NB relocation requires an ordered section layout
+At C:\tools\forge-validate-interactive.ps1:18 char:2
++  & $program @arguments 1> "$out\$label.stdout" 2> "$out\$label.stderr ...
++  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (LLVM ERROR: IMA... section layout:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError

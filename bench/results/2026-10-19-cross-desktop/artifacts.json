@@ -1,0 +1,42 @@
+{
+  "target/desktop-matrix/macos-arm64/explorer": {
+    "sha256": "956bbb5f602e7f29e8d0f3583b94a88e3450147487e1e5f725392cab0f993027",
+    "bytes": 25291280
+  },
+  "target/desktop-matrix/macos-arm64/context-smoke": {
+    "sha256": "7b1d96752dbbcd294100b61b7c1ba0cdb6be54c837e2eb9fb91e1c6191c174b6",
+    "bytes": 24629232
+  },
+  "target/desktop-matrix/cross-linux-arm64/platform": {
+    "sha256": "76193621ba9b6649352dbb21682aee4d09fde826eaf044f148f9a315673e3159",
+    "bytes": 3290160
+  },
+  "target/desktop-matrix/cross-linux-arm64/explorer": {
+    "sha256": "b31a923a500407218a3f8927940065f8b8d54cf3984978138c63669df9747dce",
+    "bytes": 37669568
+  },
+  "target/desktop-matrix/cross-linux-arm64/context-smoke": {
+    "sha256": "b042bdc0bc687960387e21e9d0b38f209ad2cc7c5431a99ea566805840850d16",
+    "bytes": 36687184
+  },
+  "target/desktop-matrix/cross-windows-x64/context-smoke.exe": {
+    "sha256": "64b5ff87af62fd65e26b381854802aef8f9f28e27d17970788b2c11fe0d6e28b",
+    "bytes": 36507648
+  },
+  "target/desktop-matrix/cross-windows-x64/explorer.exe": {
+    "sha256": "c6e117a3db66dbe73c040f38718bdb43ddc7e37fdbaf03a4f6ed9701acd993ff",
+    "bytes": 37394944
+  },
+  "target/desktop-matrix/cross-windows-x64/platform.exe": {
+    "sha256": "c81d7d7d5340e35524f5b089475cb6343cf1ef1df8ad5014c55efde8a236e75b",
+    "bytes": 3294208
+  },
+  "target/desktop-matrix/cross-macos-arm64/platform": {
+    "sha256": "cbfd6bf714b1f9dc49b3ead5b64a3424135e14e97358155d43faec98640789e6",
+    "bytes": 3030736
+  },
+  "target/desktop-matrix/cross-macos-arm64/explorer": {
+    "sha256": "1b0f9472f142123490c58cb33fdc3feed1d7b725ef6dce6e6820a468067bac13",
+    "bytes": 25291296
+  }
+}

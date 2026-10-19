@@ -1,0 +1,62 @@
+[
+  {
+    "name": "platform",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/platform_flags/main.dart",
+      "--optimize",
+      "--target=windows-x64",
+      "--target-bundle",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/windows-x64",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--packages",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/desktop-matrix/cross-windows-x64/platform.exe"
+    ],
+    "exit": 0,
+    "seconds": 20.891
+  },
+  {
+    "name": "explorer",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+      "compile-native",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+      "--optimize",
+      "--target=windows-x64",
+      "--target-bundle",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/windows-x64",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--packages",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/desktop-matrix/cross-windows-x64/explorer.exe"
+    ],
+    "exit": 0,
+    "seconds": 98.486
+  },
+  {
+    "name": "context-smoke",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+      "compile-native",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/tool/context_menu_retarget_smoke.dart",
+      "--optimize",
+      "--target=windows-x64",
+      "--target-bundle",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/windows-x64",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--packages",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/desktop-matrix/cross-windows-x64/context-smoke.exe"
+    ],
+    "exit": 0,
+    "seconds": 98.494
+  }
+]

@@ -1,0 +1,31 @@
+{
+  "cross_bundle_tests": {
+    "passed": 2
+  },
+  "cross_object_headers": {
+    "passed": 1,
+    "destinations": 5
+  },
+  "cross_cli_integration": {
+    "passed": 1
+  },
+  "target_doctests": {
+    "passed": 3
+  },
+  "native_library_tests": {
+    "passed": 763,
+    "failed": 4,
+    "ignored": 9,
+    "failures_identical_to_baseline": true
+  },
+  "workspace_fmt": "fails: existing formatting differences",
+  "workspace_clippy": "fails: six existing runtime warnings treated as errors",
+  "workspace_tests": "stopped: Apple linker cannot consume LLVM 22 bitcode",
+  "workspace_docs": "passed",
+  "jit_windows_execution": {
+    "passed": 14,
+    "failed": 0,
+    "filtered_out": 2,
+    "includes_ignored": true
+  }
+}

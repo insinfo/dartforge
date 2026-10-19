@@ -1,0 +1,21 @@
+{
+  "name": "explorer-jit-run",
+  "program": "C:\\tools\\dartforge\\target\\native-x64\\x86_64-pc-windows-msvc\\release\\dartforge.exe",
+  "arguments": [
+    "run",
+    "C:\\tools\\ui\\examples\\file_explorer\\bin\\file_explorer.dart",
+    "--sdk",
+    "C:\\tools\\dart\\3.6.2\\dart-sdk\\lib",
+    "--packages",
+    "C:\\tools\\ui\\examples\\file_explorer\\.dart_tool\\package_config.json",
+    "--",
+    "C:\\tools\\ui\\examples\\file_explorer",
+    "--lang=pt",
+    "--frames=2",
+    "--backend=win32",
+    "--presentation=direct3d11"
+  ],
+  "exit": 1,
+  "passed": false,
+  "seconds": 307.0255305
+}

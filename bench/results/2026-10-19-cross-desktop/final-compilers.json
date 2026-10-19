@@ -1,0 +1,14 @@
+{
+  "macos-arm64": {
+    "sha256": "d6a58bfaffa30de6d20e04d68e50bf18cc6c8a6df79732f1610f37a75fcd0fb5",
+    "bytes": 85937808
+  },
+  "linux-arm64": {
+    "sha256": "f02a5dcfc938eed3aec78ee1bfa8aa1e3679706347d738d3115f2e8d41cead0f"
+  },
+  "windows-x64": {
+    "path": "C:\\tools\\dartforge\\target\\native-x64\\x86_64-pc-windows-msvc\\release\\dartforge.exe",
+    "sha256": "7917017A57F554DFC3E37453FD22B65BFA72D5422D63EEACAA7976BF08423376",
+    "bytes": 37601792
+  }
+}

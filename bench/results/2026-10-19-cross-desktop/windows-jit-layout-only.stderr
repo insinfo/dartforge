@@ -1,0 +1,13 @@
+dartforge.exe : JIT session error: Failed to materialize symbols: { (main, { __real@409f400000000000,
+__real@404e000000000000, __real@4018000000000000, __xmm@7fffffffffffffff7fffffffffffffff,
+__real@4075e00000000000, __real@4061400000000000, __real@43e0000000000000, __real@3fe0000000000000,
+__real@c3e0000000000000, __real@403a000000000000, __xmm@80000000000000008000000000000000,
+__real@3ff0000000000000 }) }
+At C:\tools\forge-jit-fixed-interactive.ps1:18 char:2
++  & $program @arguments 1> "$out\$label.stdout" 2> "$out\$label.stderr ...
++  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (JIT session err...0000000000 }) }:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+
+error: execute: the program execution failed: Failed to materialize symbols: { (main, { dartforge_entry,
+df.area_id.program, main }) }

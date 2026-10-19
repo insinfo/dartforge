@@ -1,0 +1,5 @@
+{
+  "exit": 101,
+  "passed": true,
+  "stderr": "\nthread 'main' (893911) panicked at crates/llvm/build.rs:51:9:\nassertion `left == right` failed: LLVM library architecture does not match the Rust build target; install matching LLVM or build DartForge with --target matching LLVM (for x64: --target x86_64-pc-windows-msvc)\n  left: \"aarch64\"\n right: \"x86_64\"\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+}

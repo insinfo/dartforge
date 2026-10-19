@@ -1,0 +1,16 @@
+{
+  "producer": "Linux ARM64 DartForge",
+  "target": "macos-arm64",
+  "run_on": "macOS ARM64",
+  "program": "explorer",
+  "arguments": [
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer",
+    "--lang=pt",
+    "--cpu",
+    "--frames=2"
+  ],
+  "exit": 0,
+  "passed": true,
+  "stdout": "",
+  "stderr": ""
+}

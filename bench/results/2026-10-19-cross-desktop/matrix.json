@@ -1,0 +1,82 @@
+{
+  "dart_ui": "15aff70",
+  "native_explorer": [
+    {
+      "target": "macos-arm64",
+      "program": "file_explorer.dart",
+      "mode": "aot",
+      "passed": true,
+      "exit": 0,
+      "seconds": 2.114
+    },
+    {
+      "target": "macos-arm64",
+      "program": "file_explorer.dart",
+      "mode": "jit",
+      "passed": true,
+      "exit": 0,
+      "seconds": 106.95
+    },
+    {
+      "target": "linux-arm64",
+      "program": "file_explorer.dart",
+      "mode": "aot",
+      "passed": true,
+      "exit": 0,
+      "seconds": 0.282
+    },
+    {
+      "target": "linux-arm64",
+      "program": "file_explorer.dart",
+      "mode": "jit",
+      "passed": true,
+      "exit": 0,
+      "seconds": 125.119
+    },
+    {
+      "target": "windows-x64",
+      "program": "file_explorer.dart",
+      "mode": "aot",
+      "passed": true,
+      "exit": 0,
+      "seconds": 1.3396242
+    },
+    {
+      "target": "windows-x64",
+      "program": "file_explorer.dart",
+      "mode": "jit",
+      "passed": true,
+      "exit": 0,
+      "seconds": 244.6503052
+    }
+  ],
+  "native_context_jit": [
+    "macos-arm64",
+    "linux-arm64",
+    "windows-x64"
+  ],
+  "cross_explorer": [
+    {
+      "host": "macos-arm64",
+      "target": "linux-arm64",
+      "exit": 0
+    },
+    {
+      "host": "macos-arm64",
+      "target": "windows-x64",
+      "exit": 0
+    },
+    {
+      "host": "linux-arm64",
+      "target": "macos-arm64",
+      "exit": 0
+    }
+  ],
+  "cross_context_aot": [
+    "linux-arm64",
+    "windows-x64"
+  ],
+  "method": "Original entry renders two frames and exits; native context smoke uses the real app with in-memory filesystem.",
+  "implementation_head": "98ee596b",
+  "provenance": "Initial macOS/Linux and Windows AOT matrix uses the cross implementation in 986b16d4; Windows JIT rerun uses 98ee596b. See individual compiler/artifact hashes."
+}

@@ -1,0 +1,62 @@
+[
+  {
+    "name": "platform",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/platform_flags/main.dart",
+      "--optimize",
+      "--target=linux-arm64",
+      "--target-bundle",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/linux-arm64",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--packages",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/desktop-matrix/cross-linux-arm64/platform"
+    ],
+    "exit": 0,
+    "seconds": 31.484
+  },
+  {
+    "name": "explorer",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+      "compile-native",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+      "--optimize",
+      "--target=linux-arm64",
+      "--target-bundle",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/linux-arm64",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--packages",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/desktop-matrix/cross-linux-arm64/explorer"
+    ],
+    "exit": 0,
+    "seconds": 176.546
+  },
+  {
+    "name": "context-smoke",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+      "compile-native",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/tool/context_menu_retarget_smoke.dart",
+      "--optimize",
+      "--target=linux-arm64",
+      "--target-bundle",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/linux-arm64",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--packages",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/desktop-matrix/cross-linux-arm64/context-smoke"
+    ],
+    "exit": 0,
+    "seconds": 151.255
+  }
+]

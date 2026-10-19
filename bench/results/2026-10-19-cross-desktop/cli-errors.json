@@ -1,0 +1,55 @@
+[
+  {
+    "args": [
+      "aot",
+      "missing.dart",
+      "--target",
+      "windows-arm64"
+    ],
+    "exit": 1,
+    "stderr": "error: unsupported native target \"windows-arm64\"; use windows-x64, linux-x64, linux-arm64, macos-x64 or macos-arm64",
+    "passed": true
+  },
+  {
+    "args": [
+      "aot",
+      "missing.dart",
+      "--target"
+    ],
+    "exit": 1,
+    "stderr": "error: --target requires a value",
+    "passed": true
+  },
+  {
+    "args": [
+      "aot",
+      "missing.dart",
+      "--target=linux-arm64",
+      "--target=linux-x64"
+    ],
+    "exit": 1,
+    "stderr": "error: --target specified twice",
+    "passed": true
+  },
+  {
+    "args": [
+      "run",
+      "missing.dart",
+      "--target=linux-arm64"
+    ],
+    "exit": 1,
+    "stderr": "error: --target and --target-bundle are only valid for aot and compile-native; JIT runs on its host",
+    "passed": true
+  },
+  {
+    "args": [
+      "aot",
+      "missing.dart",
+      "--target-bundle",
+      "missing-bundle"
+    ],
+    "exit": 1,
+    "stderr": "error: target bundle missing-bundle: No such file or directory (os error 2)",
+    "passed": true
+  }
+]

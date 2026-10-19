@@ -1,0 +1,121 @@
+{
+  "platform": "Linux-6.8.0-147-generic-aarch64-with-glibc2.39",
+  "compiler": "/home/isaque/projects/dartforge/target/native-validation/release/dartforge",
+  "compiler_sha256": "97c584be260ebcf84e1ae40aa18c5cef8431de5217721c4a01ed6e22329c21ec",
+  "mode": "all",
+  "runs": [
+    {
+      "name": "export-target",
+      "command": [
+        "/home/isaque/projects/dartforge/target/native-validation/release/dartforge",
+        "export-target",
+        "/home/isaque/projects/dartforge/target/cross-bundle-linux-arm64"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 0.331
+    },
+    {
+      "name": "explorer-aot-build",
+      "command": [
+        "/home/isaque/projects/dartforge/target/native-validation/release/dartforge",
+        "compile-native",
+        "/home/isaque/projects/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+        "--optimize",
+        "--sdk",
+        "/opt/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/home/isaque/projects/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "-o",
+        "/home/isaque/projects/dartforge/target/desktop-matrix/linux-arm64/explorer"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 415.212
+    },
+    {
+      "name": "explorer-aot-run",
+      "command": [
+        "/home/isaque/projects/dartforge/target/desktop-matrix/linux-arm64/explorer",
+        "/home/isaque/projects/dart_ui/examples/file_explorer",
+        "--lang=pt",
+        "--frames=2",
+        "--backend=wayland",
+        "--presentation=wayland-opengl"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 0.282
+    },
+    {
+      "name": "explorer-jit-run",
+      "command": [
+        "/home/isaque/projects/dartforge/target/native-validation/release/dartforge",
+        "run",
+        "/home/isaque/projects/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+        "--sdk",
+        "/opt/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/home/isaque/projects/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "--",
+        "/home/isaque/projects/dart_ui/examples/file_explorer",
+        "--lang=pt",
+        "--frames=2",
+        "--backend=wayland",
+        "--presentation=wayland-opengl"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 125.119
+    },
+    {
+      "name": "context-smoke-aot-build",
+      "command": [
+        "/home/isaque/projects/dartforge/target/native-validation/release/dartforge",
+        "compile-native",
+        "/home/isaque/projects/dart_ui/examples/file_explorer/tool/context_menu_retarget_smoke.dart",
+        "--optimize",
+        "--sdk",
+        "/opt/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/home/isaque/projects/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "-o",
+        "/home/isaque/projects/dartforge/target/desktop-matrix/linux-arm64/context-smoke"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 250.026
+    },
+    {
+      "name": "context-smoke-aot-run",
+      "command": [
+        "/home/isaque/projects/dartforge/target/desktop-matrix/linux-arm64/context-smoke",
+        "--backend=wayland",
+        "--presentation=wayland-opengl"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 1.776
+    },
+    {
+      "name": "context-smoke-jit-run",
+      "command": [
+        "/home/isaque/projects/dartforge/target/native-validation/release/dartforge",
+        "run",
+        "/home/isaque/projects/dart_ui/examples/file_explorer/tool/context_menu_retarget_smoke.dart",
+        "--sdk",
+        "/opt/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/home/isaque/projects/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "--",
+        "--backend=wayland",
+        "--presentation=wayland-opengl"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 117.42
+    }
+  ],
+  "explorer_aot_sha256": "cabc5f593f651b59f4b127bde1e2a35b8e8e98732b7be5d289b8657c38b91880",
+  "context-smoke_aot_sha256": "1ae2c70e732c7d10510552605d49cd50c1b22ab8610bc355b304fecfd0ee39f8"
+}

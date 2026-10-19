@@ -1,0 +1,22 @@
+[
+  {
+    "path": "C:\\tools\\dartforge\\target\\native-x64\\x86_64-pc-windows-msvc\\release\\dartforge.exe",
+    "sha256": "7917017A57F554DFC3E37453FD22B65BFA72D5422D63EEACAA7976BF08423376",
+    "bytes": 37601792
+  },
+  {
+    "path": "C:\\Users\\isaque.neves\\AppData\\Local\\DartForgeDesktopValidation\\windows-x64\\explorer.exe",
+    "sha256": "868CC55A5826C43EDA8EB4E835FE200F42600A63CE7E41A3483EC2EFE912133C",
+    "bytes": 37389824
+  },
+  {
+    "path": "C:\\Users\\isaque.neves\\AppData\\Local\\DartForgeDesktopValidation\\cross-received\\explorer.exe",
+    "sha256": "C6E117A3DB66DBE73C040F38718BDB43DDC7E37FDBAF03A4F6ED9701ACD993FF",
+    "bytes": 37394944
+  },
+  {
+    "path": "C:\\Users\\isaque.neves\\AppData\\Local\\DartForgeDesktopValidation\\cross-received\\context-smoke.exe",
+    "sha256": "64B5FF87AF62FD65E26B381854802AEF8F9F28E27D17970788B2C11FE0D6E28B",
+    "bytes": 36507648
+  }
+]

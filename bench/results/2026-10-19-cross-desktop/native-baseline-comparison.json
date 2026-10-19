@@ -1,0 +1,15 @@
+{
+  "before_failures": [
+    "lower::primitive_clamp::tests::actual_literal_clamp_uses_selected_sources_and_preserves_fallback_checks",
+    "optimize::arc::fields::class_cases::tests::ordinary_late_generic_notifier_dispatch_prepares_without_erasing_field_guards",
+    "optimize::constant_specialize::tests::actual_color_context_reports_post_prune_specialization_eligibility",
+    "optimize::enum_constants::tests::ordinary_simple_enum_lowering_certifies_current_getter_and_rejects_enhanced_shape"
+  ],
+  "after_failures": [
+    "lower::primitive_clamp::tests::actual_literal_clamp_uses_selected_sources_and_preserves_fallback_checks",
+    "optimize::arc::fields::class_cases::tests::ordinary_late_generic_notifier_dispatch_prepares_without_erasing_field_guards",
+    "optimize::constant_specialize::tests::actual_color_context_reports_post_prune_specialization_eligibility",
+    "optimize::enum_constants::tests::ordinary_simple_enum_lowering_certifies_current_getter_and_rejects_enhanced_shape"
+  ],
+  "same_failures": true
+}

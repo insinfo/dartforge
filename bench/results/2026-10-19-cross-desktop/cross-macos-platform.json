@@ -1,0 +1,6 @@
+{
+  "exit": 0,
+  "stdout": "[false, true, false, false, false, false]\ntrue\ntrue\nfalse\nfalse\nfalse\n5\n",
+  "stderr": "",
+  "passed": true
+}
