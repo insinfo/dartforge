@@ -1,4 +1,19 @@
-# Estado do DartForge — 2026-10-15
+# Estado do DartForge — 2026-10-19
+
+## Atualização de 19/10/2026
+
+- Compilação cruzada com `--target`/`--target-bundle` e `export-target`; o
+  explorador real executou em AOT e JIT no macOS ARM64, Ubuntu ARM64 e Windows
+  x64 na VM ARM64. Executáveis cruzados também rodaram nos destinos. Escopo,
+  correções do JIT COFF e limites: `RELATORIO-CROSS-COMPILACAO-DESKTOP.md`.
+- O certificado experimental de `clamp(0, 1)` foi alinhado aos nativos numéricos
+  embutidos em HIR. A exigência antiga de implementação no runtime impedia toda
+  certificação válida. Seis testes dirigidos passaram; 373 resultados de clamp
+  e 2.736 de cor coincidiram com VM/AOT oficiais, OFF/ON e sob GC stress. O LLVM
+  confirma caminhos rápidos ativados. A opção continua experimental e desligada
+  por padrão; não há nova alegação de desempenho.
+  Evidências: `bench/results/2026-10-19-clamp-embedded/`.
+
 
 ## Consolidação de 13–15/10/2026: últimas 48 horas
 

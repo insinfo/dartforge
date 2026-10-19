@@ -200,11 +200,15 @@ pub(super) fn certify(ctx: &Context) -> bool {
                 ctx.program.unit(unit).source == expected.1
             );
         }
-        if required.contains(&native.as_str())
-            && crate::natives::native(&native)
-                .is_none_or(|n| n.state != crate::natives::State::Runtime)
+        // These exact comparison/conversion bindings are implemented by
+        // sdk_source::embedded_numeric_native. Requiring Runtime here denied
+        // every valid certificate after their migration to pure HIR operations.
+        // Keep an exact implementation-state requirement: an unknown, pending
+        // or newly redirected runtime binding needs a fresh review.
+        if crate::natives::native(&native)
+            .is_none_or(|n| n.state != crate::natives::State::Builtin)
         {
-            reject!("clamp native ABI lacks reviewed runtime implementation: {native}");
+            reject!("clamp native ABI lacks reviewed embedded implementation: {native}");
         }
     }
     #[cfg(test)]

@@ -1,0 +1,46 @@
+{
+  "native_suite": {
+    "passed": 764,
+    "failed": 3,
+    "ignored": 9,
+    "remaining_failures": [
+      "optimize::arc::fields::class_cases::tests::ordinary_late_generic_notifier_dispatch_prepares_without_erasing_field_guards",
+      "optimize::constant_specialize::tests::actual_color_context_reports_post_prune_specialization_eligibility",
+      "optimize::enum_constants::tests::ordinary_simple_enum_lowering_certifies_current_getter_and_rejects_enhanced_shape"
+    ],
+    "removed_failure": "lower::primitive_clamp::tests::actual_literal_clamp_uses_selected_sources_and_preserves_fallback_checks",
+    "new_failures": [],
+    "command": "cargo test --locked -p dartforge-emit-native --lib --target-dir target/impl-a",
+    "environment": {
+      "DARTFORGE_TEST_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "DARTFORGE_LLVM_DIR": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+      "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+      "SDKROOT": "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk"
+    }
+  },
+  "focused_tests": {
+    "passed": 6,
+    "failed": 0
+  },
+  "workspace_fmt": {
+    "exit": 1,
+    "output_bytes": 15744017,
+    "reason": "Existing workspace formatting differences"
+  },
+  "workspace_clippy": {
+    "exit": 101,
+    "reason": "Existing LLVM, frontend, runtime and Sass diagnostics outside the changed files"
+  },
+  "workspace_tests": {
+    "exit": 101,
+    "reason": "Default Apple linker cannot read LLVM 22 static bitcode (attribute 105)"
+  },
+  "workspace_docs": {
+    "exit": 0,
+    "warnings": true
+  },
+  "discarded_run": {
+    "exit": 143,
+    "reason": "Stopped broad native test run launched without LLVM environment; configured rerun above is authoritative"
+  }
+}
