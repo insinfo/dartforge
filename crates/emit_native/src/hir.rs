@@ -1215,6 +1215,9 @@ pub struct Module {
     /// Nominal classes whose complete runtime parent edges were emitted from
     /// resolved declarations. Generated runtime identities remain unknown.
     pub pruning_class_ids: std::collections::HashSet<u32>,
+    /// Lowering premises for nominal ancestors without instance tables (abstract
+    /// classes, mixins and the synthetic root). Not an allocation certificate.
+    pub(crate) pruning_metadata_only_class_ids: std::collections::HashSet<u32>,
     /// Shared nominal CID aliases are open, even when one declaration has a
     /// complete ancestry. Their union is not a unique receiver identity.
     pub pruning_ambiguous_class_ids: std::collections::HashSet<u32>,

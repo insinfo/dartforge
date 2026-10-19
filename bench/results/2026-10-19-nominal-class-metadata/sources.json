@@ -1,0 +1,9 @@
+{
+  "crates/emit_native/src/hir.rs": "cdf718da07415e0760d48ecbd925fd7a6e99660604aa030b6ce71934651262b8",
+  "crates/emit_native/src/lower/mod.rs": "13a572031de46d64c7aca3129a4c1d466fd2d8da78e8562f9f5d3be742708a02",
+  "crates/emit_native/src/pruning/class_reachability.rs": "4819e563b9b437f7583d2e4f9ab4719bdbc46a2896b9503d38f393adf78748b1",
+  "crates/emit_native/src/pruning/class_reachability/tests.rs": "788e53cccb122177f78c5dba6def7c4fdb1b5a7bf7bae1749f1a8dcef45630f7",
+  "crates/runtime/src/core.rs": "7e367b200e26acba51b3fda3e7b7c54fa3d705c1b95009e67b9bf9cb7c5a4cf5",
+  "crates/runtime/src/layout.rs": "f4bbe03570d1c0ca0f93093a08aa896c754eb205395cb588cb1ea1ff86a60ccf",
+  "crates/emit_native/src/llvm/externs.rs": "8b928be2d5f34755de1caa525a9840cc5c869cd4365d7fba379797aa11fc175c"
+}

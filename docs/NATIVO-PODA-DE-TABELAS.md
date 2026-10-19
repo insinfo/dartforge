@@ -353,8 +353,27 @@ não autoriza chamá-la nem criar objetos dessa classe. Corpos alcançáveis,
 alocações e inicialização do SDK continuam exigindo provas independentes.
 Na validação com Dart 3.6.2, 662 declarações foram identificadas; a inicialização
 continua aberta. O teste real de poda ainda rejeita os metadados de `Object`,
-CID 0, sem tabela própria. A separação entre metadados nominais e classes
-alocáveis permanece pendente; o teste de remoção dos backends não foi alterado.
+CID 0, sem tabela própria. Esse resultado histórico motivou a distinção explícita
+entre metadados nominais e classes alocáveis descrita a seguir; o teste de remoção
+dos backends não foi alterado.
+
+O lowering agora marca ancestrais puramente nominais: classes abstratas, mixins e
+a raiz sintética inserida diretamente em `lower_program`. A prova confere essa
+premissa: cada CID precisa existir, ter ancestralidade conhecida e não possuir
+tabela, função de tabela nem identidade criada implicitamente pelo runtime.
+Uma classe concreta que perdeu a tabela continua inválida; a ausência da tabela
+não produz a premissa. Todas as alocações alcançadas ainda exigem layout e tabela
+locais. Os metadados e as arestas de subtipo permanecem no módulo e na emissão.
+
+A consulta `dartforge_is_subclass` também pode participar da prova, com ABI exata
+`i8(i64, i64)` e operandos HIR `I64`; referências não são aceitas como CIDs só
+porque usam o mesmo tipo LLVM. Os atributos da declaração do catálogo não mudam
+a comparação do protótipo. A implementação do runtime consulta o grafo e pode
+preparar caches em memória nativa; não cria objetos Dart nem altera o grafo de
+classes. O teste compilado compara registro amplo e fechado, com consulta
+transitiva positiva e alvo nominal não relacionado, em execução normal e sob
+estresse de GC. A marcação de metadados não autoriza registros desconhecidos,
+entradas externas, corpos de protocolo ou fronteiras importadas ainda não provados.
 
 O leitor verifica a mesma publicação contra o compilador, o runtime e os objetos
 selecionados; relê os bytes de `.poda` com hash conferido, reconcilia os resumos

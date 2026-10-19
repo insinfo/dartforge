@@ -2,6 +2,23 @@
 
 ## Atualização de 19/10/2026
 
+- O lowering distingue ancestrais puramente nominais de classes alocáveis:
+  marca abstratas/mixins e a raiz sintética inserida por `lower_program`,
+  preservando a premissa ao juntar chunks. A prova exige ancestralidade,
+  ausência de tabelas/funções de tabela e de identidade criada pelo runtime;
+  tabelas ausentes em classes concretas continuam inválidas. Alocações ainda
+  precisam de tabela/layout locais. Metadados e arestas de subtipo permanecem.
+  A consulta de subtipo tem ABI conferida, sem aceitar Ref como CID. Passaram
+  os 829 testes unitários nativos com `--include-ignored`, 31 dirigidos,
+  Clippy estrito e docs do workspace. A execução compilada preservou seletores
+  e relações de subtipo com registro amplo/fechado e estresse de GC. Fmt global
+  segue pendente. O teste original de produção continua falhando, agora por
+  `_AsyncFrame` (CID 1073741568) com ancestralidade não provada, em vez de
+  `Object`. Frames assíncronos não foram classificados como meros metadados
+  para contornar a prova. Sem redução comprovada do explorador, aprovação
+  global ou execução nova Windows/Linux. Evidências:
+  `bench/results/2026-10-19-nominal-class-metadata/README.md`.
+
 - A prova experimental distingue declarações de tabelas importadas das definições
   locais. O inventário confere identidade símbolo/CID, corpo virtual e unicidade
   nos resumos verificados; o uso só ocorre após reconciliar o SDK selecionado e

@@ -202,6 +202,7 @@ pub fn lower_program(ctx: &Context) -> Module {
         vtable: Vec::new(),
         to_string_symbol: None,
     });
+    module.pruning_metadata_only_class_ids.insert(0);
 
     // The SDK always comes from source (docs/NATIVO-ESPACO-UNIFICADO.md §4.7): the
     // error classes are its own (P5c).
@@ -347,6 +348,9 @@ fn register_program_classes(ctx: &Context, module: &mut Module) {
             continue;
         };
         let cid = dartforge_elements::model::ClassId(c_idx as u32);
+        if class_id == 0 || class.modifiers.abstract_ || members::is_mixin(ctx, cid) {
+            module.pruning_metadata_only_class_ids.insert(class_id);
+        }
         let fields = members::layout(ctx, cid);
         let base = enums::layout_base(ctx, cid);
         layouts_arc::register(ctx, module, class_id, &fields, base);
@@ -545,6 +549,7 @@ pub(crate) fn join_arc_facts(dest: &mut Module, origin: &mut Module) {
     if !dest.primitive_clamp_certificate { dest.primitive_clamp_targets.clear(); }
     dest.pruning_this_receivers.extend(std::mem::take(&mut origin.pruning_this_receivers));
     dest.pruning_class_ids.extend(std::mem::take(&mut origin.pruning_class_ids));
+    dest.pruning_metadata_only_class_ids.extend(std::mem::take(&mut origin.pruning_metadata_only_class_ids));
     dest.pruning_ambiguous_class_ids.extend(std::mem::take(&mut origin.pruning_ambiguous_class_ids));
     dest.inline_policies.extend(std::mem::take(&mut origin.inline_policies));
     for (getter, premise) in std::mem::take(&mut origin.simple_enum_constants) {

@@ -1013,6 +1013,7 @@ fn compiled_closed_selector_matches_eager_registration() {
         .spawn(|| {
             let directory = tempfile::tempdir().unwrap();
             let mut source = fixture();
+            nominal_ancestors(&mut source);
             source.runtime_cids = dartforge_runtime::layout::cid::SDK_CLASSES.iter()
                 .map(|(cid, _, _)| i64::from(*cid)).collect();
             source.functions[0].blocks[0].instructions.extend([
@@ -1037,8 +1038,28 @@ fn compiled_closed_selector_matches_eager_registration() {
                     Type::I1,
                 ),
             ]);
+            // Positive transitive membership and an unrelated nominal target
+            // must survive table pruning. The query may cache native bitmaps.
+            for (base, target, expected) in [(3, 400, 1), (7, 500, 0)] {
+                source.functions[0].blocks[0].instructions.extend([
+                    (ValueId(base), Instruction::CallRuntime {
+                        name: "dartforge_is_subclass".into(),
+                        args: vec![(Operand::Constant(Constant::Int(300)), Type::I64),
+                                   (Operand::Constant(Constant::Int(target)), Type::I64)],
+                        ret_ty: Type::I8,
+                    }, Type::I8),
+                    (ValueId(base + 1), Instruction::ZExt {
+                        op: Operand::Val(ValueId(base)), from: Type::I8, to: Type::I64,
+                    }, Type::I64),
+                    (ValueId(base + 2), Instruction::ICmp(ICmpOp::Eq,
+                        Operand::Val(ValueId(base + 1)), Operand::Constant(Constant::Int(expected))), Type::I1),
+                    (ValueId(base + 3), Instruction::And(
+                        Operand::Val(ValueId(if base == 3 { 2 } else { 6 })),
+                        Operand::Val(ValueId(base + 2))), Type::I1),
+                ]);
+            }
             source.functions[0].blocks[0].terminator = Terminator::CondBranch {
-                cond: Operand::Val(ValueId(2)),
+                cond: Operand::Val(ValueId(10)),
                 then_block: BlockId(1),
                 else_block: BlockId(2),
             };
@@ -1507,4 +1528,165 @@ fn imported_table_declarations_do_not_authorize_calls_allocations_or_collisions(
         assert!(audit(&mut module, &selected).is_err(), "variant {variant}");
         assert!(module.closed_class_tables.is_none(), "variant {variant}");
     }
+}
+
+fn nominal_ancestors(module: &mut Module) {
+    for (cid, name) in [
+        (0, "Object"),
+        (400, "AbstractBase"),
+        (401, "Intermediate"),
+        (500, "Unrelated"),
+    ] {
+        module.classes.push(ClassDef {
+            id: cid,
+            name: name.into(),
+            field_count: 0,
+            vtable: vec![],
+            to_string_symbol: None,
+        });
+        module.pruning_class_ids.insert(cid);
+        module.pruning_metadata_only_class_ids.insert(cid);
+    }
+    module
+        .subtyping_edges
+        .extend([(300, 401), (401, 400), (400, 0)]);
+}
+
+#[test]
+fn tableless_nominal_ancestors_keep_subtype_metadata_without_becoming_allocatable() {
+    let mut module = fixture();
+    nominal_ancestors(&mut module);
+    assert!(apply(&mut module));
+    assert_eq!(
+        module.closed_class_tables.as_ref().unwrap(),
+        &HashSet::from([300])
+    );
+    assert!(module.classes.iter().any(|class| class.id == 400));
+    let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
+    assert!(ir.contains("call void @dartforge_register_subclass(i64 300, i64 401)"));
+    assert!(ir.contains("call void @dartforge_register_subclass(i64 400, i64 0)"));
+}
+
+#[test]
+fn tableless_metadata_does_not_cover_allocations_runtime_classes_or_open_ancestry() {
+    for variant in 0..13 {
+        let mut module = fixture();
+        nominal_ancestors(&mut module);
+        match variant {
+            0 | 1 => module.functions[0].blocks[0].instructions.push((
+                ValueId(1),
+                Instruction::AllocObject {
+                    class_id: if variant == 0 { 0 } else { 400 },
+                    fields: vec![],
+                },
+                Type::Ref,
+            )),
+            2 => module.functions[0].blocks[0].instructions.push((
+                ValueId(1),
+                Instruction::CallRuntime {
+                    name: "dartforge_object_new".into(),
+                    args: vec![
+                        (Operand::Constant(Constant::Int(400)), Type::I64),
+                        (Operand::Constant(Constant::Int(0)), Type::I64),
+                    ],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            )),
+            3 => module.runtime_cids.push(400),
+            4 => {
+                module
+                    .classes
+                    .iter_mut()
+                    .find(|class| class.id == 400)
+                    .unwrap()
+                    .id = dartforge_runtime::layout::cid::ONE_BYTE_STRING as u32;
+                let cid = dartforge_runtime::layout::cid::ONE_BYTE_STRING as u32;
+                module.pruning_class_ids.insert(cid);
+                module.pruning_metadata_only_class_ids.remove(&400);
+                module.pruning_metadata_only_class_ids.insert(cid);
+            }
+            5 => {
+                module.pruning_class_ids.remove(&400);
+            }
+            6 => {
+                module
+                    .table_functions
+                    .insert(400, "df.mt.AbstractBase".into());
+            }
+            7 => {
+                module.pruning_metadata_only_class_ids.insert(999);
+            }
+            8 => {
+                module.pruning_metadata_only_class_ids.insert(300);
+            }
+            9 => {
+                module.pruning_metadata_only_class_ids.remove(&400);
+            }
+            _ => {
+                module.functions[0].blocks[0].instructions.push((
+                    ValueId(1),
+                    Instruction::CallRuntime {
+                        name: "dartforge_is_subclass".into(),
+                        args: if variant == 10 {
+                            vec![]
+                        } else {
+                            vec![
+                                (
+                                    if variant == 11 {
+                                        Operand::Val(ValueId(0))
+                                    } else {
+                                        Operand::Constant(Constant::Int(300))
+                                    },
+                                    if variant == 11 { Type::Ref } else { Type::I64 },
+                                ),
+                                (Operand::Constant(Constant::Int(400)), Type::I64),
+                            ]
+                        },
+                        ret_ty: if variant == 12 { Type::I64 } else { Type::I8 },
+                    },
+                    if variant == 12 { Type::I64 } else { Type::I8 },
+                ));
+            }
+        }
+        assert!(audit(&mut module, &[]).is_err(), "variant {variant}");
+        assert!(module.closed_class_tables.is_none(), "variant {variant}");
+    }
+}
+
+#[test]
+#[ignore = "requires the source SDK"]
+fn lowering_marks_only_nominal_ancestors_and_preserves_the_premises_when_joining() {
+    std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+        let directory = tempfile::tempdir().unwrap();
+        let entry = directory.path().join("main.dart");
+        std::fs::write(&entry, "abstract class Base {}\nmixin Feature {}\nclass Concrete extends Base with Feature {}\nvoid main() { Concrete(); }\n").unwrap();
+        let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
+        let mut interner = dartforge_intern::Interner::new();
+        let program = dartforge_elements::load::load(&entry, &sdk, None, &mut interner).unwrap();
+        let mut table = dartforge_types::TypeTable::new();
+        let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
+        let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+        let libraries: Vec<_> = program.libraries.iter().enumerate().filter(|(_, library)| !library.is_sdk)
+            .map(|(index, _)| dartforge_elements::model::LibraryId(index as u32)).collect();
+        let (bodies, _) = dartforge_types::infer_library_bodies_with_locals(
+            &program, &interner, &mut table, &core, &mut outline, &libraries);
+
+        let context = crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies)
+            .with_source_sdk();
+        let lowered = crate::lower::lower_program(&context);
+        assert!(lowered.errors.is_empty(), "{:?}", lowered.errors);
+        assert!(lowered.classes.iter().any(|class| class.id == 0));
+        assert!(lowered.pruning_metadata_only_class_ids.contains(&0));
+        let mut facts = crate::lower::class_registration_facts(&context);
+        for (name, metadata_only) in [("Base", true), ("Feature", true), ("Concrete", false)] {
+            let class = facts.classes.iter().find(|class| class.name == name).unwrap();
+            assert_eq!(facts.pruning_metadata_only_class_ids.contains(&class.id), metadata_only, "{name}");
+        }
+        let expected = facts.pruning_metadata_only_class_ids.clone();
+        let mut combined = Module::new();
+        crate::lower::join_arc_facts(&mut combined, &mut facts);
+        assert_eq!(combined.pruning_metadata_only_class_ids, expected);
+        assert!(facts.pruning_metadata_only_class_ids.is_empty());
+    }).unwrap().join().unwrap();
 }

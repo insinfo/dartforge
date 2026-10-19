@@ -91,6 +91,30 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
     {
         return Err("method table symbols are duplicated".into());
     }
+    // Metadata-only ancestors cannot be allocated by a covered instruction.
+    // Runtime-created values are different: they need their tables even when
+    // no explicit allocation appears in the program.
+    let implicit_classes: HashSet<u32> = dartforge_runtime::layout::cid::SDK_CLASSES
+        .iter()
+        .map(|(cid, _, _)| *cid as u32)
+        .chain(
+            module
+                .runtime_cids
+                .iter()
+                .filter_map(|cid| u32::try_from(*cid).ok()),
+        )
+        .collect();
+    for cid in &module.pruning_metadata_only_class_ids {
+        if !classes.contains_key(cid)
+            || tables.contains_key(cid)
+            || module.table_functions.contains_key(cid)
+            || implicit_classes.contains(cid)
+        {
+            return Err(format!(
+                "nominal-only class {cid} has inconsistent declaration facts"
+            ));
+        }
+    }
     for class in &module.classes {
         if !module.pruning_class_ids.contains(&class.id) {
             return Err(format!(
@@ -98,7 +122,9 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
                 class.name, class.id
             ));
         }
-        if !tables.contains_key(&class.id) {
+        if !tables.contains_key(&class.id)
+            && !module.pruning_metadata_only_class_ids.contains(&class.id)
+        {
             return Err(format!(
                 "class {} ({}) has no method table",
                 class.name, class.id
@@ -192,15 +218,8 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
     // Primitive boxing, strings and exception paths create runtime classes
     // without AllocObject instructions. Protect their declared tables even if
     // the module's optional registration vector omits those CIDs.
-    let runtime_classes: HashSet<u32> = dartforge_runtime::layout::cid::SDK_CLASSES
-        .iter()
-        .map(|(cid, _, _)| *cid as u32)
-        .chain(
-            module
-                .runtime_cids
-                .iter()
-                .filter_map(|cid| u32::try_from(*cid).ok()),
-        )
+    let runtime_classes: HashSet<u32> = implicit_classes
+        .into_iter()
         .filter(|cid| tables.contains_key(cid))
         .collect();
     module.closed_class_tables = Some(runtime_classes.clone());
@@ -472,7 +491,7 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
     // audited body. In particular, a runtime allocator's familiar name is not
     // evidence that it can be called with the toString protocol ABI.
     for class in &module.classes {
-        if !live(tables[&class.id]) {
+        if !tables.get(&class.id).is_some_and(|table| live(table)) {
             continue;
         }
         if class
@@ -535,6 +554,9 @@ fn covered_runtime(symbol: &str) -> bool {
         symbol,
         "dartforge_object_new"
             | "dartforge_value_class"
+            // Queries/cache updates use host allocations, not Dart objects or
+            // class registry mutation (runtime/src/core.rs).
+            | "dartforge_is_subclass"
             | "dartforge_object_get"
             | "dartforge_object_set"
             | "dartforge_mark_constant"
@@ -552,6 +574,7 @@ fn runtime_call(
     shape: &super::receiver_provenance::Shape,
 ) -> bool {
     if !covered_runtime(name)
+        || name == "dartforge_is_subclass" && args.iter().any(|(_, ty)| *ty != Type::I64)
         || ret != result
         || args
             .iter()
@@ -565,9 +588,12 @@ fn runtime_call(
         .collect::<Vec<_>>()
         .join(", ");
     let declaration = format!("declare {} @{name}({parameters})", ret.llvm_ir());
-    crate::llvm::externs::EXTERNS
-        .iter()
-        .any(|external| external.decl == declaration)
+    crate::llvm::externs::EXTERNS.iter().any(|external| {
+        external
+            .decl
+            .strip_prefix(&declaration)
+            .is_some_and(|attributes| attributes.is_empty() || attributes.starts_with(' '))
+    })
 }
 
 #[cfg(test)]

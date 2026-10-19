@@ -1,0 +1,44 @@
+[
+  {
+    "file": "before.log",
+    "source": "/tmp/forge-nominal-metadata-before.log",
+    "raw_sha256": "9fad9f5dd59aa2edcfa3013648fd38e6709ea75418a6c35f398f429231363388",
+    "stored_sha256": "9fad9f5dd59aa2edcfa3013648fd38e6709ea75418a6c35f398f429231363388"
+  },
+  {
+    "file": "directed.log",
+    "source": "/tmp/forge-nominal-metadata-directed-root.log",
+    "raw_sha256": "85a616741c10a2e1fc25f5244285cf1599baf05cf8bb4852f7fa2df55bfaccf9",
+    "stored_sha256": "bd175a6513f395171f5e58ebdd2f8cc45219a4ba9293681478b5b989b542d2c1"
+  },
+  {
+    "file": "production.log",
+    "source": "/tmp/forge-nominal-metadata-production-root.log",
+    "raw_sha256": "cbf08c6541de41a1e2c993ed47226a1dac648c77391993ac3b5bd2828aa6a394",
+    "stored_sha256": "cbf08c6541de41a1e2c993ed47226a1dac648c77391993ac3b5bd2828aa6a394"
+  },
+  {
+    "file": "clippy.log",
+    "source": "/tmp/forge-nominal-metadata-checks-final/clippy.log",
+    "raw_sha256": "d6bcc6b30eeb5f0e70a2dacf29ee3a2c2b5bb0db1fcf0269b6d140dbf2b947ca",
+    "stored_sha256": "d6bcc6b30eeb5f0e70a2dacf29ee3a2c2b5bb0db1fcf0269b6d140dbf2b947ca"
+  },
+  {
+    "file": "doc.log",
+    "source": "/tmp/forge-nominal-metadata-checks-final/doc.log",
+    "raw_sha256": "c15f1c7eb919175f2add5075bd69d256e314ed1e2fcd6ba3e67ace879973e443",
+    "stored_sha256": "c15f1c7eb919175f2add5075bd69d256e314ed1e2fcd6ba3e67ace879973e443"
+  },
+  {
+    "file": "checks.json",
+    "source": "/tmp/forge-nominal-metadata-checks-final/results.json",
+    "raw_sha256": "217fa0744fdc069b8ea20f1191cb2a29c8c4344dec6d40caada3cc7c74bac696",
+    "stored_sha256": "217fa0744fdc069b8ea20f1191cb2a29c8c4344dec6d40caada3cc7c74bac696"
+  },
+  {
+    "file": "native.log",
+    "source": "/tmp/forge-nominal-metadata-native-final.log",
+    "raw_sha256": "f9ec2bede1a708ef68dae4ded5768dab5803071a4b23ff7635f78c80fdd1cf09",
+    "stored_sha256": "2dbbd188574fc09ed1cd46905f45c151fb7793adf49fea14d2795c0e9785d18b"
+  }
+]
