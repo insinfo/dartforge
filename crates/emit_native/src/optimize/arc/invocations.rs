@@ -104,7 +104,7 @@ pub(super) fn prepare(
                 plan.tables.landing_pads.insert(error);
                 plan.tables.exits.insert(
                     error,
-                    if cfg!(unix) {
+                    if crate::target::is_unix() {
                         ExceptionExit::Resume
                     } else {
                         ExceptionExit::Throws
@@ -272,7 +272,7 @@ mod tests {
             assert!(p.tables.landing_pads.contains(&error));
             assert_eq!(
                 p.tables.exits[&error],
-                if cfg!(unix) {
+                if crate::target::is_unix() {
                     ExceptionExit::Resume
                 } else {
                     ExceptionExit::Throws
@@ -387,7 +387,7 @@ mod tests {
         assert!(!p.tables.exits.contains_key(&BlockId(7)));
         assert_eq!(
             p.tables.exits[&p.tables.invocations[&ValueId(3)]],
-            if cfg!(unix) {
+            if crate::target::is_unix() {
                 ExceptionExit::Resume
             } else {
                 ExceptionExit::Throws

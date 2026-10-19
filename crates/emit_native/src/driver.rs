@@ -399,7 +399,7 @@ pub fn outliner_at_link() -> bool {
         && !crate::target::roots_by_maps().unwrap_or(true)
         && !crate::target::symbolic_stack_trace().unwrap_or(true)
         && !crate::target::arc_memory().unwrap_or(true);
-    cfg!(target_arch = "aarch64") && default_mode && (LINK_IN_PARTS.get() || request.as_deref() == Some("1"))
+    crate::target::is_aarch64() && default_mode && (LINK_IN_PARTS.get() || request.as_deref() == Some("1"))
 }
 
 /// Whether the production LTO runs LLVM's `MergeFunctions` pass

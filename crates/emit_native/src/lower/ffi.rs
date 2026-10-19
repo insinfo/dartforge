@@ -42,7 +42,7 @@ use dartforge_types::TypeId;
 /// The name of the target ABI in the `Abi` enum of `dart:ffi` (the key of the
 /// `@AbiSpecificIntegerMapping` annotations).
 fn target_abi() -> &'static str {
-    let arm = cfg!(target_arch = "aarch64");
+    let arm = crate::target::is_aarch64();
     match crate::target::target_os() {
         crate::target::Os::Windows => if arm { "windowsArm64" } else { "windowsX64" },
         crate::target::Os::Linux => if arm { "linuxArm64" } else { "linuxX64" },

@@ -17,6 +17,7 @@ pub mod linker_macos;
 pub mod linker_windows;
 #[cfg(feature = "embedded-llvm")]
 pub mod distributed_lto;
+pub mod cross;
 pub mod hir;
 pub mod llvm;
 pub mod lower;
@@ -649,12 +650,12 @@ fn emit_ir_internal(
     // collector's walk through `_Unwind_Backtrace`, which stops at a frame without a
     // table — macOS libunwind ends it there, and the roots of the outer frames
     // went unvisited).
-    let llvm_ir = if (table_exceptions || roots_by_maps) && cfg!(unix) { sdk_module::with_uwtable(&llvm_ir) } else { llvm_ir };
+    let llvm_ir = if (table_exceptions || roots_by_maps) && crate::target::is_unix() { sdk_module::with_uwtable(&llvm_ir) } else { llvm_ir };
     // With exceptions by check and the shadow stack nothing unwinds Dart
     // code: without the CFI of each function (`sdk_module::with_nounwind`).
     // Only on Itanium targets: on x64 COFF every function has an unwind
     // table anyway, and Windows was not measured.
-    let llvm_ir = if cfg!(unix) && !table_exceptions && !roots_by_maps { sdk_module::with_nounwind(&llvm_ir) } else { llvm_ir };
+    let llvm_ir = if crate::target::is_unix() && !table_exceptions && !roots_by_maps { sdk_module::with_nounwind(&llvm_ir) } else { llvm_ir };
     // The thread context read inline (`sdk_module::with_context_in_tls`) in
     // every Unix AOT profile — exceptions by check or by tables, tracing or ARC
     // memory —: inline in a small program, a call in a large one. Only roots by
@@ -663,7 +664,7 @@ fn emit_ir_internal(
     // which runs inside the linker's LTO on Mach-O and could not be validated
     // on this host. `options.optimize` links the runtime statically (a single
     // image): the slot of the context is then `dso_local`.
-    let llvm_ir = if cfg!(unix) && prune && !roots_by_maps {
+    let llvm_ir = if crate::target::is_unix() && prune && !roots_by_maps {
         let mode = if large { sdk_module::ContextInTls::PerCall } else { sdk_module::ContextInTls::Inline };
         sdk_module::with_context_in_tls(&llvm_ir, mode, "df.ctx.tls.program", options.optimize)
     } else {

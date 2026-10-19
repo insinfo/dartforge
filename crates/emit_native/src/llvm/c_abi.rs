@@ -32,7 +32,7 @@ pub enum Convention {
 impl Convention {
     /// The target convention of this compilation.
     pub fn of_target() -> Convention {
-        let arm = cfg!(target_arch = "aarch64");
+        let arm = crate::target::is_aarch64();
         match crate::target::target_os() {
             crate::target::Os::Windows if !arm => Convention::Win64,
             crate::target::Os::MacOs if arm => Convention::AArch64 { apple: true },

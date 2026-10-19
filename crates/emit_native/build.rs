@@ -118,6 +118,17 @@ fn precompile_runtime() {
     println!("cargo::rerun-if-changed={}", root.join("../runtime_static/src").display());
     sources.sort();
 
+    let mut source_hash = blake3::Hasher::new();
+    for file in &sources {
+        let relative = file.strip_prefix(root).unwrap_or(file).to_string_lossy().replace('\\', "/");
+        source_hash.update(relative.as_bytes());
+        source_hash.update(&[0]);
+        let bytes: Vec<u8> = std::fs::read(file).unwrap_or_default().into_iter().filter(|&b| b != b'\r').collect();
+        source_hash.update(&bytes);
+        source_hash.update(&[0]);
+    }
+    println!("cargo::rustc-env=DARTFORGE_RUNTIME_SOURCE_HASH={}", source_hash.finalize().to_hex());
+
     let cargo_file = if windows { "dartforge_runtime_static.lib" } else { "libdartforge_runtime_static.a" };
     let ext = if windows { "lib" } else { "a" };
     for (variant, feature, prefix, profile) in [

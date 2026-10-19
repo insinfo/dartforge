@@ -43,7 +43,7 @@ pub fn abi_info(args: &[std::ffi::OsString]) -> Outcome {
                 "schema_version":1,"triple":target.triple(),"pointer_bits":target.pointer_bits(),
                 "native_type_layouts":layouts,"profile_supports_dynamic_libraries":target.supports_dynamic_libraries(),
                 "ffi_execution_implemented":false,"native_static_scalar_bindings_implemented":true,"wasm_emission_implemented":false,
-                "note":"Full FFI still pending. Host AOT accepts @Native Int32/Int64/Void with explicitly linked objects; it does not load libraries dynamically. Profiles do not enable cross-compilation."
+                "note":"Full FFI still pending. Host AOT accepts @Native Int32/Int64/Void with explicitly linked objects; it does not load libraries dynamically. Cross AOT uses --target and --target-bundle; abi-info profiles only describe FFI layouts."
             }))?
         );
         return Ok(());
@@ -163,6 +163,7 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
     set_memory_policy("tracing")?;
     set_subsystem("console")?;
     let usage = "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--enable-asserts] [--debug] [--timings] [--cpu x86-64|x86-64-v2|x86-64-v3|x86-64-v4|native] [--exceptions check|tables] [--memory tracing|arc] [--subsystem console|gui] [--dartforge-contracts verify|ignore] [--stack-trace symbolic|none] [--sdk <lib>] [--packages <package_config.json>]
+  --target <triple> --target-bundle <directory>  cross compilation (see export-target)
   --optimize        production: asserts off and dart.vm.product true (dart compile exe)
   --enable-asserts  keeps the asserts on with --optimize (dart compile exe --enable-asserts)";
     if args.len() < 3 {
@@ -286,6 +287,7 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
     let usage = "usage: dartforge compile-native <input.dart> -o <output.exe> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--optimize] [--enable-asserts] [--debug] [--cpu <cpu>] [--exceptions check|tables] [--memory tracing|arc] [--subsystem console|gui] [--dartforge-contracts verify|ignore] [--stack-trace symbolic|none] [--language-version x.y] [--enable-experiment=a,b]
        dartforge compile-native <input.dart> --emit-ir -o <output.ll> [--digest] [...]
        dartforge compile-native <input.dart> --digest [...]
+  --target <triple> --target-bundle <directory>  cross compilation (see export-target)
   --optimize  production: asserts off and dart.vm.product true, as `dart compile exe`;
              without it, asserts on and dart.vm.product false, as `dart run --enable-asserts`
   --enable-asserts  keeps the asserts on with --optimize
@@ -489,5 +491,41 @@ fn emit_native_ir(
         let r = dartforge_emit_native::summary::IrSummary::of(&ir.text);
         println!("{}  {}", r.hex(), r.bytes);
     }
+    Ok(())
+}
+
+/// Remove destination flags before the per-command option parser. Selection is
+/// process-wide and happens before compiler workers or target-dependent caches.
+#[cfg(feature = "native")]
+pub fn select_destination(args: &mut Vec<std::ffi::OsString>) -> Result<(), Box<dyn std::error::Error>> {
+    use dartforge_emit_native::target::{self, NativeTarget};
+    let allowed = args.first().is_some_and(|a| a == "aot" || a == "compile-native");
+    let mut target = None;
+    let mut bundle = None;
+    let mut index = 1;
+    while index < args.len() {
+        if args[index] == "--" { break; }
+        let text = args[index].to_str().unwrap_or("");
+        let (key, inline) = text.split_once('=').map_or((text, None), |(k,v)| (k,Some(v.to_string())));
+        if key != "--target" && key != "--target-bundle" { index += 1; continue; }
+        if !allowed { return Err("--target and --target-bundle are only valid for aot and compile-native; JIT runs on its host".into()); }
+        let key = key.to_string();
+        args.remove(index);
+        let value = match inline {
+            Some(value) => std::ffi::OsString::from(value),
+            None if index < args.len() => args.remove(index),
+            None => return Err(format!("{key} requires a value").into()),
+        };
+        if key == "--target" {
+            if target.is_some() { return Err("--target specified twice".into()); }
+            target = Some(NativeTarget::parse(value.to_str().ok_or("target must be UTF-8")?)?);
+        } else {
+            if bundle.is_some() { return Err("--target-bundle specified twice".into()); }
+            bundle = Some(std::path::PathBuf::from(value));
+        }
+    }
+    let target = target.unwrap_or_else(NativeTarget::host);
+    if let Some(bundle) = bundle { dartforge_emit_native::cross::select_bundle(&bundle, target)?; }
+    target::select(target)?;
     Ok(())
 }

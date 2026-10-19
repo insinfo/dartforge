@@ -808,6 +808,7 @@ impl SysrootWindows {
     pub fn locate(clang: &Path) -> Result<&'static SysrootWindows, String> {
         static S: std::sync::OnceLock<Result<SysrootWindows, String>> = std::sync::OnceLock::new();
         S.get_or_init(|| {
+            if let Some(dir) = crate::cross::sysroot() { return Ok(SysrootWindows { dir }); }
             if let Some(dir) = dartforge_elements::distribution::in_lib(&format!("sysroot/{TRIPLE}"))
                 && dir.join("dfcrt_comum.obj").is_file()
                 && dir.join("dfcrt_gui.obj").is_file()

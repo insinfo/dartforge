@@ -133,9 +133,10 @@ pub enum Cpu {
 impl Cpu {
     /// The CPU of `--cpu <name>`.
     pub fn from_name(name: &str) -> Result<Cpu, String> {
-        let x86 = cfg!(target_arch = "x86_64");
+        let x86 = !crate::target::is_aarch64();
         match name {
-            "native" => Ok(Cpu::Native),
+            "native" if !crate::target::is_cross() => Ok(Cpu::Native),
+            "native" => Err("--cpu native cannot be used for a foreign target; select its baseline CPU".into()),
             "x86-64" if x86 => Ok(Cpu::X86_64),
             "x86-64-v2" if x86 => Ok(Cpu::X86_64V2),
             "x86-64-v3" if x86 => Ok(Cpu::X86_64V3),
@@ -245,8 +246,8 @@ impl Generator {
     pub fn identity(&self) -> Result<String, String> {
         match self {
             #[cfg(feature = "embedded-llvm")]
-            Generator::Builtin => dartforge_llvm::identity(),
-            Generator::Clang(clang) => crate::object_cache::clang_identity(clang),
+            Generator::Builtin => dartforge_llvm::identity().map(|id| format!("{id} target={}", crate::target::current().triple())),
+            Generator::Clang(clang) => crate::object_cache::clang_identity(clang).map(|id| format!("{id} target={}", crate::target::current().triple())),
         }
     }
 
@@ -302,6 +303,7 @@ impl Generator {
                 let result = Command::new(clang)
                     .current_dir(dir)
                     .args(generation.args_clang())
+                    .args(crate::target::is_cross().then(|| format!("--target={}", crate::target::current().triple())))
                     .arg(ll.file_name().unwrap_or_default())
                     .arg("-o")
                     .arg(exit.file_name().unwrap_or_default())

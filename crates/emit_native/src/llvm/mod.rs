@@ -29,7 +29,7 @@ const TLAB_N: i64 = layout::TLAB_N as i64;
 const OBJECT_MASK: i64 = 7 | i64::MIN;
 /// The stack pointer register the stack check reads (`llvm.read_register`,
 /// [`LlvmEmitter::emit_stack_check`]): the target is the host.
-const STACK_POINTER: &str = if cfg!(target_arch = "x86_64") { "rsp" } else { "sp" };
+fn stack_pointer() -> &'static str { if crate::target::is_aarch64() { "sp" } else { "rsp" } }
 mod selectors;
 mod arc_immediates;
 mod arc_tag_guards;
@@ -570,7 +570,7 @@ impl<'a> LlvmEmitter<'a> {
             } else { crate::pruning::receiver_provenance::Provenance::default() });
         }
         assert!(self.module.errors.is_empty(), "emit_all with diagnostics: {:?}", self.module.errors);
-        assert!(!cfg!(windows) || !self.module.tables.iter().any(|t|
+        assert!(crate::target::is_unix() || !self.module.tables.iter().any(|t|
             t.exits.values().any(|s| *s == ExceptionExit::Resume)),
             "Resume requires Itanium; Windows needs SEH funclets");
         // Collects the string literals of the module for declaration as global constants
@@ -869,7 +869,7 @@ impl<'a> LlvmEmitter<'a> {
             );
         }
         if self.module.table_exceptions {
-            self.out.push_str(if cfg!(windows) { EXCEPTIONS_BY_TABLES } else { EXCEPTIONS_BY_TABLES_ITANIUM });
+            self.out.push_str(if !crate::target::is_unix() { EXCEPTIONS_BY_TABLES } else { EXCEPTIONS_BY_TABLES_ITANIUM });
         }
         if externs::check_effects() {
             // The frame of the check does not collect: with roots by maps, it is a
@@ -993,7 +993,7 @@ impl<'a> LlvmEmitter<'a> {
         if let Some(c) = tab.and_then(|t| t.foreign_cleanup.as_ref()) {
             c.check(func, tab.unwrap()).expect("invalid foreign cleanup");
         }
-        let has_cleanup = has_resume || (cfg!(unix) && tab.is_some_and(|t| t.foreign_cleanup.is_some()));
+        let has_cleanup = has_resume || (crate::target::is_unix() && tab.is_some_and(|t| t.foreign_cleanup.is_some()));
         assert!(!has_cleanup || !self.maps, "Resume does not admit a statepoint landingpad token");
         if has_resume {
             crate::optimize::arc::check_resumes(func, tab.unwrap()).expect("invalid Resume");
@@ -3851,7 +3851,7 @@ impl<'a> LlvmEmitter<'a> {
         let o = &mut self.out;
         writeln!(o, "  %pilhalp = getelementptr inbounds i8, ptr %ctx, i64 {}", layout::context::STACK_LIMIT).unwrap();
         writeln!(o, "  %pilhal = load i64, ptr %pilhalp, align 8").unwrap();
-        writeln!(o, "  %pilhasp = call i64 @llvm.read_register.i64(metadata !{{!\"{STACK_POINTER}\"}})").unwrap();
+        writeln!(o, "  %pilhasp = call i64 @llvm.read_register.i64(metadata !{{!\"{}\"}})", stack_pointer()).unwrap();
         writeln!(o, "  %pilhab = icmp ult i64 %pilhasp, %pilhal").unwrap();
         writeln!(o, "  %pilhax = call i1 @llvm.expect.i1(i1 %pilhab, i1 false)").unwrap();
         writeln!(o, "  br i1 %pilhax, label %pilha.estouro, label %pilha.ok").unwrap();

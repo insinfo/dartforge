@@ -34,6 +34,11 @@ impl Arch {
         if cfg!(target_arch = "aarch64") { Arch::Arm64 } else { Arch::X86_64 }
     }
 
+    /// Architecture of the selected compilation destination.
+    pub fn target() -> Arch {
+        if crate::target::is_aarch64() { Arch::Arm64 } else { Arch::X86_64 }
+    }
+
     /// The triple of the sysroot (`lib/sysroot/<triple>`).
     pub const fn sysroot_triple(self) -> &'static str {
         match self {
@@ -61,7 +66,7 @@ impl Arch {
 
 /// The sysroot triple of this host.
 pub fn sysroot_triple() -> &'static str {
-    Arch::host().sysroot_triple()
+    Arch::target().sysroot_triple()
 }
 
 /// A system library and the names the link asks of it.
@@ -839,7 +844,11 @@ impl SysrootMacos {
     pub fn locate() -> Result<&'static SysrootMacos, String> {
         static S: std::sync::OnceLock<Result<SysrootMacos, String>> = std::sync::OnceLock::new();
         S.get_or_init(|| {
-            let arch = Arch::host();
+            if let Some(root) = crate::cross::sysroot() {
+                let version = std::fs::read_to_string(root.join(VERSION_FILE)).unwrap_or_default().trim().to_string();
+                return Ok(SysrootMacos { root, version });
+            }
+            let arch = Arch::target();
             if let Some(dir) = dartforge_elements::distribution::in_lib(&format!("sysroot/{}", arch.sysroot_triple()))
                 && dir.join(SYSTEM_LIBRARIES[0].file).is_file()
             {
@@ -922,7 +931,7 @@ pub fn ld64_lld(clang: &Path) -> PathBuf {
 /// `ld64.lld` did not run or rejected the link (the message carries what it
 /// said), or retaining/relinking the native LTO objects failed.
 pub fn link(ld: &Path, sysroot: &SysrootMacos, l: &Linkage<'_>) -> Result<(), String> {
-    let arch = Arch::host();
+    let arch = Arch::target();
     // LLD 22's Mach-O LTO path can lose an FDE association and emit a zero
     // unwind encoding for a live SDK function (JsonCodec.decode reproduces it).
     // Re-reading the generated native objects preserves that association. Keep

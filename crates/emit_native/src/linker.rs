@@ -18,7 +18,7 @@ use std::process::Command;
 
 /// The files of the link sysroot, in the order the Clang driver
 /// passes them.
-pub const SYSROOT_FILES: &[&str] = &[
+pub fn sysroot_files() -> Vec<&'static str> { vec![
     "Scrt1.o",
     "crti.o",
     "crtbeginS.o",
@@ -35,27 +35,27 @@ pub const SYSROOT_FILES: &[&str] = &[
     "libgcc.a",
     // The dynamic loader (`__tls_get_addr`…), which the development `libc.so`
     // brings as `AS_NEEDED`.
-    LOADER,
-];
+    loader_file(),
+] }
 
 /// The dynamic loader file of the host.
-const LOADER: &str = if cfg!(target_arch = "aarch64") { "ld-linux-aarch64.so.1" } else { "ld-linux-x86-64.so.2" };
+fn loader_file() -> &'static str { if crate::target::is_aarch64() { "ld-linux-aarch64.so.1" } else { "ld-linux-x86-64.so.2" } }
 
 /// The sysroot triple of this host.
 pub fn sysroot_triple() -> &'static str {
-    if cfg!(target_arch = "aarch64") { "aarch64-linux-gnu" } else { "x86_64-linux-gnu" }
+    if crate::target::is_aarch64() { "aarch64-linux-gnu" } else { "x86_64-linux-gnu" }
 }
 
 /// The dynamic loader of the host and the `ld.lld` emulation.
 fn loader_and_emulation() -> (&'static str, &'static str) {
-    if cfg!(target_arch = "aarch64") {
+    if crate::target::is_aarch64() {
         ("/lib/ld-linux-aarch64.so.1", "aarch64linux")
     } else {
         ("/lib64/ld-linux-x86-64.so.2", "elf_x86_64")
     }
 }
 
-/// Where the files of [`SYSROOT_FILES`] are.
+/// Where the files of [`sysroot_files`] are.
 #[derive(Debug, Clone)]
 pub struct SysrootLinux {
     files: Vec<PathBuf>,
@@ -66,6 +66,7 @@ impl SysrootLinux {
     pub fn locate(clang: &Path) -> Result<&'static SysrootLinux, String> {
         static S: std::sync::OnceLock<Result<SysrootLinux, String>> = std::sync::OnceLock::new();
         S.get_or_init(|| {
+            if let Some(dir) = crate::cross::sysroot() { return Self::from_dir(&dir); }
             if let Some(dir) = dartforge_elements::distribution::in_lib(&format!("sysroot/{}", sysroot_triple())) {
                 return Self::from_dir(&dir);
             }
@@ -76,7 +77,7 @@ impl SysrootLinux {
     }
 
     fn from_dir(dir: &Path) -> Result<SysrootLinux, String> {
-        let files: Vec<PathBuf> = SYSROOT_FILES.iter().map(|a| dir.join(a)).collect();
+        let files: Vec<PathBuf> = sysroot_files().iter().map(|a| dir.join(a)).collect();
         if let Some(missing) = files.iter().find(|a| !a.is_file()) {
             return Err(format!("the distribution sysroot is incomplete: {} is missing", missing.display()));
         }
@@ -86,7 +87,7 @@ impl SysrootLinux {
     /// The files that the Clang driver would use (`-print-file-name`).
     pub fn from_system(clang: &Path) -> Result<SysrootLinux, String> {
         let mut files = Vec::new();
-        for a in SYSROOT_FILES {
+        for a in sysroot_files() {
             let exit = Command::new(clang)
                 .arg(format!("-print-file-name={a}"))
                 .output()
@@ -104,14 +105,14 @@ impl SysrootLinux {
     }
 
     fn file(&self, name: &str) -> &Path {
-        let i = SYSROOT_FILES.iter().position(|a| *a == name).expect("sysroot file");
+        let i = sysroot_files().iter().position(|a| *a == name).expect("sysroot file");
         &self.files[i]
     }
 
     /// Copies the files to `dest` (`dartforge pack`).
     pub fn copy_to(&self, dest: &Path) -> Result<(), String> {
         std::fs::create_dir_all(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
-        for (name, of) in SYSROOT_FILES.iter().zip(&self.files) {
+        for (name, of) in sysroot_files().iter().zip(&self.files) {
             std::fs::copy(of, dest.join(name)).map_err(|e| format!("copiar {}: {e}", of.display()))?;
         }
         Ok(())
@@ -211,7 +212,7 @@ pub fn statement(ld: &Path, sysroot: &SysrootLinux, l: &Linkage<'_>) -> Result<C
     }
     if l.lto {
         let partitions = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(2, 16);
-        let cpu = l.cpu.unwrap_or(if cfg!(target_arch = "x86_64") { "x86-64" } else { "generic" });
+        let cpu = l.cpu.unwrap_or(if !crate::target::is_aarch64() { "x86-64" } else { "generic" });
         cmd.arg(format!("--lto-O{}", crate::driver::lto_level())).arg(format!("--lto-partitions={partitions}")).arg(format!("-plugin-opt=mcpu={cpu}"));
         cmd.arg(format!("--thinlto-jobs={}", crate::driver::generation_tasks()));
         // MergeFunctions (`driver::merge_functions_at_link`): a global LLVM
@@ -251,7 +252,7 @@ pub fn statement(ld: &Path, sysroot: &SysrootLinux, l: &Linkage<'_>) -> Result<C
     cmd.arg("--no-as-needed");
     cmd.arg(sysroot.file("libgcc.a"));
     cmd.arg(sysroot.file("libc.so.6")).arg(sysroot.file("libc_nonshared.a"));
-    cmd.arg("--as-needed").arg(sysroot.file(LOADER)).arg("--no-as-needed");
+    cmd.arg("--as-needed").arg(sysroot.file(loader_file())).arg("--no-as-needed");
     cmd.arg(sysroot.file("libgcc.a"));
     cmd.arg(sysroot.file("crtendS.o")).arg(sysroot.file("crtn.o"));
     Ok(cmd)

@@ -17,6 +17,11 @@ use std::path::{Path, PathBuf};
 /// `$CARGO_TARGET_DIR/native_cache` or `target/native_cache` of the repository
 /// that compiled this binary.
 pub fn native_cache_dir() -> PathBuf {
+    let base = host_cache_dir();
+    if crate::target::is_cross() { base.join(crate::target::current().triple()) } else { base }
+}
+
+fn host_cache_dir() -> PathBuf {
     if let Some(d) = std::env::var_os("DARTFORGE_NATIVE_CACHE") {
         return PathBuf::from(d);
     }
@@ -38,12 +43,14 @@ pub struct RuntimeCache {
 impl RuntimeCache {
     /// The executable runtime (with the C `main`).
     pub fn get_or_compile() -> Result<Self, String> {
+        if let Some(lib_path) = crate::cross::runtime("main")? { return Ok(Self { lib_path }); }
         precompiled_runtime(env!("DARTFORGE_RUNTIME_MAIN")).map(|lib_path| Self { lib_path })
     }
 
     /// The runtime variant that goes into the DLL of the source SDK (P5c): without the
     /// C `main` (cfg `dartforge_runtime_dll`); the `main` is the executable's.
     pub fn for_dll() -> Result<Self, String> {
+        if let Some(lib_path) = crate::cross::runtime("dll")? { return Ok(Self { lib_path }); }
         precompiled_runtime(env!("DARTFORGE_RUNTIME_DLL")).map(|lib_path| Self { lib_path })
     }
 
@@ -51,6 +58,7 @@ impl RuntimeCache {
     /// with the source SDK links statically: compiled with `panic=abort`
     /// (`build.rs`, `ABORT`). The DLL one, which the JIT also loads, unwinds.
     pub fn for_production() -> Result<Self, String> {
+        if let Some(lib_path) = crate::cross::runtime("production")? { return Ok(Self { lib_path }); }
         precompiled_runtime(env!("DARTFORGE_RUNTIME_PRODUCTION")).map(|lib_path| Self { lib_path })
     }
 }

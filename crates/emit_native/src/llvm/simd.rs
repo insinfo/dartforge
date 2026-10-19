@@ -73,7 +73,7 @@ impl LlvmEmitter<'_> {
                 writeln!(w, "  %sc{v} = fcmp {p} {kt} {x}, {y}").unwrap();
                 writeln!(w, "  {r} = select <{n} x i1> %sc{v}, {kt} {x}, {kt} {y}").unwrap();
             }
-            OpSimd::Clamp if cfg!(target_arch = "aarch64") => {
+            OpSimd::Clamp if crate::target::is_aarch64() => {
                 // The VM's `vminf`/`vmaxf` on arm64 (`simd128.cc`, and the
                 // runtime's `clamp_pista`): outside equality, with NaN the
                 // first operand stays; on equality (only ±0 matters) `min`

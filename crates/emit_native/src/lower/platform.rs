@@ -2,7 +2,7 @@
 //! in `dart:io`'s `Platform`) only after proving the SDK's native getter chain.
 //!
 //! The booleans (`isWindows`…) fold in every mode: the target is the host
-//! (`target.rs`), so the value is the one the runtime would answer. The strings
+//! (`target.rs`), so the value is the one the destination runtime answers. The strings
 //! (`operatingSystem`, `pathSeparator`) fold only in production
 //! (`Context::production`): development and the JIT read them at run time, as
 //! `dart run` does, and the VM itself only folds them in the AOT snapshot
@@ -40,16 +40,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 }
 
-/// `Platform.operatingSystem` of the target (`target::target_os`, the host:
-/// there is no cross-compilation). `target_os` treats an unsupported host as
-/// Linux while the runtime answers `unknown` there: no fold on such a host.
+/// `Platform.operatingSystem` of the selected compilation destination.
 fn target_name() -> Option<&'static str> {
     use crate::target::{Os, target_os};
     match target_os() {
         Os::MacOs => Some("macos"),
         Os::Windows => Some("windows"),
-        Os::Linux if cfg!(target_os = "linux") => Some("linux"),
-        Os::Linux => None,
+        Os::Linux => Some("linux"),
     }
 }
 

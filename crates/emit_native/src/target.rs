@@ -1,13 +1,12 @@
-//! The system the native backend compiles for: that of the compiling process.
+//! The immutable destination selected for a native compilation.
 //!
 //! Everything that changes between Windows, Linux and macOS lives here — the header of the
 //! LLVM IR, the extensions of the artifacts, the Clang and link flags and the
 //! format of the shared library of the source SDK. The rest of the backend
 //! asks this module instead of testing scattered `cfg!`s.
 //!
-//! There is no cross-compilation: the target is always the host. The IR on Windows is
-//! byte for byte that of before the port (same header, same flags), so
-//! that the determinism digests and the cache keys stay valid.
+//! A process selects one destination before compilation. Native builds preserve
+//! their historical headers; cross builds carry an explicit LLVM triple.
 
 /// The systems supported by the native backend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,22 +19,106 @@ pub enum Os {
     MacOs,
 }
 
-/// The system of the current process.
+/// A supported 64-bit native destination. Windows currently uses x64, including
+/// when its executable runs under Windows ARM64's x64 compatibility layer.
 ///
 /// ```
-/// use dartforge_emit_native::target::{Os, target_os};
-/// let s = target_os();
-/// assert_eq!(s == Os::Windows, cfg!(windows));
+/// use dartforge_emit_native::target::{NativeTarget, Os};
+/// let target = NativeTarget::parse("linux-arm64").unwrap();
+/// assert_eq!(target.triple(), "aarch64-unknown-linux-gnu");
+/// assert_eq!(target.os(), Os::Linux);
+/// assert!(target.is_arm64());
 /// ```
-pub const fn target_os() -> Os {
-    if cfg!(windows) {
-        Os::Windows
-    } else if cfg!(target_os = "macos") {
-        Os::MacOs
-    } else {
-        Os::Linux
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeTarget {
+    WindowsX64,
+    LinuxX64,
+    LinuxArm64,
+    MacosX64,
+    MacosArm64,
+}
+
+impl NativeTarget {
+    /// The destination of a native compilation without `--target`.
+    pub fn host() -> Self {
+        if cfg!(windows) { Self::WindowsX64 }
+        else if cfg!(target_os = "macos") {
+            if cfg!(target_arch = "aarch64") { Self::MacosArm64 } else { Self::MacosX64 }
+        } else if cfg!(target_arch = "aarch64") { Self::LinuxArm64 }
+        else { Self::LinuxX64 }
+    }
+
+    /// Parses a Rust/LLVM triple (or the documented short platform name).
+    ///
+    /// # Errors
+    /// Rejects unknown architectures, ABIs and operating systems.
+    pub fn parse(name: &str) -> Result<Self, String> {
+        match name {
+            "windows-x64" | "x86_64-pc-windows-msvc" => Ok(Self::WindowsX64),
+            "linux-x64" | "x86_64-unknown-linux-gnu" => Ok(Self::LinuxX64),
+            "linux-arm64" | "aarch64-unknown-linux-gnu" => Ok(Self::LinuxArm64),
+            "macos-x64" | "x86_64-apple-darwin" => Ok(Self::MacosX64),
+            "macos-arm64" | "aarch64-apple-darwin" | "arm64-apple-darwin" => Ok(Self::MacosArm64),
+            _ => Err(format!("unsupported native target {name:?}; use windows-x64, linux-x64, linux-arm64, macos-x64 or macos-arm64")),
+        }
+    }
+
+    /// Canonical LLVM/Rust triple of this destination.
+    pub fn triple(self) -> &'static str {
+        match self {
+            Self::WindowsX64 => "x86_64-pc-windows-msvc",
+            Self::LinuxX64 => "x86_64-unknown-linux-gnu",
+            Self::LinuxArm64 => "aarch64-unknown-linux-gnu",
+            Self::MacosX64 => "x86_64-apple-darwin",
+            Self::MacosArm64 => "aarch64-apple-darwin",
+        }
+    }
+
+    /// Operating system whose ABI and library conventions apply.
+    pub fn os(self) -> Os {
+        match self {
+            Self::WindowsX64 => Os::Windows,
+            Self::LinuxX64 | Self::LinuxArm64 => Os::Linux,
+            Self::MacosX64 | Self::MacosArm64 => Os::MacOs,
+        }
+    }
+
+    /// Whether code generation and C FFI use AArch64.
+    pub fn is_arm64(self) -> bool {
+        matches!(self, Self::LinuxArm64 | Self::MacosArm64)
     }
 }
+
+static DESTINATION: std::sync::OnceLock<NativeTarget> = std::sync::OnceLock::new();
+
+/// Selects one immutable destination before starting compiler worker threads.
+///
+/// # Errors
+/// A process cannot switch targets after its first target-dependent operation.
+pub fn select(target: NativeTarget) -> Result<(), String> {
+    match DESTINATION.set(target) {
+        Ok(()) => Ok(()),
+        Err(_) if current() == target => Ok(()),
+        Err(_) => Err("native target was already initialized; use a separate compilation process".into()),
+    }
+}
+
+/// The frozen selection, initialized to the host when no destination was selected.
+pub fn current() -> NativeTarget { *DESTINATION.get_or_init(NativeTarget::host) }
+/// Whether this process is compiling for a different native destination.
+pub fn is_cross() -> bool { current() != NativeTarget::host() }
+/// Architecture of the generated code, independent of the compiler CPU.
+pub fn is_aarch64() -> bool { current().is_arm64() }
+/// Whether the generated code uses a supported Unix ABI.
+pub fn is_unix() -> bool { target_os() != Os::Windows }
+
+/// The operating system of the generated code, independent of compiler host.
+///
+/// ```
+/// use dartforge_emit_native::target::{NativeTarget, target_os};
+/// assert_eq!(target_os(), NativeTarget::host().os());
+/// ```
+pub fn target_os() -> Os { current().os() }
 
 /// The exception model of the generated code
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13), through the variable
@@ -63,8 +146,8 @@ pub fn table_exceptions() -> Result<bool, String> {
             // Windows x86-64 (SEH) and, through the runtime's Itanium
             // personality (Step 4, written and never run), Linux and macOS
             // on x86-64 and aarch64.
-            let seh = cfg!(windows) && cfg!(target_arch = "x86_64");
-            let itanium = cfg!(unix) && (cfg!(target_arch = "x86_64") || cfg!(target_arch = "aarch64"));
+            let seh = target_os() == Os::Windows && !is_aarch64();
+            let itanium = is_unix();
             if !(seh || itanium) {
                 return Err(
                     "exceptions by tables (--exceptions=tables) only exist on Windows x86-64 and, on Linux and macOS, on x86-64 and aarch64".to_string()
@@ -142,8 +225,7 @@ pub fn roots_by_maps() -> Result<bool, String> {
     match value.as_str() {
         "" | "shadow" => Ok(false),
         "maps" => {
-            let target_with_walker = (cfg!(windows) && cfg!(target_arch = "x86_64"))
-                || ((cfg!(target_os = "linux") || cfg!(target_os = "macos")) && (cfg!(target_arch = "x86_64") || cfg!(target_arch = "aarch64")));
+            let target_with_walker = (target_os() == Os::Windows && !is_aarch64()) || is_unix();
             if !target_with_walker {
                 return Err(
                     "roots by maps (--roots=maps) exist on Windows x86-64 and on Linux and macOS on x86-64 and aarch64".to_string(),
@@ -181,8 +263,7 @@ pub fn symbolic_stack_trace() -> Result<bool, String> {
     match value.as_str() {
         "" | "none" => Ok(false),
         "symbolic" => {
-            let with_walker = (cfg!(windows) && cfg!(target_arch = "x86_64"))
-                || ((cfg!(target_os = "linux") || cfg!(target_os = "macos")) && (cfg!(target_arch = "x86_64") || cfg!(target_arch = "aarch64")));
+            let with_walker = (target_os() == Os::Windows && !is_aarch64()) || is_unix();
             if !with_walker {
                 return Err("the symbolic stack trace (--stack-trace=symbolic) exists on Windows x86-64 and on Linux and macOS on x86-64 and aarch64".to_string());
             }
@@ -247,6 +328,15 @@ pub fn sabotaged_leaf(name: &str) -> bool {
 /// `LLJIT` impose the host's: the macOS triple carries the system version
 /// (`arm64-apple-darwin24.1.0`), which does not fit in a constant.
 pub fn ir_header() -> &'static str {
+    if is_cross() {
+        return match current() {
+            NativeTarget::WindowsX64 => "target triple = \"x86_64-pc-windows-msvc\"\n\n",
+            NativeTarget::LinuxX64 => "target triple = \"x86_64-unknown-linux-gnu\"\n\n",
+            NativeTarget::LinuxArm64 => "target triple = \"aarch64-unknown-linux-gnu\"\n\n",
+            NativeTarget::MacosX64 => "target triple = \"x86_64-apple-darwin\"\n\n",
+            NativeTarget::MacosArm64 => "target triple = \"aarch64-apple-darwin\"\n\n",
+        };
+    }
     match target_os() {
         Os::Windows => {
             "target datalayout = \"e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128\"\ntarget triple = \"x86_64-pc-windows-msvc\"\n\n"
@@ -263,7 +353,7 @@ pub fn ir_header() -> &'static str {
 /// (the linker merges `.dfimg$a`, `$m` and `$z` in order), `dfimg` in ELF (a
 /// C identifier name, so that the linker defines `__start_dfimg`/`__stop_dfimg`) and
 /// `__DATA_CONST,__dfimg` in Mach-O.
-pub const fn image_section() -> &'static str {
+pub fn image_section() -> &'static str {
     match target_os() {
         Os::Windows => ".dfimg$m",
         Os::Linux => "dfimg",
@@ -308,12 +398,12 @@ pub fn image_markers() -> (String, &'static str, &'static str) {
 
 /// Whether the object format has `comdat`. Mach-O does not: there a
 /// `linkonce_odr` definition alone becomes a weak symbol, and the linker keeps one.
-pub const fn has_comdat() -> bool {
+pub fn has_comdat() -> bool {
     !matches!(target_os(), Os::MacOs)
 }
 
 /// Extension of the object (without the dot).
-pub const fn ext_object() -> &'static str {
+pub fn ext_object() -> &'static str {
     match target_os() {
         Os::Windows => "obj",
         _ => "o",
@@ -321,7 +411,7 @@ pub const fn ext_object() -> &'static str {
 }
 
 /// Extension of the static library (without the dot).
-pub const fn static_ext() -> &'static str {
+pub fn static_ext() -> &'static str {
     match target_os() {
         Os::Windows => "lib",
         _ => "a",
@@ -352,8 +442,8 @@ pub fn executable_name(base: &str) -> String {
 }
 
 /// Name of Clang in the `bin` folder of an LLVM distribution.
-pub const fn clang_name() -> &'static str {
-    match target_os() {
+pub fn clang_name() -> &'static str {
+    match NativeTarget::host().os() {
         Os::Windows => "clang.exe",
         _ => "clang",
     }
@@ -365,7 +455,7 @@ pub const fn clang_name() -> &'static str {
 /// COFF header: without it, the same IR gave different objects at byte 4
 /// (measured), and the object was no longer a function of the key. ELF and Mach-O have no
 /// timestamp.
-pub const fn object_flags() -> &'static [&'static str] {
+pub fn object_flags() -> &'static [&'static str] {
     match target_os() {
         Os::Windows => &["-mno-incremental-linker-compatible"],
         _ => &[],
@@ -374,7 +464,7 @@ pub const fn object_flags() -> &'static [&'static str] {
 
 /// Clang flags for the objects that go into the shared library
 /// of the SDK: position-independent code outside Windows.
-pub const fn shared_object_flags() -> &'static [&'static str] {
+pub fn shared_object_flags() -> &'static [&'static str] {
     match target_os() {
         Os::Windows => &[],
         _ => &["-fPIC"],
@@ -389,7 +479,7 @@ pub const fn shared_object_flags() -> &'static [&'static str] {
 /// system has its own linker: `linker.rs`, `linker_windows.rs`,
 /// `linker_macos.rs`); the list serves whoever links through Clang in a
 /// development tree (the JIT tests).
-pub const fn system_libraries() -> &'static [&'static str] {
+pub fn system_libraries() -> &'static [&'static str] {
     match target_os() {
         // `crypt32`: the system certificate store (the TLS
         // roots, `tls.rs`).

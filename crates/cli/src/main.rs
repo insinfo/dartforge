@@ -12,6 +12,12 @@ mod pub_get;
 mod test_runner;
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = env::args_os().skip(1).collect();
+    #[cfg(feature = "native")]
+    let args = {
+        let mut args = args;
+        native::select_destination(&mut args)?;
+        args
+    };
     if args.first().is_some_and(|arg| arg == "abi-info") {
         return native::abi_info(&args);
     }
@@ -20,7 +26,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             "DartForge - Dart to JavaScript compiler\nUsage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <cfg>] [--timings]\n       dartforge dev <input.dart> -o <dir> [--packages <cfg>] [--sdk <lib>] [--interval <ms>] [--once]
        dartforge serve <input.dart> -o <dir> [--web <dir>] [--port N] [--packages <cfg>]\n       dartforge build [<input.dart>] [--root <dir>] [--plan] [--compare] [--release] [--strict] [--workers N] [--write-cache <dir>] [--dart <exe>] [--state]\n       dartforge aot|abi-info ...  (build with --features native)
        dartforge run|reload <input.dart> ...  (build with --features jit)
-       dartforge pack <destination>  (the distribution: executable, runtime, SDK, linker)\n       dartforge analyze [--format=json] [--all] [<dir|file>]  (the JSON of dart analyze)\n       dartforge format [-o write|show|json|none] [--set-exit-if-changed] [-l N] <files|dirs>  (dart format 3.6.2)\n       dartforge test [<file|directory> ...] [--name <regex>] [--sdk <lib>] [--packages <cfg>]\n       dartforge pub get [--offline] [--directory <dir>] [--sdk <lib>] [--sdk-version <version>]\n       dartforge macros <input.dart> [--materialize] [--shape 3.6|current] [--dart <exe>]\n\ncompile-js emits one ES module per library under the DDC contract.\ndev keeps the session alive and recompiles only what the edit affects."
+       dartforge export-target <directory>  (runtime and sysroot for cross AOT)\n       dartforge pack <destination>  (the distribution: executable, runtime, SDK, linker)\n       dartforge analyze [--format=json] [--all] [<dir|file>]  (the JSON of dart analyze)\n       dartforge format [-o write|show|json|none] [--set-exit-if-changed] [-l N] <files|dirs>  (dart format 3.6.2)\n       dartforge test [<file|directory> ...] [--name <regex>] [--sdk <lib>] [--packages <cfg>]\n       dartforge pub get [--offline] [--directory <dir>] [--sdk <lib>] [--sdk-version <version>]\n       dartforge macros <input.dart> [--materialize] [--shape 3.6|current] [--dart <exe>]\n\ncompile-js emits one ES module per library under the DDC contract.\ndev keeps the session alive and recompiles only what the edit affects."
         );
         return Ok(());
     }
@@ -48,6 +54,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     if args[0] == "aot" {
         return native::aot(&args);
+    }
+    if args[0] == "export-target" {
+        #[cfg(feature = "native")]
+        {
+            let [_, destination] = args.as_slice() else { return Err("usage: dartforge export-target <directory>".into()); };
+            dartforge_emit_native::cross::export(PathBuf::from(destination).as_path())?;
+            return Ok(());
+        }
+        #[cfg(not(feature = "native"))]
+        return Err("export-target: build with --features native".into());
     }
     if args[0] == "pack" {
         #[cfg(feature = "native")]

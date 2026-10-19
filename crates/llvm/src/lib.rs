@@ -53,6 +53,10 @@ use llvm_sys::transforms::pass_builder::{
     LLVMCreatePassBuilderOptions, LLVMDisposePassBuilderOptions, LLVMRunPasses,
 };
 use std::ffi::{CStr, CString, c_char};
+use llvm_sys::target::{LLVMInitializeX86TargetInfo, LLVMInitializeX86Target,
+    LLVMInitializeX86TargetMC, LLVMInitializeX86AsmPrinter, LLVMInitializeX86AsmParser,
+    LLVMInitializeAArch64TargetInfo, LLVMInitializeAArch64Target, LLVMInitializeAArch64TargetMC,
+    LLVMInitializeAArch64AsmPrinter, LLVMInitializeAArch64AsmParser};
 use std::ptr;
 use std::sync::OnceLock;
 
@@ -72,6 +76,13 @@ pub fn init_native_target() -> Result<(), String> {
         .get_or_init(|| {
             // SAFETY: `get_or_init` guarantees a single, exclusive execution; the
             // routines only register the target in LLVM's global tables.
+            // SAFETY: registration is serialized by STATE, before generation.
+            unsafe {
+                LLVMInitializeX86TargetInfo(); LLVMInitializeX86Target();
+                LLVMInitializeX86TargetMC(); LLVMInitializeX86AsmPrinter(); LLVMInitializeX86AsmParser();
+                LLVMInitializeAArch64TargetInfo(); LLVMInitializeAArch64Target();
+                LLVMInitializeAArch64TargetMC(); LLVMInitializeAArch64AsmPrinter(); LLVMInitializeAArch64AsmParser();
+            }
             let has_failed = unsafe {
                 LLVM_InitializeNativeTarget() != 0
                     || LLVM_InitializeNativeAsmPrinter() != 0

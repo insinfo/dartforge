@@ -85,8 +85,8 @@ fn main() {
 }
 
 /// LLVM components that dartforge uses: the JIT (`orcjit`) and the AOT's object
-/// and bitcode generation (`native`, `passes`, `bitwriter`).
-const COMPONENTS: [&str; 5] = ["orcjit", "native", "irreader", "passes", "bitwriter"];
+/// and bitcode generation, including both supported cross-compiler CPU families.
+const COMPONENTS: [&str; 7] = ["orcjit", "native", "x86", "aarch64", "irreader", "passes", "bitwriter"];
 
 /// Runs the `llvm-config` of the chosen prefix (never the one on `PATH`, which may
 /// belong to another installation) and returns its output.

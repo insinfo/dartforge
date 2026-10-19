@@ -401,13 +401,13 @@ pub fn emit_sdk_libraries_with(lib_dir: &Path, production: bool, flags: crate::D
         let ir = if production { with_optsize(&ir) } else { ir };
         // Unwind table with exceptions by tables and with roots by
         // maps (the collector's walk; see `lib.rs`).
-        let ir = if (table_exceptions || roots_by_maps) && cfg!(unix) { with_uwtable(&ir) } else { ir };
-        let ir = if cfg!(unix) && !table_exceptions && !roots_by_maps { with_nounwind(&ir) } else { ir };
+        let ir = if (table_exceptions || roots_by_maps) && crate::target::is_unix() { with_uwtable(&ir) } else { ir };
+        let ir = if crate::target::is_unix() && !table_exceptions && !roots_by_maps { with_nounwind(&ir) } else { ir };
         // Only on Unix (macOS measured; Windows not), in every production
         // profile but roots by maps (`lib.rs`: the helper is not a declared leaf
         // of the statepoint pass). The production SDK only lives in the single
         // image of the executable: the slot of the context is `dso_local`.
-        let ir = if cfg!(unix) && production && !roots_by_maps {
+        let ir = if crate::target::is_unix() && production && !roots_by_maps {
             with_context_in_tls(&ir, ContextInTls::Free, "df.ctx.tls", true)
         } else {
             ir
@@ -522,6 +522,7 @@ fn sdk_key_with_overlay(lib_dir: &Path, overlay: &Path, clang_id: &str, args: &[
     files.dedup();
     let mut h = blake3::Hasher::new();
     h.update(b"dartforge-sdk-selected-source-v7\0");
+    h.update(crate::target::current().triple().as_bytes());
     h.update(env!("CARGO_PKG_VERSION").as_bytes());
     h.update(b"\0");
     h.update(env!("DARTFORGE_EMITTER_HASH").as_bytes());
@@ -1111,7 +1112,7 @@ pub fn with_context_in_tls(ir: &str, mode: ContextInTls, variable: &str, single_
         ContextInTls::PerCall => " noinline",
     };
     let mut s = ir.replace(CALL, "call ptr @df.context()");
-    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+    if crate::target::target_os() == crate::target::Os::MacOs && crate::target::is_aarch64() {
         s.push_str(&context_in_tsd(attribute, single_image));
         return s;
     }
