@@ -1,0 +1,9 @@
+cargo::rerun-if-changed=build.rs
+cargo::rerun-if-env-changed=DARTFORGE_LLVM_DIR
+cargo::rerun-if-env-changed=DARTFORGE_LLVM_ZSTD_LIBRARY
+cargo::rerun-if-env-changed=LLVM_SYS_221_PREFIX
+cargo::rerun-if-env-changed=PATH
+
+thread 'main' (1580582) panicked at /Volumes/ssd_dock/MyRustProjects/dartforge/crates/llvm/build.rs:250:30:
+LLVM 22.1 was not found. Set DARTFORGE_LLVM_DIR (or LLVM_SYS_221_PREFIX) to a complete installation, or put its llvm-config on PATH.
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

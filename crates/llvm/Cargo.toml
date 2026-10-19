@@ -14,4 +14,5 @@ workspace = true
 # `no-llvm-linking`: the signatures and the initialization wrappers come from
 # llvm-sys, but whoever emits the link directives is this crate's `build.rs`
 # (the shared library of the C API on Windows; see the top of build.rs).
-llvm-sys = { version = "221.1.0", features = ["no-llvm-linking"] }
+# Keep wrapper headers on the same LLVM release line as our link selection.
+llvm-sys = { version = "221.1.0", features = ["no-llvm-linking", "strict-versioning"] }

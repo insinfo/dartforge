@@ -1,0 +1,26 @@
+{
+  "fmt": {
+    "exit": 1,
+    "local_full_log": "/tmp/forge-llvm-selection/root/fmt.log",
+    "bytes": 15735170,
+    "sha256": "79809d17b0b678b1353a0d2828ea4ee9f381066d7979333c7ccd17c5373bf1f9"
+  },
+  "clippy": {
+    "exit": 101,
+    "local_full_log": "/tmp/forge-llvm-selection/root/clippy.log",
+    "bytes": 39242,
+    "sha256": "1616cdbedb02d8b0990ba15901662b3c1ac1781c5c643a849abf5945d95a2118"
+  },
+  "test": {
+    "exit": 101,
+    "local_full_log": "/tmp/forge-llvm-selection/root/test.log",
+    "bytes": 472916,
+    "sha256": "a6993e992fb6e18de440101fda5b41ed4267cbf35f7cdfe28f16a71299ac7a8a"
+  },
+  "doc": {
+    "exit": 0,
+    "local_full_log": "/tmp/forge-llvm-selection/root/doc.log",
+    "bytes": 11646,
+    "sha256": "a5848f399dd46ff796f51703951acf9f6434763e97f054582624bfe4f9158830"
+  }
+}

@@ -1,0 +1,41 @@
+   Compiling dartforge-llvm v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/llvm)
+   Compiling dartforge-jit v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/jit)
+warning: method `identity` is never used
+   --> crates/emit_native/src/hir.rs:256:19
+    |
+254 | impl FieldDeclaration {
+    | --------------------- method in this implementation
+255 |     /// Semantic identity excludes flags and layout premises, which a proof must reconcile.
+256 |     pub(crate) fn identity(&self) -> (&str, &str, &str) {
+    |                   ^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib) generated 1 warning
+warning: unresolved link to `js_member_name`
+   --> crates/emit_js_production/src/properties.rs:219:39
+    |
+219 | /// the instances: the member name ([`js_member_name`]) and, for a program
+    |                                       ^^^^^^^^^^^^^^ no item named `js_member_name` in scope
+    |
+[... excerpt ...]
+
+warning: unresolved link to `ligado`
+  --> crates/types/src/inference/patterns/matching.rs:17:45
+   |
+17 | //! Only the analyzer uses this path (see [`ligado`]); the compilers keep the
+   |                                             ^^^^^^ no item named `ligado` in scope
+   |
+   = help: to escape `[` and `]` characters, add '\' before them like `\[` or `\]`
+
+warning: unresolved link to `crate::display::Displayer::argumentos`
+    --> crates/types/src/inference/mod.rs:1058:41
+     |
+1058 |     /// `ErrorReporter`'s conversion ([`crate::display::Displayer::argumentos`],
+     |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the struct `Displayer` has no field or associated item named `argumentos`
+
+warning: `dartforge-types` (lib doc) generated 18 warnings
+ Documenting dartforge-llvm v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/llvm)
+ Documenting dartforge-jit v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/jit)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 24.71s
+   Generated /Volumes/ssd_dock/MyRustProjects/dartforge/target/doc/dartforge_abi/index.html and 29 other files

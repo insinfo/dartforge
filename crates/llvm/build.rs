@@ -28,6 +28,9 @@
 //! default — the shared one when the installation offers it, otherwise static.
 use std::path::{Path, PathBuf};
 
+#[path = "build_support/installation.rs"]
+mod installation;
+
 #[path = "build_support/zstd.rs"]
 mod zstd;
 
@@ -37,8 +40,24 @@ fn main() {
     println!("cargo::rerun-if-env-changed=DARTFORGE_LLVM_DIR");
     println!("cargo::rerun-if-env-changed=DARTFORGE_LLVM_ZSTD_LIBRARY");
     println!("cargo::rerun-if-env-changed=LLVM_SYS_221_PREFIX");
+    println!("cargo::rerun-if-env-changed=PATH");
 
     let prefix = prefix();
+    println!(
+        "cargo::rerun-if-changed={}",
+        prefix
+            .join("bin")
+            .join(format!("llvm-config{}", std::env::consts::EXE_SUFFIX))
+            .display()
+    );
+    let version = llvm_config(&prefix, &["--version"])
+        .unwrap_or_else(|error| panic!("cannot validate selected LLVM installation: {error}"));
+    assert!(
+        installation::compatible_version(&version),
+        "the selected LLVM at {} reports {}; DartForge requires LLVM 22.1.x",
+        prefix.display(),
+        version.trim()
+    );
     // The LLVM library is loaded by the Rust compiler executable, not by
     // programs it emits. Catch an ARM64/x64 mismatch before compiling the
     // entire workspace and reporting hundreds of unresolved link symbols.
@@ -225,24 +244,22 @@ fn require_files(prefix: &Path, mode: &str) -> Result<(), String> {
 /// because it is the name that `llvm-sys`'s `build.rs` already requires, and
 /// keeping the two pointing to different places would only cause confusion.
 fn prefix() -> PathBuf {
-    for variable in ["DARTFORGE_LLVM_DIR", "LLVM_SYS_221_PREFIX"] {
-        if let Some(value) = std::env::var_os(variable) {
-            let path = PathBuf::from(value);
-            if path.as_os_str().is_empty() {
-                continue;
+    installation::select_prefix(
+        std::env::var_os("DARTFORGE_LLVM_DIR"),
+        std::env::var_os("LLVM_SYS_221_PREFIX"),
+        |binary, argument| {
+            let output = std::process::Command::new(binary)
+                .arg(argument)
+                .output()
+                .map_err(|error| error.to_string())?;
+            if !output.status.success() {
+                return Err(String::from_utf8_lossy(&output.stderr).into_owned());
             }
-            return path;
-        }
-    }
-    PathBuf::from(FALLBACK_PREFIX)
+            String::from_utf8(output.stdout).map_err(|error| error.to_string())
+        },
+    )
+    .unwrap_or_else(|error| panic!("{error}"))
 }
-
-/// Installation verified on this machine, used when nothing was configured.
-const FALLBACK_PREFIX: &str = if cfg!(windows) {
-    "E:/llvm/clang+llvm-22.1.8-x86_64-pc-windows-msvc"
-} else {
-    "/usr/lib/llvm-22"
-};
 
 /// The system shared library `lib<name>`, when the `.a` that the LLVM package
 /// declares does not exist here: `lib<name>.so` if the development package is

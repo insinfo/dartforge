@@ -2,6 +2,20 @@
 
 ## Atualização de 19/10/2026
 
+- A configuração Cargo deixa de exportar um caminho absoluto de LLVM para
+  Windows em todos os sistemas. O seletor usa o prefixo explícito ou procura
+  `llvm-config` 22.1 no `PATH`, sem presumir `/usr/lib/llvm-22`; consulta a versão
+  da instalação selecionada e preserva erros de configuração explícita.
+  `llvm-sys` também exige a linha 22.1 para manter seus cabeçalhos compatíveis.
+  Com o LLVM real disponível só no `PATH`, o script anterior falhava e o novo
+  passa. Cinco testes de seleção e seis cenários do script real cobrem
+  precedência, descoberta e recusas. Os 17 testes do pacote LLVM passaram pelo
+  caminho sem variáveis de prefixo, incluindo emissão dos cinco destinos; isso
+  não é execução de binários Windows/Linux. Clippy estrito do pacote passa com
+  todos os alvos (`--no-deps`). Checks globais mantêm falhas de fmt/Clippy/link
+  Apple/LLVM 22; documentação gera avisos. Evidências:
+  `bench/results/2026-10-19-llvm-installation/README.md`.
+
 - Os testes de execução de builders deixam de aprovar seleção vazia, nomes de
   casos desconhecidos ou pré-requisitos ausentes. A execução pela VM também
   exige zero saídas pendentes: com um Dart inexistente, antes aprovava com 45

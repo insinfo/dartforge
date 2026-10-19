@@ -1,0 +1,11 @@
+cargo::rerun-if-changed=build.rs
+cargo::rerun-if-env-changed=DARTFORGE_LLVM_DIR
+cargo::rerun-if-env-changed=DARTFORGE_LLVM_ZSTD_LIBRARY
+cargo::rerun-if-env-changed=LLVM_SYS_221_PREFIX
+cargo::warning=LLVM library directory not found: /usr/lib/llvm-22/lib
+cargo::rustc-link-search=native=/usr/lib/llvm-22/lib
+cargo::rerun-if-env-changed=DARTFORGE_LLVM_LINK
+
+thread 'main' (1571289) panicked at crates/llvm/build.rs:89:17:
+the LLVM at /usr/lib/llvm-22 offers neither shared linking (could not run /usr/lib/llvm-22/bin/llvm-config: No such file or directory (os error 2)) nor static linking (could not run /usr/lib/llvm-22/bin/llvm-config: No such file or directory (os error 2))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

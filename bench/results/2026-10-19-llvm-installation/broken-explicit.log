@@ -1,0 +1,10 @@
+cargo::rerun-if-changed=build.rs
+cargo::rerun-if-env-changed=DARTFORGE_LLVM_DIR
+cargo::rerun-if-env-changed=DARTFORGE_LLVM_ZSTD_LIBRARY
+cargo::rerun-if-env-changed=LLVM_SYS_221_PREFIX
+cargo::rerun-if-env-changed=PATH
+cargo::rerun-if-changed=/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/llvm selection b9glj3q5/missing/bin/llvm-config
+
+thread 'main' (1580574) panicked at /Volumes/ssd_dock/MyRustProjects/dartforge/crates/llvm/build.rs:49:33:
+cannot validate selected LLVM installation: could not run /var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/llvm selection b9glj3q5/missing/bin/llvm-config: No such file or directory (os error 2)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

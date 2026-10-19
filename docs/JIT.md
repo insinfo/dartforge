@@ -863,19 +863,24 @@ invólucros de `LLVMInitializeNative*`. Ele localiza o LLVM pelo `llvm-config` d
 e as bibliotecas. O instalador reduzido de Windows (`LLVM-*-win64.exe`), que só
 tem `LLVM-C.dll`/`LLVM-C.lib` e os cabeçalhos `Remarks.h`/`lto.h`, **não serve**.
 
-O repositório já traz `.cargo/config.toml` com
+O repositório não define um caminho de instalação em `.cargo/config.toml`.
+Configure a distribuição completa no ambiente, por exemplo no PowerShell:
 
-```toml
-[env]
-LLVM_SYS_221_PREFIX = "E:/llvm/clang+llvm-22.1.8-x86_64-pc-windows-msvc"
+```powershell
+$env:LLVM_SYS_221_PREFIX = 'E:/llvm/clang+llvm-22.1.8-x86_64-pc-windows-msvc'
+$env:DARTFORGE_LLVM_DIR = $env:LLVM_SYS_221_PREFIX
 ```
 
-de modo que qualquer `cargo` executado dentro dele enxerga a variável. Uma
-definição no ambiente do shell tem precedência, para testar outro prefixo.
-`DARTFORGE_LLVM_DIR`, o nome preferido do projeto para apontar um prefixo LLVM,
-também é aceito pelo `build.rs` deste crate — mas quem procura o `llvm-config` é
-o `build.rs` do `llvm-sys`, que só conhece `LLVM_SYS_221_PREFIX`; mantenha as
-duas com o mesmo valor.
+`DARTFORGE_LLVM_DIR` tem precedência no seletor do DartForge; `llvm-sys` usa
+`LLVM_SYS_221_PREFIX`, portanto mantenha ambas com o mesmo valor quando usar
+configuração explícita. Um prefixo explícito inválido gera erro, sem trocar
+silenciosamente de instalação. Sem essas variáveis, a descoberta procura um
+`llvm-config` compatível no `PATH`, consulta seu `--prefix` e usa essa instalação
+para as consultas de ligação. Os nomes versionados têm a mesma precedência de
+`llvm-sys` 221.1.0. Ambos exigem a linha LLVM **22.1.x**; versões anteriores ou
+posteriores não são aceitas automaticamente. Sem instalação compatível, a
+mensagem informa como configurar o ambiente. Não há fallback para um caminho
+particular de Windows ou `/usr/lib/llvm-22`.
 
 Sem um prefixo válido a build do workspace inteiro falha, porque `crates/jit` é
 membro de `crates/*`. Essa é a consequência de o perfil de desenvolvimento ser

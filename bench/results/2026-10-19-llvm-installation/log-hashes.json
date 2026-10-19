@@ -1,0 +1,47 @@
+{
+  "before.log": {
+    "local_full_log": "/tmp/forge-llvm-selection/before.log",
+    "bytes": 754,
+    "sha256": "192874967bf82e7e3875086ae012fe6cf7914ac167f2bb2965eb72d0b14cba96"
+  },
+  "cargo-path.log": {
+    "local_full_log": "/tmp/forge-llvm-selection/cargo-path-final.log",
+    "bytes": 273515,
+    "sha256": "3d9bb53e6d663c3b152b0882ffb56c2afc8667ec04b3463a34ea79a49626fdc1"
+  },
+  "clippy.log": {
+    "local_full_log": "/tmp/forge-llvm-selection/clippy-final.log",
+    "bytes": 164,
+    "sha256": "581f5028823401aa62a5a5464b41d189221633cbfa4f56a1784da9625496622c"
+  },
+  "missing.log": {
+    "local_full_log": "/tmp/forge-llvm-selection/final-process/missing.log",
+    "bytes": 537,
+    "sha256": "e0d6653699c2899b7520ae63408d9b19b389ae0fc18b07f0f0ddef4a05316cec"
+  },
+  "path-only.log": {
+    "local_full_log": "/tmp/forge-llvm-selection/final-process/path-only.log",
+    "bytes": 3958,
+    "sha256": "a6e0cd8b02f9bb63b9097aa5c7449bb616d692390d35c993feed378cf9a090e5"
+  },
+  "legacy.log": {
+    "local_full_log": "/tmp/forge-llvm-selection/final-process/legacy.log",
+    "bytes": 3958,
+    "sha256": "a6e0cd8b02f9bb63b9097aa5c7449bb616d692390d35c993feed378cf9a090e5"
+  },
+  "broken-explicit.log": {
+    "local_full_log": "/tmp/forge-llvm-selection/final-process/broken-explicit.log",
+    "bytes": 719,
+    "sha256": "8e07844646fc03ad3cdc28b520d46bf6ebebb35b38a308e67cd322105f9c3b5b"
+  },
+  "explicit.log": {
+    "local_full_log": "/tmp/forge-llvm-selection/final-process/explicit.log",
+    "bytes": 3958,
+    "sha256": "a6e0cd8b02f9bb63b9097aa5c7449bb616d692390d35c993feed378cf9a090e5"
+  },
+  "wrong-version.log": {
+    "local_full_log": "/tmp/forge-llvm-selection/final-process/wrong-version.log",
+    "bytes": 672,
+    "sha256": "3c8ca8bd336b3d9a5b18b0dd7c3aace32e8818e716a6ad35e7999c0698512fec"
+  }
+}

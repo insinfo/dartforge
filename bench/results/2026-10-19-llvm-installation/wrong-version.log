@@ -1,0 +1,10 @@
+cargo::rerun-if-changed=build.rs
+cargo::rerun-if-env-changed=DARTFORGE_LLVM_DIR
+cargo::rerun-if-env-changed=DARTFORGE_LLVM_ZSTD_LIBRARY
+cargo::rerun-if-env-changed=LLVM_SYS_221_PREFIX
+cargo::rerun-if-env-changed=PATH
+cargo::rerun-if-changed=/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/llvm selection b9glj3q5/LLVM 21/bin/llvm-config
+
+thread 'main' (1580577) panicked at /Volumes/ssd_dock/MyRustProjects/dartforge/crates/llvm/build.rs:50:5:
+the selected LLVM at /var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/llvm selection b9glj3q5/LLVM 21 reports 21.1.8; DartForge requires LLVM 22.1.x
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
