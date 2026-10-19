@@ -1,0 +1,7 @@
+{
+  "crates/emit_native/src/lower/rti.rs": "6e4d1a831065a39e4a49efba72abcac95995eacfed61dd56423d22d7f721870d",
+  "crates/emit_native/src/pruning/class_reachability.rs": "b86df24a50f86e49c0ae4ed75733cf3802d5f78083178651e1b9d3be6e28a7d0",
+  "crates/emit_native/src/pruning/class_reachability/tests.rs": "e29c7f62c28cd01634ecabe77231ccdba4c6fa6606bde09d95da4a10abb970a0",
+  "crates/runtime/src/types.rs": "0559ebebb642ace7c65ef1af91c31923b5e817e24a4a6826ccb08b6be2f9c285",
+  "crates/abi/tests/native_call.rs": "bc09ae7debcc3abdffd59fe48ceca21aaa845c1f8318084ae48bb2f9ff98d3f6"
+}

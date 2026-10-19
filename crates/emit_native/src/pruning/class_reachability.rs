@@ -97,6 +97,9 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
     let implicit_classes: HashSet<u32> = dartforge_runtime::layout::cid::SDK_CLASSES
         .iter()
         .map(|(cid, _, _)| *cid as u32)
+        // The canonical Type object is allocated by the runtime RTI cache,
+        // independently of program AllocObject instructions and positional CIDs.
+        .chain(std::iter::once(crate::lower::rti::TYPE_CLASS as u32))
         .chain(
             module
                 .runtime_cids

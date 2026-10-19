@@ -2,6 +2,22 @@
 
 ## Atualização de 19/10/2026
 
+- `_Type` tem agora a função de tabela registrada e ancestralidade marcada só
+  quando o pai do SDK é resolvido e distinto. A prova protege seu CID criado
+  pelo runtime mesmo sem alocação local ou vetor posicional; não autoriza o
+  construtor nativo. Passaram 833 testes unitários nativos e 34 dirigidos; o
+  teste ABI compilado confere CID/payload/identidade canônica sob GC. Um programa
+  real de RTTI passou em AOT/JIT normal e sob estresse, igual à VM, em seis
+  comandos. Clippy/docs estritos passam; fmt e avisos de deployment target
+  continuam pendentes. A poda ainda falha na checagem de namespace das entradas
+  geradas `dartforge_rti_init`/`dartforge_call_dart0`; a prova não foi relaxada.
+  A rodada global de 9cf1d3ba terminou com exit 101 no teste C de ABI, por falta
+  de sysroot para o Clang externo. O teste inalterado passou após configurar
+  SDKROOT 26.5 e deployment target 14.0, incluindo objeto Wasm; o pré-requisito
+  está em CONTRIBUTING. Não houve nova aprovação global, execução nas VMs ou
+  redução comprovada do explorador. Evidências:
+  `bench/results/2026-10-19-runtime-type-tables/README.md`.
+
 - A declaração de `_AsyncFrame` acompanha alocações locais após poda de fontes,
   independentemente da flag do loop. O callback e o loop permanecem ativos quando
   necessários. Duas regressões falhavam antes: classe fictícia em módulo sem

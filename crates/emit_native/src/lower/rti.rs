@@ -1417,6 +1417,7 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
             }
         }
         module.method_tables.push((TYPE_CLASS as u32, "df.mt.$type".to_string(), methods));
+        module.table_functions.insert(TYPE_CLASS as u32, "df.mt.$type".to_string());
         module.classes.push(ClassDef {
             id: TYPE_CLASS as u32,
             name: "_Type".to_string(),
@@ -1429,6 +1430,9 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
         // use the separate table of `dartforge_is_subclass`.
         if let Some(ty) = core_class(ctx, "Type").and_then(|c| ctx.class_id_of(c)) {
             module.subtyping_edges.push((TYPE_CLASS as u32, ty));
+            if ty != TYPE_CLASS as u32 {
+                module.pruning_class_ids.insert(TYPE_CLASS as u32);
+            }
         }
     }
     let mut cited: BTreeSet<i64> = BTreeSet::new();

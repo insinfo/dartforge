@@ -1678,6 +1678,10 @@ fn lowering_marks_only_nominal_ancestors_and_preserves_the_premises_when_joining
         assert!(lowered.errors.is_empty(), "{:?}", lowered.errors);
         assert!(lowered.classes.iter().any(|class| class.id == 0));
         assert!(lowered.pruning_metadata_only_class_ids.contains(&0));
+        let type_cid = crate::lower::rti::TYPE_CLASS as u32;
+        assert!(lowered.subtyping_edges.iter().any(|(child, parent)| *child == type_cid && *parent != type_cid));
+        assert!(lowered.pruning_class_ids.contains(&type_cid));
+        assert_eq!(lowered.table_functions.get(&type_cid).map(String::as_str), Some("df.mt.$type"));
         let mut facts = crate::lower::class_registration_facts(&context);
         for (name, metadata_only) in [("Base", true), ("Feature", true), ("Concrete", false)] {
             let class = facts.classes.iter().find(|class| class.name == name).unwrap();
@@ -1688,5 +1692,121 @@ fn lowering_marks_only_nominal_ancestors_and_preserves_the_premises_when_joining
         crate::lower::join_arc_facts(&mut combined, &mut facts);
         assert_eq!(combined.pruning_metadata_only_class_ids, expected);
         assert!(facts.pruning_metadata_only_class_ids.is_empty());
+    }).unwrap().join().unwrap();
+}
+
+fn type_table_fixture() -> Module {
+    let mut module = fixture();
+    let cid = crate::lower::rti::TYPE_CLASS as u32;
+    let class = module
+        .classes
+        .iter_mut()
+        .find(|class| class.id == 301)
+        .unwrap();
+    class.id = cid;
+    class.field_count = 1;
+    module.pruning_class_ids.remove(&301);
+    module.pruning_class_ids.insert(cid);
+    module
+        .method_tables
+        .iter_mut()
+        .find(|(class, _, _)| *class == 301)
+        .unwrap()
+        .0 = cid;
+    let table = module.table_functions.remove(&301).unwrap();
+    module.table_functions.insert(cid, table);
+    module
+}
+
+#[test]
+fn canonical_type_table_stays_live_without_explicit_allocations_or_runtime_vector() {
+    let mut module = type_table_fixture();
+    assert!(module.runtime_cids.is_empty());
+    assert!(apply(&mut module));
+    assert_eq!(
+        module.closed_class_tables.as_ref().unwrap(),
+        &HashSet::from([300, crate::lower::rti::TYPE_CLASS as u32])
+    );
+    assert!(
+        module
+            .functions
+            .iter()
+            .any(|function| function.symbol == "df.Unused.toString")
+    );
+}
+
+#[test]
+fn canonical_type_identity_cannot_be_relabelled_as_nominal_or_authorize_native_factories() {
+    for nominal_only in [false, true] {
+        let mut module = type_table_fixture();
+        if nominal_only {
+            let cid = crate::lower::rti::TYPE_CLASS as u32;
+            module.pruning_metadata_only_class_ids.insert(cid);
+            module.method_tables.retain(|(class, _, _)| *class != cid);
+            module.table_functions.remove(&cid);
+        } else {
+            module.functions[0].blocks[0].instructions.push((
+                ValueId(1),
+                Instruction::CallRuntime {
+                    name: "dartforge_rti_object_type".into(),
+                    args: vec![(Operand::Constant(Constant::Int(0)), Type::I64)],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            ));
+        }
+        assert!(audit(&mut module, &[]).is_err());
+        assert!(module.closed_class_tables.is_none());
+    }
+}
+
+#[test]
+#[ignore = "requires Clang and the native runtime"]
+fn compiled_runtime_type_factory_matches_the_emitter_cid_and_scalar_payload() {
+    std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+        let mut module = fixture();
+        module.runtime_cids = dartforge_runtime::layout::cid::SDK_CLASSES.iter()
+            .map(|(cid, _, _)| i64::from(*cid)).collect();
+        module.functions[0].blocks[0].instructions = vec![
+            (ValueId(0), Instruction::CallRuntime { name: "dartforge_rti_object_type".into(),
+                args: vec![(Operand::Constant(Constant::Int(0)), Type::I64)], ret_ty: Type::Ref }, Type::Ref),
+            (ValueId(1), Instruction::AllocObject { class_id: 300, fields: vec![] }, Type::Ref),
+            (ValueId(2), Instruction::CallRuntime { name: "dartforge_rti_object_type".into(),
+                args: vec![(Operand::Constant(Constant::Int(0)), Type::I64)], ret_ty: Type::Ref }, Type::Ref),
+            (ValueId(3), Instruction::ICmp(ICmpOp::Eq, Operand::Val(ValueId(0)), Operand::Val(ValueId(2))), Type::I1),
+            (ValueId(4), Instruction::CallRuntime { name: "dartforge_value_class".into(),
+                args: vec![(Operand::Val(ValueId(0)), Type::Ref)], ret_ty: Type::I64 }, Type::I64),
+            (ValueId(5), Instruction::ICmp(ICmpOp::Eq, Operand::Val(ValueId(4)),
+                Operand::Constant(Constant::Int(crate::lower::rti::TYPE_CLASS))), Type::I1),
+            (ValueId(6), Instruction::And(Operand::Val(ValueId(3)), Operand::Val(ValueId(5))), Type::I1),
+            (ValueId(7), Instruction::CallRuntime { name: "dartforge_object_get".into(),
+                args: vec![(Operand::Val(ValueId(0)), Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64)],
+                ret_ty: Type::I64 }, Type::I64),
+            (ValueId(8), Instruction::ICmp(ICmpOp::Eq, Operand::Val(ValueId(7)),
+                Operand::Constant(Constant::Int(0))), Type::I1),
+            (ValueId(9), Instruction::And(Operand::Val(ValueId(6)), Operand::Val(ValueId(8))), Type::I1),
+        ];
+        module.functions[0].blocks[0].terminator = Terminator::CondBranch {
+            cond: Operand::Val(ValueId(9)), then_block: BlockId(1), else_block: BlockId(2),
+        };
+        module.functions[0].blocks.extend([
+            BasicBlock { id: BlockId(1), instructions: vec![], terminator: Terminator::Return(None) },
+            BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Throw(Operand::Constant(Constant::Null)) },
+        ]);
+        // This checks the runtime ABI; it does not admit the factory in the proof.
+        let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
+        let wrapper = "define i32 @main() {\n  %r = call i32 @dartforge_init(ptr @dartforge_entry, ptr @dartforge_dispatch_toString)\n  ret i32 %r\n}\n";
+        assert_eq!(ir.matches(wrapper).count(), 1);
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join(crate::target::executable_name("runtime-type-abi"));
+        crate::driver::compile_and_link(&ir.replacen(wrapper, "", 1), &executable,
+            &crate::driver::NativeDriverOptions::default()).unwrap();
+        for stress in [false, true] {
+            let mut command = std::process::Command::new(&executable);
+            if stress { command.env("DARTFORGE_GC_STRESS", "1"); }
+            let output = command.output().unwrap();
+            assert!(output.status.success(), "stress={stress}: {}", String::from_utf8_lossy(&output.stderr));
+            assert!(output.stdout.is_empty() && output.stderr.is_empty());
+        }
     }).unwrap().join().unwrap();
 }

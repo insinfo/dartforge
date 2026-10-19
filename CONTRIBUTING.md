@@ -43,6 +43,14 @@ in your custom target directory). Keep LLVM tools on PATH when runtime SDK
 support libraries need to be built; selecting a prefix for Cargo does not add
 runtime tools to the caller's PATH.
 
+On macOS, standalone C-link tests also need a configured C SDK. When using an
+external LLVM Clang on PATH, set `SDKROOT` to an installed compatible macOS SDK
+and `MACOSX_DEPLOYMENT_TARGET` to an explicit supported version for the test
+process. The Cargo linker wrapper configures its own Rust-link subprocess; it
+cannot change the environment inherited by Clang launched inside a test. Record
+these settings with the test results. A missing `libSystem` before the native
+call runs is a toolchain prerequisite failure, not ABI conformance evidence.
+
 On PowerShell, `scripts/check.ps1` runs these checks
 together and requires documentation to build without warnings. CI checks behavior only: it
 does not run `cargo fmt` or `cargo doc` (the project owner's decision; see the header of

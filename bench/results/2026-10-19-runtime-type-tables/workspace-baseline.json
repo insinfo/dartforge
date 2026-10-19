@@ -1,0 +1,48 @@
+{
+  "revision": "9cf1d3bacfe74b7f0d803019de6f6d28afa9b062",
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/workspace-validation/9cf1d3ba/dartforge",
+  "compiler_sha256": "a4251bcabb8cddf1df87f626461a368f207139fecd7a4f721e4b2f272f7c9e7e",
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "--workspace",
+    "--",
+    "--include-ignored"
+  ],
+  "started_utc": "2026-10-19T19:07:32.404255+00:00",
+  "pid": 94296,
+  "case_filter": null,
+  "build_jobs": 2,
+  "test_threads": 2,
+  "sdk": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk",
+  "node_directory": "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin",
+  "preflight_exit": 0,
+  "cargo_pid": 94299,
+  "exit": 101,
+  "completed_utc": "2026-10-19T19:17:01.099423+00:00",
+  "test_log_sha256": "88c8ef902750d500b5c5d53ba4dcf2c1cd58ec621b350a57c00f9916c0327750",
+  "test_log_bytes": 746466,
+  "test_log_lines": 7457,
+  "exit_file": 101,
+  "configured_abi_env": {
+    "SDKROOT": "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk",
+    "MACOSX_DEPLOYMENT_TARGET": "14.0",
+    "DARTFORGE_LLVM_DIR": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+    "LLVM_SYS_221_PREFIX": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+    "PATH_prefix": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin"
+  },
+  "configured_abi_command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "dartforge-abi",
+    "--test",
+    "native_call",
+    "--",
+    "--include-ignored",
+    "--nocapture"
+  ],
+  "configured_abi_exit": 0
+}

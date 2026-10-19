@@ -1,0 +1,28 @@
+     Running unittests src/lib.rs (target/debug/deps/dartforge_abi-74ccb0e4b0fd9aa9)
+
+running 2 tests
+test tests::target_layouts_do_not_confuse_handles_and_pointers ... ok
+test tests::scalar_contracts_and_target_rejections ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/native_call.rs (target/debug/deps/native_call-607ce2ddd4edfc3e)
+
+running 1 test
+test llvm_scalar_declaration_links_and_calls_c ... FAILED
+
+failures:
+
+---- llvm_scalar_declaration_links_and_calls_c stdout ----
+
+thread 'llvm_scalar_declaration_links_and_calls_c' (2008107) panicked at crates/abi/tests/native_call.rs:58:5:
+Output { status: ExitStatus(unix_wait_status(256)), stdout: "", stderr: "warning: overriding the module target triple with arm64-apple-macosx28.0.0 [-Woverride-module]\n1 warning generated.\nld: warning: ignoring -lto_library '/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/lib/libLTO.dylib', file does not exist\nld: library 'System' not found\nclang: error: linker command failed with exit code 1 (use -v to see invocation)\n" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    llvm_scalar_declaration_links_and_calls_c
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+error: test failed, to rerun pass `-p dartforge-abi --test native_call`

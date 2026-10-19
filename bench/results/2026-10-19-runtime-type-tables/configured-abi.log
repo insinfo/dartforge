@@ -1,0 +1,7 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/native_call.rs (target/debug/deps/native_call-607ce2ddd4edfc3e)
+
+running 1 test
+test llvm_scalar_declaration_links_and_calls_c ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.43s

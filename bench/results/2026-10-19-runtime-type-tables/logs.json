@@ -1,0 +1,140 @@
+[
+  {
+    "file": "before.log",
+    "source": "/tmp/forge-rti-type-before.log",
+    "raw_sha256": "aa677e214483beb949291bb1673c90a256577d47128049b0a01d392f9b8f61bc",
+    "stored_sha256": "aa677e214483beb949291bb1673c90a256577d47128049b0a01d392f9b8f61bc"
+  },
+  {
+    "file": "directed.log",
+    "source": "/tmp/forge-rti-type-directed.log",
+    "raw_sha256": "faf7a0eafd164682cb5dff941f29fd68806f108622e2cfa74408ba1523cb667e",
+    "stored_sha256": "22a5a0fe88bdc6176d1ce835b7387da538151de137cb2848316cf57eb8dd60d0"
+  },
+  {
+    "file": "native.log",
+    "source": "/tmp/forge-rti-type-native.log",
+    "raw_sha256": "4e29d17ff93b15bf65cbf121e33cfc04d888cc35018672f73e2b8c0de38a4761",
+    "stored_sha256": "35974b4eff128c3876ce0dc5df59cd8570d25d9fcc86b2185bfc9a6165007e8b"
+  },
+  {
+    "file": "production.log",
+    "source": "/tmp/forge-rti-type-production.log",
+    "raw_sha256": "6ec62f5a2309a976b8e4517753c68a0c909ac7873eab1f7cd6e28ef37b00093f",
+    "stored_sha256": "6ec62f5a2309a976b8e4517753c68a0c909ac7873eab1f7cd6e28ef37b00093f"
+  },
+  {
+    "file": "build.log",
+    "source": "/tmp/forge-rti-type-build.log",
+    "raw_sha256": "58ee3e1c1a01fceb2d555b254412cc9492d1600978864eb43345cf736ae64c4d",
+    "stored_sha256": "58ee3e1c1a01fceb2d555b254412cc9492d1600978864eb43345cf736ae64c4d"
+  },
+  {
+    "file": "clippy.log",
+    "source": "/tmp/forge-rti-type-checks/clippy.log",
+    "raw_sha256": "6176377c6f688723c222582b9c982dc28a0b18ce9d1338e9ca762190cb110ec0",
+    "stored_sha256": "6176377c6f688723c222582b9c982dc28a0b18ce9d1338e9ca762190cb110ec0"
+  },
+  {
+    "file": "doc.log",
+    "source": "/tmp/forge-rti-type-checks/doc.log",
+    "raw_sha256": "041a18745737c231388641ed4905eaaca23299b3c5dc3568c57ffa43c798142d",
+    "stored_sha256": "041a18745737c231388641ed4905eaaca23299b3c5dc3568c57ffa43c798142d"
+  },
+  {
+    "file": "checks.json",
+    "source": "/tmp/forge-rti-type-checks/results.json",
+    "raw_sha256": "217fa0744fdc069b8ea20f1191cb2a29c8c4344dec6d40caada3cc7c74bac696",
+    "stored_sha256": "217fa0744fdc069b8ea20f1191cb2a29c8c4344dec6d40caada3cc7c74bac696"
+  },
+  {
+    "file": "configured-abi.log",
+    "source": "/tmp/forge-workspace-abi-configured.log",
+    "raw_sha256": "7c753bce3db150b0b5eec015babd1435b6c7804eb222bd034996317fd807c2f9",
+    "stored_sha256": "3bd4503e31ac05c021634a0381797c6df74d51fa7a65d4bb98e1e4126afc93b3"
+  },
+  {
+    "file": "jit.stdout",
+    "source": "/tmp/forge-rti-type-live/jit.stdout",
+    "raw_sha256": "77901d466b3439e5105dbf19a66751e3bdca787eff940b764618dd8963c6b465",
+    "stored_sha256": "77901d466b3439e5105dbf19a66751e3bdca787eff940b764618dd8963c6b465"
+  },
+  {
+    "file": "aot-stress.stderr",
+    "source": "/tmp/forge-rti-type-live/aot-stress.stderr",
+    "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "aot-build.stderr",
+    "source": "/tmp/forge-rti-type-live/aot-build.stderr",
+    "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "identity.dart",
+    "source": "/tmp/forge-rti-type-live/identity.dart",
+    "raw_sha256": "cc97bb8c6628210515386fd26f3a8d97d020e55cfa3672e6d374af2693d33161",
+    "stored_sha256": "cc97bb8c6628210515386fd26f3a8d97d020e55cfa3672e6d374af2693d33161"
+  },
+  {
+    "file": "results.json",
+    "source": "/tmp/forge-rti-type-live/results.json",
+    "raw_sha256": "cbddd95ed71e0c0d4f2257fdb2030f0adfa55f0efa51f9d46d56d17ac92bd21f",
+    "stored_sha256": "cbddd95ed71e0c0d4f2257fdb2030f0adfa55f0efa51f9d46d56d17ac92bd21f"
+  },
+  {
+    "file": "aot-build.stdout",
+    "source": "/tmp/forge-rti-type-live/aot-build.stdout",
+    "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "jit.stderr",
+    "source": "/tmp/forge-rti-type-live/jit.stderr",
+    "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "aot-stress.stdout",
+    "source": "/tmp/forge-rti-type-live/aot-stress.stdout",
+    "raw_sha256": "77901d466b3439e5105dbf19a66751e3bdca787eff940b764618dd8963c6b465",
+    "stored_sha256": "77901d466b3439e5105dbf19a66751e3bdca787eff940b764618dd8963c6b465"
+  },
+  {
+    "file": "dart.stdout",
+    "source": "/tmp/forge-rti-type-live/dart.stdout",
+    "raw_sha256": "77901d466b3439e5105dbf19a66751e3bdca787eff940b764618dd8963c6b465",
+    "stored_sha256": "77901d466b3439e5105dbf19a66751e3bdca787eff940b764618dd8963c6b465"
+  },
+  {
+    "file": "jit-stress.stderr",
+    "source": "/tmp/forge-rti-type-live/jit-stress.stderr",
+    "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "aot.stdout",
+    "source": "/tmp/forge-rti-type-live/aot.stdout",
+    "raw_sha256": "77901d466b3439e5105dbf19a66751e3bdca787eff940b764618dd8963c6b465",
+    "stored_sha256": "77901d466b3439e5105dbf19a66751e3bdca787eff940b764618dd8963c6b465"
+  },
+  {
+    "file": "aot.stderr",
+    "source": "/tmp/forge-rti-type-live/aot.stderr",
+    "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "jit-stress.stdout",
+    "source": "/tmp/forge-rti-type-live/jit-stress.stdout",
+    "raw_sha256": "77901d466b3439e5105dbf19a66751e3bdca787eff940b764618dd8963c6b465",
+    "stored_sha256": "77901d466b3439e5105dbf19a66751e3bdca787eff940b764618dd8963c6b465"
+  },
+  {
+    "file": "dart.stderr",
+    "source": "/tmp/forge-rti-type-live/dart.stderr",
+    "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+]

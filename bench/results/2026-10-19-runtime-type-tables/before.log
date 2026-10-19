@@ -1,0 +1,21 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.76s
+     Running unittests src/lib.rs (target/impl-a/debug/deps/dartforge_emit_native-58f242ef6e261ae4)
+
+running 1 test
+
+thread 'pruning::class_reachability::tests::canonical_type_table_stays_live_without_explicit_allocations_or_runtime_vector' (2009660) panicked at crates/emit_native/src/pruning/class_reachability/tests.rs:1717:5:
+assertion `left == right` failed
+  left: {300}
+ right: {1073741569, 300}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test pruning::class_reachability::tests::canonical_type_table_stays_live_without_explicit_allocations_or_runtime_vector ... FAILED
+
+failures:
+
+failures:
+    pruning::class_reachability::tests::canonical_type_table_stays_live_without_explicit_allocations_or_runtime_vector
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 832 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

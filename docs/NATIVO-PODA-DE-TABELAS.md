@@ -469,3 +469,18 @@ Isso não prova a ancestralidade nem fecha a exposição dos frames alocados.
 No caso original de poda de plataforma, a primeira rejeição passa a `_Type`,
 com ancestralidade ainda não provada. A remoção dos backends continua pendente.
 Evidências: `bench/results/2026-10-19-local-frame-metadata/README.md`.
+
+
+### Objetos Type criados pelo runtime
+
+A tabela de `_Type` permanece ativa mesmo sem `AllocObject` local nem entrada no
+vetor posicional de CIDs. O lowering publica a função da tabela e a premissa de
+ancestralidade quando consegue resolver um pai distinto para o Type do SDK.
+O teste compilado confere o CID e o payload escalar do construtor real do runtime,
+além da identidade canônica sob GC. Essa retenção não autoriza chamadas nativas
+opacas: o construtor RTI continua recusado pela prova de imagem fechada.
+O caso de poda de plataforma passa dessa ancestralidade, mas ainda é rejeitado
+pela checagem de namespace das entradas geradas de inicialização e callback.
+A propriedade e o ABI dessas definições precisam ser comprovados sem abrir
+exceções para símbolos reais do runtime. Evidências:
+`bench/results/2026-10-19-runtime-type-tables/README.md`.
