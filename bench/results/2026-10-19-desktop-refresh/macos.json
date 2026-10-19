@@ -1,0 +1,106 @@
+{
+  "platform": "macOS-27.2-arm64-arm-64bit",
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+  "compiler_sha256": "e77a40fb134c0b821d8804eafc4b80ad981d37b67fae6a6531a54f6b0075a7bd",
+  "mode": "all",
+  "runs": [
+    {
+      "name": "explorer-aot-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+        "--optimize",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/desktop-current/macos-fixed/explorer"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 84.052
+    },
+    {
+      "name": "explorer-aot-run",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/desktop-current/macos-fixed/explorer",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer",
+        "--lang=pt",
+        "--frames=2",
+        "--cpu"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 2.133
+    },
+    {
+      "name": "explorer-jit-run",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+        "run",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "--",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer",
+        "--lang=pt",
+        "--frames=2",
+        "--cpu"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 67.416
+    },
+    {
+      "name": "context-smoke-aot-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/tool/context_menu_retarget_smoke.dart",
+        "--optimize",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/desktop-current/macos-fixed/context-smoke"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 57.431
+    },
+    {
+      "name": "context-smoke-aot-run",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/desktop-current/macos-fixed/context-smoke",
+        "--cpu"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 6.876
+    },
+    {
+      "name": "context-smoke-jit-run",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+        "run",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/tool/context_menu_retarget_smoke.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "--",
+        "--cpu"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 59.717
+    }
+  ],
+  "explorer_aot_sha256": "d783c5bb2ec103ae1a1e0fc8bd632b865ca7379468ab70e0c99a65c4cff41598",
+  "context-smoke_aot_sha256": "de8a9f8a94378c941dff0bd42a0a2daa28940edd7560aaac92ed6a0e54917654"
+}

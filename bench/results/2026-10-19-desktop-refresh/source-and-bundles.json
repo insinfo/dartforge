@@ -1,0 +1,27 @@
+{
+  "base_commit": "2b923a60",
+  "macos_catalog_sha256": "b485c5026df2e5f50059dbf7e5dca203be854bb43d9aafdb644a7d41aaa975a7",
+  "runtime_sources": "31967049c68737701387395423e70356b0547ad355d8013826187d019ec18fd1",
+  "bundles": {
+    "linux-arm64": {
+      "runtime": {
+        "dll": "dartforge_rtdll_66845112832dbcb676c1b3745e2d382c.a",
+        "main": "dartforge_runtime_d587e4ef77bf2a04d7da4f5bb2e37911.a",
+        "production": "dartforge_rtprod_adde849096c9779fbf55a395674cd50d.a"
+      },
+      "runtime_sources": "31967049c68737701387395423e70356b0547ad355d8013826187d019ec18fd1",
+      "schema": 1,
+      "target": "aarch64-unknown-linux-gnu"
+    },
+    "windows-x64": {
+      "runtime": {
+        "dll": "dartforge_rtdll_96889c36901238d0675fa65e4630c4bd.lib",
+        "main": "dartforge_runtime_480c39007143749e72ada92d2b7b3e17.lib",
+        "production": "dartforge_rtprod_6cd8d838c9d9dea61eb73a8466e69801.lib"
+      },
+      "runtime_sources": "31967049c68737701387395423e70356b0547ad355d8013826187d019ec18fd1",
+      "schema": 1,
+      "target": "x86_64-pc-windows-msvc"
+    }
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "platform": "macOS-27.2-arm64-arm-64bit",
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+  "compiler_sha256": "cd295a22ba33323295cbd3e4e1eb07cbd02d65a971e8dab072bda31c6256e3f1",
+  "mode": "all",
+  "runs": [
+    {
+      "name": "explorer-aot-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+        "--optimize",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/desktop-current/macos/explorer"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 63.771
+    },
+    {
+      "name": "explorer-aot-run",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/desktop-current/macos/explorer",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer",
+        "--lang=pt",
+        "--frames=2",
+        "--cpu"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 2.242
+    },
+    {
+      "name": "explorer-jit-run",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+        "run",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "--",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer",
+        "--lang=pt",
+        "--frames=2",
+        "--cpu"
+      ],
+      "exit": 1,
+      "passed": false,
+      "seconds": 38.628
+    }
+  ],
+  "explorer_aot_sha256": "d783c5bb2ec103ae1a1e0fc8bd632b865ca7379468ab70e0c99a65c4cff41598"
+}

@@ -1,0 +1,110 @@
+{
+  "platform": "Linux-6.8.0-147-generic-aarch64-with-glibc2.39",
+  "compiler": "/home/isaque/projects/dartforge/target/native-validation/release/dartforge",
+  "compiler_sha256": "91c5b584a7fd2954e0024de7c98f89dc873176fcca43d6b2d70b7b1d5d5078e4",
+  "mode": "all",
+  "runs": [
+    {
+      "name": "explorer-aot-build",
+      "command": [
+        "/home/isaque/projects/dartforge/target/native-validation/release/dartforge",
+        "compile-native",
+        "/home/isaque/projects/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+        "--optimize",
+        "--sdk",
+        "/opt/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/home/isaque/projects/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "-o",
+        "/home/isaque/projects/dartforge/target/desktop-final/explorer"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 242.11
+    },
+    {
+      "name": "explorer-aot-run",
+      "command": [
+        "/home/isaque/projects/dartforge/target/desktop-final/explorer",
+        "/home/isaque/projects/dart_ui/examples/file_explorer",
+        "--lang=pt",
+        "--frames=2",
+        "--backend=wayland",
+        "--presentation=wayland-opengl"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 0.364
+    },
+    {
+      "name": "explorer-jit-run",
+      "command": [
+        "/home/isaque/projects/dartforge/target/native-validation/release/dartforge",
+        "run",
+        "/home/isaque/projects/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+        "--sdk",
+        "/opt/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/home/isaque/projects/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "--",
+        "/home/isaque/projects/dart_ui/examples/file_explorer",
+        "--lang=pt",
+        "--frames=2",
+        "--backend=wayland",
+        "--presentation=wayland-opengl"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 140.636
+    },
+    {
+      "name": "context-smoke-aot-build",
+      "command": [
+        "/home/isaque/projects/dartforge/target/native-validation/release/dartforge",
+        "compile-native",
+        "/home/isaque/projects/dart_ui/examples/file_explorer/tool/context_menu_retarget_smoke.dart",
+        "--optimize",
+        "--sdk",
+        "/opt/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/home/isaque/projects/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "-o",
+        "/home/isaque/projects/dartforge/target/desktop-final/context-smoke"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 224.081
+    },
+    {
+      "name": "context-smoke-aot-run",
+      "command": [
+        "/home/isaque/projects/dartforge/target/desktop-final/context-smoke",
+        "--backend=wayland",
+        "--presentation=wayland-opengl"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 1.332
+    },
+    {
+      "name": "context-smoke-jit-run",
+      "command": [
+        "/home/isaque/projects/dartforge/target/native-validation/release/dartforge",
+        "run",
+        "/home/isaque/projects/dart_ui/examples/file_explorer/tool/context_menu_retarget_smoke.dart",
+        "--sdk",
+        "/opt/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/home/isaque/projects/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "--",
+        "--backend=wayland",
+        "--presentation=wayland-opengl"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 103.38
+    }
+  ],
+  "explorer_aot_sha256": "2926fe231866721b14c58e637b1e99e73fd443660220edfb87f4b3f86e261dbe",
+  "context-smoke_aot_sha256": "1a9b76000914c8876f8cb814bc2a1743b1ac98d25cff99a4dc1670ead5428fd5"
+}

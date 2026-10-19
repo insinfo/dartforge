@@ -1,0 +1,26 @@
+{
+  "command": [
+    "python3",
+    "scripts/cargo-macos-llvm.py",
+    "test",
+    "--locked",
+    "-p",
+    "dartforge-emit-native",
+    "--lib",
+    "--release",
+    "--target-dir",
+    "target/impl-a",
+    "linker_macos::tests::",
+    "--",
+    "--include-ignored"
+  ],
+  "environment": {
+    "SDKROOT": "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk",
+    "DARTFORGE_LLVM_DIR": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+    "CARGO_PROFILE_RELEASE_OPT_LEVEL": "1",
+    "CARGO_PROFILE_RELEASE_LTO": "false",
+    "CARGO_PROFILE_RELEASE_CODEGEN_UNITS": "16"
+  },
+  "exit": 0,
+  "passed": 5
+}

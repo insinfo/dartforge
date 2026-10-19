@@ -1,0 +1,13 @@
+{
+  "command": [
+    "/home/isaque/projects/dartforge/target/desktop-cross-current/explorer",
+    "/home/isaque/projects/dart_ui/examples/file_explorer",
+    "--lang=pt",
+    "--frames=2",
+    "--backend=wayland",
+    "--presentation=wayland-opengl"
+  ],
+  "exit": 0,
+  "seconds": 0.4197505420000027,
+  "sha256": "c82ed9ac85802e01d9067cb97661a524fd2fde64b6dad9aa6d23dcd920fc32d9"
+}

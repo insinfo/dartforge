@@ -1,0 +1,22 @@
+{
+  "command": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+    "compile-native",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/tool/context_menu_retarget_smoke.dart",
+    "--optimize",
+    "--target",
+    "windows-x64",
+    "--target-bundle",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/windows-x64",
+    "--sdk",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "--packages",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+    "-o",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/desktop-current/windows-x64/context-smoke.exe"
+  ],
+  "exit": 0,
+  "seconds": 58.140008458,
+  "compiler_sha256": "e77a40fb134c0b821d8804eafc4b80ad981d37b67fae6a6531a54f6b0075a7bd",
+  "sha256": "baf573e4311b2b45ad06f969eea3547a8f6d7e3ef059638297e87089f01da0d8"
+}

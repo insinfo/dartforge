@@ -1,0 +1,22 @@
+{
+  "command": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+    "compile-native",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+    "--optimize",
+    "--target",
+    "linux-arm64",
+    "--target-bundle",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64",
+    "--sdk",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "--packages",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+    "-o",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/desktop-current/linux-arm64/explorer"
+  ],
+  "exit": 0,
+  "seconds": 82.565222166,
+  "compiler_sha256": "cd295a22ba33323295cbd3e4e1eb07cbd02d65a971e8dab072bda31c6256e3f1",
+  "sha256": "c82ed9ac85802e01d9067cb97661a524fd2fde64b6dad9aa6d23dcd920fc32d9"
+}

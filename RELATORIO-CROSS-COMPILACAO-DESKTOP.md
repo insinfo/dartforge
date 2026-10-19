@@ -117,3 +117,48 @@ O macOS usa o host AppKit já existente da `dart_ui`; esta rodada não certifica
 AppKit direto na thread principal do JIT. Não houve certificação de todos os
 recursos do explorador ou de execução prolongada, e nenhum agente periódico
 foi instalado.
+
+## Revalidação do compilador atualizado
+
+Os compiladores Windows/Linux foram remontados a partir de `2b923a60`; o macOS
+inclui também a correção do catálogo de ligação desta rodada. O explorador real
+continua em `dart_ui` `15aff704`. Os bundles foram exportados novamente, agora com
+o mesmo hash de fontes do runtime nos dois destinos:
+`31967049c68737701387395423e70356b0547ad355d8013826187d019ec18fd1`.
+Os bundles antigos foram corretamente recusados pelo compilador atualizado.
+
+A nova execução encontrou uma falha de ligação no JIT macOS otimizado: o catálogo
+de stubs não cobria todos os objetos de CoreFoundation/Security que o runtime
+carregava nessa configuração. Foram acrescentados 29 símbolos públicos, conferidos
+contra o SDK Apple 26.5. Os cinco testes de ligação passaram em release, incluindo
+executável e biblioteca dinâmica reais. O explorador e o smoke de menus passaram
+em AOT e JIT depois da correção.
+
+| Sistema | Explorador AOT | Explorador JIT | Menus AOT/JIT |
+|---|---|---|---|
+| macOS ARM64 | passou | passou | passou / passou |
+| Ubuntu ARM64, Wayland/OpenGL | passou | passou | passou / passou |
+| Windows 11 ARM64, binários x64, D3D11 | passou | passou | passou (cruzado) / passou |
+
+Os executáveis atuais **macOS → Windows x64** e **macOS → Linux ARM64** foram
+compilados e executados nos destinos, com hashes conferidos antes/depois da cópia.
+O smoke de menus Windows também foi compilado no macOS e executado na VM.
+
+A primeira rodada Linux perdeu um processo por OOM enquanto havia montagem do
+compilador e JIT sobrepostos na VM de 4 GB. O kernel confirmou o encerramento.
+O canal do Parallels deixou de responder; após o reinício forçado autorizado pelo
+dono, a rodada com um compilador por vez passou integralmente. No Windows, uma
+sessão do terminal terminou após o AOT; seus resultados foram preservados e o JIT
+passou em processos separados. Não foi instalado agente residente nem tarefa
+recorrente. Os resultados anteriores não foram convertidos em sucesso.
+
+Os quatro checks globais foram repetidos: formatação e Clippy ainda têm
+pendências existentes; o teste do workspace para no link padrão Apple/LLVM 22;
+a documentação é gerada com avisos. O Clippy nativo continua com 33 diagnósticos
+de biblioteca, sem novos no arquivo do catálogo. A poda completa de backends
+estrangeiros segue pendente, conforme a evidência de alcance de classes; isso não
+impediu estas compilações/execuções.
+
+[Evidências desta revalidação](bench/results/2026-10-19-desktop-refresh/README.md).
+Os smokes verificam inicialização, frames, encerramento e menus; continuam sem
+certificar exaustivamente toda interação visual ou execução prolongada.

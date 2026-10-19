@@ -1,0 +1,139 @@
+{
+  "format": {
+    "command": [
+      "cargo",
+      "fmt",
+      "--all",
+      "--",
+      "--check"
+    ],
+    "exit": 1,
+    "sha256": "4f19643dd0a0421e8d05f17b2d13a0a32b61dd050008ee5c61c838033f102f89",
+    "tail": [
+      "-        let same = (0..a.program.functions.len()).all(|i| m.is_live_function(FunctionElementId(i as u32)) == m2.is_live_function(FunctionElementId(i as u32)))",
+      "-            && (0..a.program.classes.len()).all(|i| m.class_level(ClassId(i as u32)) == m2.class_level(ClassId(i as u32)));",
+      "+        let same = (0..a.program.functions.len()).all(|i| {",
+      "+            m.is_live_function(FunctionElementId(i as u32))",
+      "+                == m2.is_live_function(FunctionElementId(i as u32))",
+      "+        }) && (0..a.program.classes.len())",
+      "+            .all(|i| m.class_level(ClassId(i as u32)) == m2.class_level(ClassId(i as u32)));",
+      "         check(same, \"determinism\");",
+      "         Ok(errors)",
+      "     })"
+    ],
+    "diagnostic_excerpt": [
+      "         JitError::new(stage, \"could not compile the module\", detail)",
+      "     use Producer::*;",
+      "         if producer == Producer::CreateField",
+      "-            Some(a) if producer != Producer::CreateField && cx.is_extension_override(a) => (Target::Extension(cx.target_extension(a)?), false),",
+      "-            Some(a) if producer != Producer::CreateField && cx.target_extension(a).is_some() => (Target::Extension(cx.target_extension(a)?), true),",
+      "+            Some(a) if producer != Producer::CreateField && cx.is_extension_override(a) => {",
+      "+            Some(a) if producer != Producer::CreateField && cx.target_extension(a).is_some() => {",
+      "                 let c = if producer == Producer::CreateField {",
+      "         if producer == Producer::CreateField",
+      "-            Producer::CreateField => matches!(dcx.kind(container), \"ClassDeclaration\" | \"EnumDeclaration\" | \"MixinDeclaration\"),",
+      "+            Producer::CreateField => matches!(",
+      "-        let filter = if producer == Producer::CreateField { Filter::Field } else { Filter::Getter };"
+    ]
+  },
+  "clippy": {
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--workspace",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 101,
+    "sha256": "a4aebec856c50993a488f721cfc4b31e6afcdfb7a04996f92adf1bdee9b147a9",
+    "tail": [
+      "   --> crates/emit_native/src/compact_stack_trace.rs:727:32",
+      "    |",
+      "727 |         assert_eq!(convert_elf(&mut vec![0u8; 8]), Ok(false));",
+      "    |                                ^^^^^^^^^^^^^^^^^ help: you can use a slice directly: `&mut [0u8; 8]`",
+      "    |",
+      "    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#useless_vec",
+      "    = note: `-D clippy::useless-vec` implied by `-D warnings`",
+      "    = help: to override `-D warnings` add `#[allow(clippy::useless_vec)]`",
+      "",
+      "error: could not compile `dartforge-emit-native` (lib test) due to 47 previous errors"
+    ],
+    "diagnostic_excerpt": [
+      "error: this `if` statement can be collapsed",
+      "error: this `if` statement can be collapsed",
+      "error: this `if` statement can be collapsed",
+      "error: this `if` statement can be collapsed",
+      "error: this `if` statement can be collapsed",
+      "error: read amount is not handled",
+      "error: this `if` statement can be collapsed",
+      "error: could not compile `dartforge-cli` (bin \"dartforge\") due to 6 previous errors",
+      "error: could not compile `dartforge-cli` (bin \"dartforge\" test) due to 7 previous errors",
+      "error: very complex type used. Consider factoring parts into `type` definitions",
+      "error: closure called just once immediately after it was declared",
+      "error: manual implementation of `Iterator::find`"
+    ]
+  },
+  "workspace-tests": {
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--workspace",
+      "--",
+      "--include-ignored"
+    ],
+    "exit": 101,
+    "sha256": "3912efaaf82c64179caa6b99f978ac5869708cf517c16c3d5e6cb515543b92bd",
+    "tail": [
+      "    |",
+      "254 | impl FieldDeclaration {",
+      "    | --------------------- method in this implementation",
+      "255 |     /// Semantic identity excludes flags and layout premises, which a proof must reconcile.",
+      "256 |     pub(crate) fn identity(&self) -> (&str, &str, &str) {",
+      "    |                   ^^^^^^^^",
+      "    |",
+      "    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default",
+      "",
+      "warning: `dartforge-emit-native` (lib) generated 1 warning"
+    ],
+    "diagnostic_excerpt": [
+      "error: linking with `cc` failed: exit status: 1",
+      "          ld: multiple errors: could not parse bitcode object file /Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/lib/libLLVMAArch64AsmParser.a(AArch64AsmParser.cpp.o): 'Unknown attribute kind (105) (Producer: 'LLVM22.1.8' Reader: 'LLVM APPLE_1_2100.3.34.2_0')', using libLTO version 'LLVM version 21.0.0' in '/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/lib/libLLVMAArch64AsmParser.a(AArch64AsmParser.cpp.o)'; could not parse bitcode object file /Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/lib/libLLVMX86Desc.a(X86InstPrinterCommon.cpp.o): 'Unknown attribute kind (105) (Producer: 'LLVM22.1.8' Reader: 'LLVM APPLE_1_2100.3.34.2_0')', using libLTO version 'LLVM version 21.0.0' in '/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/lib/libLLVMX86Desc.a(X86InstPrinterCommon.cpp.o)'; could not parse",
+      "error: could not compile `dartforge-llvm` (lib test) due to 1 previous error",
+      "error: linking with `cc` failed: exit status: 1",
+      "          ld: multiple errors: could not parse bitcode object file /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-a6f0f29cab546064.rlib(DLangDemangle.cpp.o): 'Unknown attribute kind (105) (Producer: 'LLVM22.1.8' Reader: 'LLVM APPLE_1_2100.3.34.2_0')', using libLTO version 'LLVM version 21.0.0' in '/Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-a6f0f29cab546064.rlib(DLangDemangle.cpp.o)'; could not parse bitcode object file /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-a6f0f29cab546064.rlib(RustDemangle.cpp.o): 'Unknown attribute kind (105) (Producer: 'LLVM22.1.8' Reader: 'LLVM APPLE_1_2100.3.34.2_0')', using libLTO version 'LLVM version 21.0.0' in '/Volumes/ssd_dock/MyRustProjects/dartforge/tar",
+      "error: could not compile `dartforge-llvm` (test \"cross_objects\") due to 1 previous error",
+      "error: linking with `cc` failed: exit status: 1",
+      "          ld: multiple errors: could not parse bitcode object file /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-a6f0f29cab546064.rlib(DLangDemangle.cpp.o): 'Unknown attribute kind (105) (Producer: 'LLVM22.1.8' Reader: 'LLVM APPLE_1_2100.3.34.2_0')', using libLTO version 'LLVM version 21.0.0' in '/Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-a6f0f29cab546064.rlib(DLangDemangle.cpp.o)'; could not parse bitcode object file /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-a6f0f29cab546064.rlib(RustDemangle.cpp.o): 'Unknown attribute kind (105) (Producer: 'LLVM22.1.8' Reader: 'LLVM APPLE_1_2100.3.34.2_0')', using libLTO version 'LLVM version 21.0.0' in '/Volumes/ssd_dock/MyRustProjects/dartforge/tar",
+      "error: could not compile `dartforge-jit` (bin \"dartforge-run-ir\") due to 1 previous error"
+    ]
+  },
+  "documentation": {
+    "command": [
+      "cargo",
+      "doc",
+      "--locked",
+      "--workspace",
+      "--no-deps",
+      "--document-private-items"
+    ],
+    "exit": 0,
+    "sha256": "7aa9598d676a91cbb0d93318cf6b8008c0dabfad7e7bdac5379bf6628ab9572c",
+    "tail": [
+      "    --> crates/emit_native/src/sdk_module.rs:1080:53",
+      "     |",
+      "1080 | /// publishes before any Dart code of the thread ([`context_in_tsd`]). The",
+      "     |                                                     ^^^^^^^^^^^^^^ this item is private",
+      "     |",
+      "     = note: this link resolves only because you passed `--document-private-items`, but will break without",
+      "",
+      "warning: `dartforge-emit-native` (lib doc) generated 5 warnings",
+      "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.50s",
+      "   Generated /Volumes/ssd_dock/MyRustProjects/dartforge/target/doc/dartforge_abi/index.html and 29 other files"
+    ],
+    "diagnostic_excerpt": []
+  }
+}

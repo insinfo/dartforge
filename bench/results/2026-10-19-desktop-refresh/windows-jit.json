@@ -1,0 +1,43 @@
+{
+  "compiler": "C:\\tools\\dartforge\\target\\native-x64\\x86_64-pc-windows-msvc\\release\\dartforge.exe",
+  "compiler_sha256": "A194FEF2A76AE36FDF5F97B5D9B3D4AB56A39BCD2B51B48B4DEF940B6A0B61F8",
+  "runs": [
+    {
+      "name": "explorer",
+      "command": [
+        "run",
+        "C:\\tools\\ui\\examples\\file_explorer\\bin\\file_explorer.dart",
+        "--sdk",
+        "C:\\tools\\dart\\3.6.2\\dart-sdk\\lib",
+        "--packages",
+        "C:\\tools\\ui\\examples\\file_explorer\\.dart_tool\\package_config.json",
+        "--",
+        "C:\\tools\\ui\\examples\\file_explorer",
+        "--lang=pt",
+        "--frames=2",
+        "--backend=win32",
+        "--presentation=direct3d11"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 199.9000434
+    },
+    {
+      "name": "context-smoke",
+      "command": [
+        "run",
+        "C:\\tools\\ui\\examples\\file_explorer\\tool\\context_menu_retarget_smoke.dart",
+        "--sdk",
+        "C:\\tools\\dart\\3.6.2\\dart-sdk\\lib",
+        "--packages",
+        "C:\\tools\\ui\\examples\\file_explorer\\.dart_tool\\package_config.json",
+        "--",
+        "--backend=win32",
+        "--presentation=direct3d11"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 157.7241119
+    }
+  ]
+}

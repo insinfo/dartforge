@@ -2,6 +2,18 @@
 
 ## Atualização de 19/10/2026
 
+- Compiladores Windows/Linux remontados de `2b923a60` e bundles renovados com
+  fontes de runtime coincidentes. O JIT macOS otimizado revelou 29 símbolos
+  públicos ausentes de CoreFoundation/Security no catálogo gerado; foram
+  conferidos no SDK e os cinco testes de ligação passaram em release.
+  Explorador real e menus passaram em AOT/JIT nos três sistemas. Windows usa
+  x64 em VM ARM64; seu menu AOT foi compilado no macOS. Os executáveis atuais
+  macOS → Windows/Linux foram executados nos destinos com hashes conferidos.
+  A rodada Linux após o OOM passou com um compilador por vez, depois do reinício
+  forçado autorizado. Checks globais ainda têm pendências de fmt/Clippy/link;
+  docs geradas com avisos. Evidências e limites:
+  `bench/results/2026-10-19-desktop-refresh/README.md` e
+  `RELATORIO-CROSS-COMPILACAO-DESKTOP.md`.
 - O leitor do inventário do SDK verifica publicação, runtime, objetos e resumos,
   recalcula os fechamentos de alocação por componentes fortemente conexos e só
   admite importações com fechamento vazio, sem exposição e ABI compatível.
