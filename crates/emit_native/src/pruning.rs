@@ -21,10 +21,11 @@ use std::path::{Path, PathBuf};
 pub(crate) mod receiver_provenance;
 mod class_reachability;
 pub(crate) mod allocation_inventory;
+pub(crate) mod universal_parent;
 pub(crate) mod arc_ports;
 
 /// First line of a summary; the number changes with the format.
-const HEADER: &str = "dartforge-poda\t8";
+const HEADER: &str = "dartforge-poda\t9";
 
 /// Selectors that live in every live class, without a call in the IR (§3.6):
 /// `c:call` the runtime looks up by text (`dartforge_closure_entry`, the
@@ -343,6 +344,8 @@ pub struct Summary {
     /// Nominal identities with complete emitted parent edges. Other identities
     /// cannot be excluded from a receiver cone.
     pub nominal_classes: Vec<i64>,
+    /// Certified shared terminal parent zero, never a heap class declaration.
+    pub universal_parent: bool,
     /// CID aliases without a unique nominal declaration remain open.
     pub ambiguous_classes: Vec<i64>,
     /// Runtime subtype edges, including interfaces and mixins.
@@ -435,6 +438,7 @@ impl Summary {
                     declaration: field.clone() }.payload()).expect("field payload is JSON"))).collect();
             writeln!(s, "L\t{cid}\t{}", serde_json::Value::Array(payload)).unwrap();
         }
+        if self.universal_parent { writeln!(s, "U\t0").unwrap(); }
         for cid in &self.nominal_classes {
             writeln!(s, "K\t{cid}").unwrap();
         }
@@ -560,6 +564,10 @@ impl Summary {
                     }).collect::<Result<Vec<_>, String>>()?;
                     r.declared_field_layouts.insert(cid, slots);
                 }
+                Some("U") => {
+                    if r.universal_parent || c.next() != Some("0") || c.next().is_some() { return Err(bad(l)); }
+                    r.universal_parent = true;
+                }
                 Some("K") => r.nominal_classes.push(c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?),
                 Some("A") => r.ambiguous_classes.push(c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?),
                 Some("P") => {
@@ -615,6 +623,9 @@ impl Summary {
         if r.declared_field_layouts.keys().any(|&cid| r.ambiguous_classes.contains(&i64::from(cid))) {
             return Err("pruning declared layout uses an ambiguous physical CID".to_string());
         }
+        if r.universal_parent && !universal_parent::summarized(&r) {
+            return Err("pruning summary with inconsistent universal parent facts".into());
+        }
         arc_ports::validate(&r)?;
         Ok(r)
     }
@@ -638,6 +649,7 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
     let mut seln_strings: HashMap<&str, String> = HashMap::new();
     let mut descriptors: HashMap<&str, (i64, &str)> = HashMap::new();
     let mut recipes: Vec<(&str, String)> = Vec::new();
+    let universal_parent = ir.lines().filter(|line| *line == "; df.universal-parent 0").count() == 1;
     let mut nominal_classes = Vec::new();
     let mut ambiguous_classes = Vec::new();
     let mut parent_edges = Vec::new();
@@ -686,6 +698,7 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
     parent_edges.sort_unstable();
     parent_edges.dedup();
     r.nominal_classes = nominal_classes;
+    r.universal_parent = universal_parent;
     ambiguous_classes.sort_unstable();
     ambiguous_classes.dedup();
     r.ambiguous_classes = ambiguous_classes;
@@ -1526,6 +1539,7 @@ fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>)
     r.declared_field_layouts = m.declared_field_layouts.iter()
         .filter(|(cid, _)| !m.pruning_ambiguous_class_ids.contains(cid))
         .map(|(cid, fields)| (*cid, fields.clone())).collect();
+    r.universal_parent = universal_parent::declared(m);
     r.nominal_classes = m.pruning_class_ids.iter().map(|&cid| i64::from(cid)).collect();
     r.nominal_classes.sort_unstable();
     r.ambiguous_classes = m.pruning_ambiguous_class_ids.iter().map(|&cid| i64::from(cid)).collect();
@@ -2371,7 +2385,7 @@ mod declared_field_summary_tests {
     #[test]
     fn persistent_field_facts_refuse_corruption_and_old_schema() {
         let summary = hir_summary(&module()).to_text();
-        assert!(Summary::from_string(&summary.replace("dartforge-poda\t8", "dartforge-poda\t7")).is_err());
+        assert!(Summary::from_string(&summary.replace("dartforge-poda\t9", "dartforge-poda\t8")).is_err());
         assert!(Summary::from_string(&summary.replace("\"storage\":\"ref\"", "\"storage\":\"ptr\"")).is_err());
         let record = summary.lines().find(|line| line.starts_with("F\t")).unwrap();
         assert!(Summary::from_string(&format!("{summary}{record}\n")).is_err());

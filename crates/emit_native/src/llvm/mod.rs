@@ -740,6 +740,9 @@ impl<'a> LlvmEmitter<'a> {
         }
         // The ids of the program classes, for the next generation of a
         // JIT reload (J03, `context::ir_ids`).
+        if crate::pruning::universal_parent::declared(self.module) {
+            self.out.push_str("; df.universal-parent 0\n");
+        }
         let mut nominal_classes: Vec<_> = self.module.pruning_class_ids.iter().copied().collect();
         nominal_classes.sort_unstable();
         for cid in nominal_classes {

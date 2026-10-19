@@ -1678,6 +1678,7 @@ fn lowering_marks_only_nominal_ancestors_and_preserves_the_premises_when_joining
         assert!(lowered.errors.is_empty(), "{:?}", lowered.errors);
         assert!(lowered.classes.iter().any(|class| class.id == 0));
         assert!(lowered.pruning_metadata_only_class_ids.contains(&0));
+        assert!(super::super::universal_parent::declared(&lowered));
         assert_eq!(lowered.start_rti.as_deref(), Some("df.prepare_rti"));
         let type_cid = crate::lower::rti::TYPE_CLASS as u32;
         assert!(lowered.subtyping_edges.iter().any(|(child, parent)| *child == type_cid && *parent != type_cid));
@@ -1854,5 +1855,32 @@ fn image_entry_names_do_not_authorize_runtime_shadowing_or_unproved_bodies() {
         module.functions.push(function(symbol, instructions));
         assert!(audit(&mut module, &[]).is_err());
         assert!(module.closed_class_tables.is_none());
+    }
+}
+
+#[test]
+fn shared_universal_parent_requires_both_declarations_and_never_authorizes_allocation() {
+    for (marker, local_root, allocate, accepted) in [(true, true, false, true),
+        (false, true, false, false), (true, false, false, false), (true, true, true, false)] {
+        let ir = format!("{}; df.cone-class 0\ndefine void @df.dart$3atest..universal_startup() {{\n ret void\n}}\n",
+            if marker { "; df.universal-parent 0\n" } else { "" });
+        let (_directory, summary, inventory) = checked_scalar_sdk(&ir);
+        let mut module = fixture();
+        module.classes.push(ClassDef { id: 0, name: "Object".into(), field_count: 0,
+            vtable: vec![], to_string_symbol: None });
+        module.pruning_class_ids.insert(0);
+        module.pruning_metadata_only_class_ids.insert(0);
+        if !local_root { module.classes.last_mut().unwrap().name = "UnprovedRoot".into(); }
+        if allocate {
+            module.functions[0].blocks[0].instructions.push((ValueId(99),
+                Instruction::AllocObject { class_id: 0, fields: vec![] }, Type::Ref));
+        }
+        module.sdk_records.push("df.dart$3atest..universal_startup".into());
+        module.imported_allocation_inventory = Some(inventory);
+        let result = audit(&mut module, &[&summary]);
+        assert_eq!(result.is_ok(), accepted, "marker={marker}, local={local_root}, allocate={allocate}: {:?}", result.as_ref().err());
+        if accepted {
+            assert_eq!(module.closed_class_tables.as_ref().unwrap(), &HashSet::from([300]));
+        } else { assert!(module.closed_class_tables.is_none()); }
     }
 }

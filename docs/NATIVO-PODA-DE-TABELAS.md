@@ -484,3 +484,25 @@ pela checagem de namespace das entradas geradas de inicialização e callback.
 A propriedade e o ABI dessas definições precisam ser comprovados sem abrir
 exceções para símbolos reais do runtime. Evidências:
 `bench/results/2026-10-19-runtime-type-tables/README.md`.
+
+### Pai universal compartilhado e resumo versão 9
+
+O CID 0 inserido pelo lowering é o pai universal terminal da relação de subtipos,
+sem objetos próprios. Sua repetição entre chunks do SDK e a imagem local não
+representa, por si só, uma colisão entre duas classes físicas. A emissão marca
+esse papel com `; df.universal-parent 0`; o resumo versão 9 o conserva em `U\t0`.
+Resumos de versões anteriores exigem reconstrução do cache.
+
+A marca depende de uma única declaração sintética `Object` sem campos, tabela,
+função de tabela, layout físico, identidade de programa, identidade criada pelo
+runtime, ancestral próprio ou alocação HIR de CID 0. As premissas nominais e de
+metadados do lowering também precisam estar presentes. O consumidor recusa
+marcas duplicadas ou inconsistentes com os registros de classe, tabela, layout,
+ancestralidade e alocação do resumo.
+
+A reconciliação permite compartilhar somente a declaração nominal 0 quando o
+SDK verificado e a imagem local satisfazem esse contrato. Tabelas e CIDs
+ambíguos continuam colidindo; outros CIDs não recebem essa permissão. A marca
+não autoriza alocar CID 0, executar inicializadores desconhecidos, acessar
+layouts ou atravessar chamadas nativas não provadas. Essas obrigações continuam
+independentes da identidade do pai universal.

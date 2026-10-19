@@ -1,0 +1,14 @@
+{
+  "directed-initial.log": {
+    "original_sha256": "09246a67e493802ec21d11cf73b4290458b390b72cd2430db7e883c7255b79b8",
+    "stored_sha256": "c22cb56b1dc9aab890eadc7917789c6ba5645fe52d20ac00a2cfe1046fa1e5fe"
+  },
+  "native.log": {
+    "original_sha256": "ca3f035f5975270c2531115035e8ef8fe89795030fc4591d3f53da3544a17add",
+    "stored_sha256": "59e6b742729e7016f8e39a73b8191d159d777c800def1b3f1c5804200024a792"
+  },
+  "fmt-excerpt.log": {
+    "original_sha256": "2e9457f4b6980ab983804665a05e5e7a0af22ca645e1159ee599e35fc24f4e94",
+    "stored_sha256": "2e69de2bbe49721a18d9977e626c13b6ca838ab1d1cd091da7130666d951eedf"
+  }
+}

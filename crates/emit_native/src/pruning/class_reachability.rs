@@ -183,7 +183,7 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
             .as_deref()
             .ok_or("SDK allocation inventory is unavailable")?;
         let cids = classes.keys().copied().collect();
-        inventory.reconcile(sdk, &definitions, &cids)
+        inventory.reconcile(sdk, &definitions, &cids, super::universal_parent::declared(module))
             .map_err(|detail| format!("SDK inventory does not match the selected image: {detail}"))?;
         Some(inventory)
     };

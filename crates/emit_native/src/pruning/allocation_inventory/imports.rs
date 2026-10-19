@@ -372,6 +372,7 @@ impl Inventory {
         sdk: &[&Summary],
         local: &HashSet<String>,
         class_ids: &HashSet<u32>,
+        local_universal_parent: bool,
     ) -> Result<(), String> {
         if sdk.len() != self.summaries.len() {
             return Err(format!(
@@ -444,6 +445,13 @@ impl Inventory {
                     format!("SDK {} {kind} has invalid class id {cid}", summary.module)
                 })?;
                 if class_ids.contains(&valid) {
+                    if valid == 0
+                        && kind == "nominal class"
+                        && local_universal_parent
+                        && crate::pruning::universal_parent::summarized(summary)
+                    {
+                        continue;
+                    }
                     return Err(format!(
                         "SDK {} {kind} {cid} overlaps a local class",
                         summary.module

@@ -1,0 +1,23 @@
+{
+  "artifact": {
+    "blake3": "68c7f02e39f8255ea70ec5d47a2df72b32f0a6a7178d3701c855373ce4ab2f9e",
+    "cpu": "None",
+    "debug": false,
+    "ir_blake3": "3afbaa020f0d337673b3d098821bede7c78a66014d51204926e2ea3b579777e6",
+    "optimized": true,
+    "path": "/tmp/forge-universal-live/identity-tracing"
+  },
+  "certified": false,
+  "diagnostics": [],
+  "manifest_schema": 1,
+  "mode": "verify",
+  "package": null,
+  "requests": [],
+  "sources": [
+    {
+      "blake3": "48b97529971ba3c2e387e2df12ec341cc065a995277ad1502758e2b7839a70a5",
+      "uri": "file:///private/tmp/forge-universal-live/identity.dart"
+    }
+  ],
+  "verification_implemented": false
+}

@@ -37,14 +37,14 @@ fn verified_scalar_closure_requires_its_actual_abi_and_graph_snapshot() {
     let summary = crate::pruning::summarize(&ir, MODULE, &[]);
     assert!(
         inventory
-            .reconcile(&[&summary], &HashSet::new(), &HashSet::new())
+            .reconcile(&[&summary], &HashSet::new(), &HashSet::new(), false)
             .is_ok()
     );
     let mut changed = summary.clone();
     changed.definitions[0].refs.push(0);
     assert!(
         inventory
-            .reconcile(&[&changed], &HashSet::new(), &HashSet::new())
+            .reconcile(&[&changed], &HashSet::new(), &HashSet::new(), false)
             .is_err()
     );
     assert!(
@@ -52,7 +52,8 @@ fn verified_scalar_closure_requires_its_actual_abi_and_graph_snapshot() {
             .reconcile(
                 &[&summary],
                 &HashSet::from([LEAF.to_string()]),
-                &HashSet::new()
+                &HashSet::new(),
+                false
             )
             .is_err()
     );
@@ -184,7 +185,7 @@ fn weak_or_ambiguous_definitions_and_runtime_interposition_are_not_authorized() 
     let i = Inventory::load(dir.path(), "test-key", true, &names, &runtime).unwrap();
     let summary = crate::pruning::summarize(&ir, MODULE, &[]);
     assert!(
-        i.reconcile(&[&summary], &HashSet::new(), &HashSet::new())
+        i.reconcile(&[&summary], &HashSet::new(), &HashSet::new(), false)
             .is_err()
     );
 }
@@ -238,7 +239,7 @@ fn actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup() {
     let refs: Vec<_> = summaries.iter().map(|s| s.as_ref()).collect();
     assert!(
         inventory
-            .reconcile(&refs, &HashSet::new(), &HashSet::new())
+            .reconcile(&refs, &HashSet::new(), &HashSet::new(), false)
             .is_ok()
     );
     let (unique, known, pure) = inventory.counts();
@@ -275,7 +276,7 @@ fn reconciliation_reports_the_rejected_snapshot_symbol_or_class_boundary() {
     let empty = HashSet::new();
     assert_eq!(
         inventory
-            .reconcile(&[], &empty, &HashSet::new())
+            .reconcile(&[], &empty, &HashSet::new(), false)
             .unwrap_err(),
         "module count differs: selected 0, inventory 1"
     );
@@ -283,7 +284,7 @@ fn reconciliation_reports_the_rejected_snapshot_symbol_or_class_boundary() {
     duplicate.summaries.push(summary.clone());
     assert_eq!(
         duplicate
-            .reconcile(&[&summary, &summary], &empty, &HashSet::new())
+            .reconcile(&[&summary, &summary], &empty, &HashSet::new(), false)
             .unwrap_err(),
         "module dart:test is selected more than once"
     );
@@ -291,13 +292,18 @@ fn reconciliation_reports_the_rejected_snapshot_symbol_or_class_boundary() {
     changed.definitions[0].refs.push(0);
     assert_eq!(
         inventory
-            .reconcile(&[&changed], &empty, &HashSet::new())
+            .reconcile(&[&changed], &empty, &HashSet::new(), false)
             .unwrap_err(),
         "module dart:test differs from the verified snapshot"
     );
     assert_eq!(
         inventory
-            .reconcile(&[&summary], &HashSet::from([LEAF.into()]), &HashSet::new())
+            .reconcile(
+                &[&summary],
+                &HashSet::from([LEAF.into()]),
+                &HashSet::new(),
+                false
+            )
             .unwrap_err(),
         format!("SDK definition {LEAF} overlaps the local image")
     );
@@ -309,7 +315,7 @@ fn reconciliation_reports_the_rejected_snapshot_symbol_or_class_boundary() {
         reserved.definitions.insert(symbol.into());
         assert_eq!(
             reserved
-                .reconcile(&[&summary], &empty, &HashSet::new())
+                .reconcile(&[&summary], &empty, &HashSet::new(), false)
                 .unwrap_err(),
             format!("SDK definition {symbol} overlaps the {owner}")
         );
@@ -329,7 +335,7 @@ fn reconciliation_reports_the_rejected_snapshot_symbol_or_class_boundary() {
             let mut bound = inventory.clone();
             bound.summaries = vec![selected.clone()];
             let reason = bound
-                .reconcile(&[&selected], &empty, &HashSet::from([7]))
+                .reconcile(&[&selected], &empty, &HashSet::from([7]), false)
                 .unwrap_err();
             assert_eq!(
                 reason,
@@ -342,7 +348,7 @@ fn reconciliation_reports_the_rejected_snapshot_symbol_or_class_boundary() {
             if cid == 7 {
                 assert!(
                     bound
-                        .reconcile(&[&selected], &empty, &HashSet::from([8]))
+                        .reconcile(&[&selected], &empty, &HashSet::from([8]), false)
                         .is_ok()
                 );
             }
@@ -355,7 +361,7 @@ fn reconciliation_reports_the_rejected_snapshot_symbol_or_class_boundary() {
     for _ in 0..8 {
         assert_eq!(
             deterministic
-                .reconcile(&[&summary], &empty, &HashSet::new())
+                .reconcile(&[&summary], &empty, &HashSet::new(), false)
                 .unwrap_err(),
             "SDK definition llvm.a overlaps the LLVM intrinsic namespace"
         );

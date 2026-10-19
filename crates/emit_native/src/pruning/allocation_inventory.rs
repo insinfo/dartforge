@@ -239,7 +239,7 @@ mod transport_tests {
             );
         }
         assert!(
-            Summary::from_string(&text.replace("dartforge-poda\t8", "dartforge-poda\t7")).is_err()
+            Summary::from_string(&text.replace("dartforge-poda\t9", "dartforge-poda\t8")).is_err()
         );
         let mut summary = summary;
         let orphan = summary.names.len() as u32;

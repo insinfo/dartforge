@@ -3,6 +3,25 @@
 ## Atualização de 19/10/2026
 
 
+- O pai universal sintético 0 tem agora certificado próprio, emitido somente
+  para uma declaração sem identidade física, tabelas, campos, layout, ancestral
+  próprio ou alocação local. O resumo versão 9 conserva a marca e rejeita
+  versões antigas e marcas inconsistentes. A reconciliação compartilha somente
+  a declaração nominal 0 certificada nos dois lados; outros CIDs, tabelas e
+  ambiguidades continuam sujeitos às colisões anteriores. O teste integrado
+  aceita o caso provado e recusa premissas ausentes e alocação de CID 0.
+  Passaram 839 testes nativos e 142 dirigidos de poda; Clippy/docs estritos
+  passam, fmt global permanece pendente. O compilador reconstruído passou
+  11 comandos reais de identidade de tipos: referência VM, duas compilações e
+  oito execuções tracing/ARC, AOT/JIT, normal/estresse, todas iguais à VM Dart.
+  A produção avançou além da colisão do CID 0 e agora recusa `df.call_dart0`
+  por corpo/ABI de entrada não provados. O domínio do Ref recebido pelo loop
+  exige prova independente; não houve relaxamento dessa fronteira, aprovação
+  global, redução comprovada do explorador ou nova execução nas VMs. Persistem
+  os avisos de deployment target macOS. Evidências:
+  `bench/results/2026-10-19-universal-parent/README.md`.
+
+
 - A reconciliação do inventário SDK informa agora o limite rejeitado: contagem
   ou repetição de módulo, snapshot divergente, colisão de símbolo, CID inválido
   ou colisão de classe. Nenhuma condição de admissão foi relaxada. O teste real

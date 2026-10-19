@@ -1,0 +1,11 @@
+{
+  "crates/emit_native/src/llvm/mod.rs": "f8b6a09c36316b31fab2dabf7e82c44a9520983fbdf315785853e4cc9d19d40a",
+  "crates/emit_native/src/pruning.rs": "0c4928d74de75da1eda596a486d05e2167b5093b5a621385ecb460efa9e9e40b",
+  "crates/emit_native/src/pruning/allocation_inventory.rs": "3bb4219f935df16759ac58eec5044e517d8a6dfbc0de653087d265910eb67a50",
+  "crates/emit_native/src/pruning/allocation_inventory/imports.rs": "775e7fcabd90343eefc9506ffadd363f983ab8f339457ebdede3c962672910b3",
+  "crates/emit_native/src/pruning/allocation_inventory/imports/tests.rs": "17143257ca85f3f894d27b003094765d1b37670972576ff7870938651fd50464",
+  "crates/emit_native/src/pruning/arc_ports/tests.rs": "a6eecd35080b83e726831cfbc0b6e1a129a706ff259924e28562ac387ff08054",
+  "crates/emit_native/src/pruning/class_reachability.rs": "f559cddee45a12329341d9fe9172e0f5ac7690238b497c5e0ee02d37f25c64b0",
+  "crates/emit_native/src/pruning/class_reachability/tests.rs": "ba56ea283acdc4c2b315b6319004955828602e306ccafd235faee90ed26ce3bc",
+  "crates/emit_native/src/pruning/universal_parent.rs": "585ae354389d44c42849c0c6a4834d756100ae49815436ebda6f2fff0492450d"
+}
