@@ -326,11 +326,25 @@ desliga.
 ## 7. Alcance fechado experimental — atualização de 19/10/2026
 
 `DARTFORGE_CLOSED_CLASS_REACHABILITY=1` tenta provar quais tabelas do programa
-podem ficar ativas. A análise ainda exige uma imagem fixa sem SDK importado,
-ARC preparado ou fronteiras nativas desconhecidas. Os casos fora dessa cobertura
-mantêm o registro amplo. O inventário `allocation-inventory.json` não é consumido
-como autorização de poda: alocação, exposição nativa e mutação de registro têm
-obrigações diferentes.
+podem ficar ativas. A análise exige uma imagem fixa sem ARC preparado ou fronteiras nativas
+desconhecidas. O leitor de `allocation-inventory.json` agora admite importações
+restritas: fechamentos vazios, sem exposição, com corpos completos e chamadas
+diretas de ABI compatível. Alocação conhecida, sozinha, não autoriza poda.
+Chamadas nativas, registro de imagens, memória bruta e funções interponíveis
+continuam desconhecidos. Os casos fora dessa cobertura mantêm o registro amplo.
+
+O leitor verifica a mesma publicação contra o compilador, o runtime e os objetos
+selecionados; relê os bytes de `.poda` com hash conferido, reconcilia os resumos
+usados no grafo e recalcula os fechamentos por componentes fortemente conexos.
+Recusa resumos obsoletos, colisões com símbolos/classes do programa, ABI divergente
+e metadados inconsistentes. Declarações globais repetidas ficam opacas. A confiança
+é no cache imutável pertencente ao compilador; hashes não autenticam um cache
+inteiramente falsificado. A leitura adicional só ocorre com a opção experimental.
+No SDK real de produção foram reconhecidas 428 funções com fechamento vazio
+verificável, mas a inicialização completa continua sem cobertura. Testes sintéticos
+de grafo usam artefatos explicitamente não executáveis; não certificam execução
+de uma aplicação importada. Evidências:
+`bench/results/2026-10-19-sdk-inventory-consumption/README.md`.
 
 A prova agora exige destinos alcançáveis com definição conhecida, raízes com
 corpos disponíveis, assinaturas compatíveis nas chamadas locais e nos auxiliares

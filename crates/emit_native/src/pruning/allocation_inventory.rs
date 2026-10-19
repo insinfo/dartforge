@@ -5,6 +5,7 @@
 //! It does not certify transitive allocation closure or enable import pruning.
 pub(crate) mod closure;
 pub(crate) mod publication;
+pub(crate) mod imports;
 
 use super::{AllocationRecord, AllocationState, Summary};
 use std::collections::HashMap;

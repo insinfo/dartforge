@@ -1,5 +1,5 @@
 //! Conservative class-table activation for a completely covered fixed image.
-//! Imported allocation summaries and native exposures remain open in this first version.
+//! Only artifact-bound, exposure-free empty SDK closures can cross the import boundary.
 use super::{Reach, Summary};
 use crate::hir::*;
 use std::collections::{HashMap, HashSet};
@@ -20,8 +20,6 @@ fn narrow_enabled(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
         || module.arc_prepared
         || module.arc_aot_ports.is_some()
         || module.sdk_library
-        || !sdk.is_empty()
-        || !module.sdk_records.is_empty()
         || !module.pruning_ambiguous_class_ids.is_empty()
         || !super::receiver_provenance::registry::closed(&[module])
         || !module.ffi_callbacks.is_empty()
@@ -66,23 +64,6 @@ fn narrow_enabled(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
     {
         return None;
     }
-    // Entry-point parameters supplied by an external caller have no complete
-    // allocation witness. The first version does not infer their class universe.
-    for symbol in module
-        .entry_symbol
-        .iter()
-        .chain(&module.source_roots)
-        .chain(module.call_dart.iter())
-        .chain(module.record.iter())
-        .chain(module.start_rti.iter())
-    {
-        if functions
-            .get(symbol.as_str())
-            .is_none_or(|f| f.params.iter().any(|(_, _, t)| *t == Type::Ref))
-        {
-            return None;
-        }
-    }
     // Function, table and data names share the emitted symbol namespace.
     let mut definitions: HashSet<String> = functions.keys().map(|s| (*s).to_string()).collect();
     for (_, table, pairs) in &module.method_tables {
@@ -111,6 +92,33 @@ fn narrow_enabled(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
     if !definitions.insert("dartforge_entry".into()) {
         return None;
     }
+    let imports = if sdk.is_empty() {
+        None
+    } else {
+        let inventory = module.imported_allocation_inventory.as_deref()?;
+        let cids = classes.keys().copied().collect();
+        if !inventory.reconcile(sdk, &definitions, &cids) {
+            return None;
+        }
+        Some(inventory)
+    };
+    // External entry inputs do not supply a closed class universe. An imported
+    // startup is admitted only as a zero-argument void call with a pure closure.
+    for symbol in module
+        .entry_symbol
+        .iter()
+        .chain(&module.source_roots)
+        .chain(module.call_dart.iter())
+        .chain(module.record.iter())
+        .chain(module.start_rti.iter())
+        .chain(&module.sdk_records)
+    {
+        match functions.get(symbol.as_str()) {
+            Some(body) if !body.params.iter().any(|(_, _, ty)| *ty == Type::Ref) => {}
+            None if imports.is_some_and(|inventory| inventory.call(symbol, &[], Type::Void)) => {}
+            _ => return None,
+        }
+    }
     // Primitive boxing, strings and exception paths create runtime classes
     // without AllocObject instructions. Protect their declared tables even if
     // the module's optional registration vector omits those CIDs.
@@ -130,9 +138,14 @@ fn narrow_enabled(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
     // The tentative lazy roots are for constructing the graph only. Publish
     // an active set only after every reachable definition has been checked.
     module.closed_class_tables = None;
-    let reach = super::reach(&[&summary], true);
+    let mut all = sdk.to_vec();
+    all.push(&summary);
+    let reach = super::reach(&all, true);
     for (node, symbol) in reach.names.iter().enumerate() {
-        if reach.live(node as u32) && !definitions.contains(symbol) && !covered_runtime(symbol) {
+        let covered = definitions.contains(symbol)
+            || covered_runtime(symbol) && !imports.is_some_and(|i| i.contains_definition(symbol))
+            || imports.is_some_and(|i| i.known_node(symbol));
+        if reach.live(node as u32) && !covered {
             return None;
         }
     }
@@ -214,6 +227,15 @@ fn narrow_enabled(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
                                     tables.values().any(|table| *table == symbol)
                                         && args.is_empty()
                                         && *ret_ty == Type::Ptr
+                                        || imports.is_some_and(|inventory| {
+                                            let types = args
+                                                .iter()
+                                                .map(|arg| shape.operand_type(arg))
+                                                .collect::<Option<Vec<_>>>();
+                                            types.is_some_and(|types| {
+                                                inventory.call(symbol, &types, *ret_ty)
+                                            })
+                                        })
                                 }
                             }
                     }

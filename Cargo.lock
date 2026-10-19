@@ -443,6 +443,7 @@ dependencies = [
  "dartforge-runtime",
  "dartforge-types",
  "dartforge-world",
+ "serde",
  "serde_json",
  "tempfile",
  "url",

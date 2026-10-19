@@ -2,6 +2,20 @@
 
 ## Atualização de 19/10/2026
 
+- O leitor do inventário do SDK verifica publicação, runtime, objetos e resumos,
+  recalcula os fechamentos de alocação por componentes fortemente conexos e só
+  admite importações com fechamento vazio, sem exposição e ABI compatível.
+  Declarações globais repetidas ficam opacas; resumos obsoletos e colisões de
+  símbolos/classes impedem a prova. No SDK real, reconheceu 428 fechamentos
+  verificáveis entre 32.676 funções únicas; a inicialização continua desconhecida.
+  A opção segue experimental e não completa a poda do SDK: o teste de remoção
+  de backends estrangeiros permanece falhando, sem mudança na exigência.
+  Passaram 815 testes unitários nativos com `--include-ignored`. Os sete testes
+  regulares do leitor e dois de integração com o grafo usam artefatos sintéticos
+  não executáveis; o teste ignorado do SDK foi executado com objetos reais.
+  Clippy nativo segue em 33/47 diagnósticos, sem novos nos módulos alterados;
+  formatação e link padrão do workspace continuam pendentes; docs geradas com
+  avisos. Evidências: `bench/results/2026-10-19-sdk-inventory-consumption/README.md`.
 - A prova experimental de alcance de classes agora recusa destinos alcançáveis
   sem corpo, chamadas locais/runtime com ABI incompatível, entradas uniformes
   inválidas, endereços de funções e memória nativa sem cobertura. Reutiliza a
@@ -15,7 +29,7 @@
   gera e executa binários com registro amplo/fechado, com e sem `GC_STRESS`;
   não importa SDK e adapta apenas o wrapper `main` para ligar ao runtime sem SDK.
   O teste de produção repetido ainda falha na remoção de tabelas estrangeiras.
-  O modo continua opt-in e recusa SDK importado; não há alegação de cobertura
+  Naquela rodada, o modo opt-in recusava SDK importado; não há alegação de cobertura
   completa dessas fronteiras. Sem novas supressões/diagnósticos Clippy nos arquivos
   alterados. Checks globais seguem pendentes (formatação, Clippy e link padrão
   Apple/LLVM 22); docs geradas com avisos. Detalhes e limites em

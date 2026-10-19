@@ -1167,6 +1167,8 @@ pub struct Module {
     pub arc_external_ancestry: ArcExternalAncestry,
     /// Artifact-bound allocation return facts from the exact selected linked SDK.
     pub(crate) imported_allocation_returns: Option<crate::pruning::receiver_provenance::allocation_certificates::Imports>,
+    /// Snapshot-bound SDK allocation/exposure facts; unknown records never authorize pruning.
+    pub(crate) imported_allocation_inventory: Option<std::sync::Arc<crate::pruning::allocation_inventory::imports::Inventory>>,
     /// The ARC preparation accepts direct calls to Dart functions of another
     /// already prepared image (the prepared source SDK), with the summary taken
     /// from the call itself: arguments by the representation of the operands,

@@ -20,6 +20,7 @@ dartforge-runtime = { path = "../runtime" }
 dartforge-instrument = { path = "../instrument" }
 blake3 = "1"
 serde_json = "1"
+serde = { version = "1", features = ["derive"] }
 tempfile = "3"
 # The embedded object generator (`src/generator.rs`): LLVM in the process, without
 # Clang on the machine of whoever uses dartforge.

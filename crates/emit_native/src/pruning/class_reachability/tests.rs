@@ -705,3 +705,113 @@ fn implicit_boxing_keeps_runtime_class_tables_without_declared_registration_ids(
     assert!(ir.contains("define ptr @df.mt.Unused("));
     assert!(!ir.contains("define ptr @df.mt.Nested("));
 }
+
+fn checked_scalar_sdk(
+    ir: &str,
+) -> (
+    tempfile::TempDir,
+    Summary,
+    std::sync::Arc<super::super::allocation_inventory::imports::Inventory>,
+) {
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = directory.path().join("runtime.a");
+    std::fs::write(&runtime, b"test binding, not executable runtime code").unwrap();
+    std::fs::write(
+        directory.path().join("test.o"),
+        b"test binding, not executable object code",
+    )
+    .unwrap();
+    let summary = super::super::summarize(ir, "dart:test", &[]);
+    std::fs::write(directory.path().join("test.poda"), summary.to_text()).unwrap();
+    let artifacts = vec!["test.o".to_string(), "test.poda".to_string()];
+    let bundle = super::super::allocation_inventory::closure::audit(&[("dart:test", ir)]);
+    super::super::allocation_inventory::publication::publish(
+        directory.path(),
+        "test-key",
+        true,
+        &artifacts,
+        &runtime,
+        &bundle,
+    )
+    .unwrap();
+    let inventory = super::super::allocation_inventory::imports::Inventory::load(
+        directory.path(),
+        "test-key",
+        true,
+        &artifacts,
+        &runtime,
+    )
+    .unwrap();
+    (directory, summary, std::sync::Arc::new(inventory))
+}
+
+#[test]
+fn verified_imported_scalar_closures_can_close_the_program_graph() {
+    let ir = "define i64 @df.dart$3atest..leaf(i64 %x) {\n %sum = add i64 %x, 1\n ret i64 %sum\n}\ndefine void @df.dart$3atest..startup() {\n ret void\n}\n";
+    let (_directory, summary, inventory) = checked_scalar_sdk(ir);
+    let mut module = fixture();
+    module.sdk_records.push("df.dart$3atest..startup".into());
+    module.functions[0].blocks[0].instructions.push((
+        ValueId(1),
+        Instruction::CallStatic {
+            symbol: "df.dart$3atest..leaf".into(),
+            args: vec![Operand::Constant(Constant::Int(7))],
+            ret_ty: Type::I64,
+        },
+        Type::I64,
+    ));
+    assert!(
+        narrow_enabled(&mut module, &[&summary]).is_none(),
+        "declarations alone are not a certificate"
+    );
+    module.imported_allocation_inventory = Some(inventory);
+    assert!(narrow_enabled(&mut module, &[&summary]).is_some());
+    assert_eq!(
+        module.closed_class_tables.as_ref().unwrap(),
+        &HashSet::from([300])
+    );
+    let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
+    assert!(!ir.contains("define ptr @df.mt.Unused("));
+}
+
+#[test]
+fn changed_or_unproved_imports_do_not_hide_missing_allocation_coverage() {
+    for variant in 0..5 {
+        let body = if variant == 3 {
+            "%v = call i64 @opaque_native(i64 %x)\n ret i64 %v"
+        } else {
+            "ret i64 %x"
+        };
+        let ir = format!("define i64 @df.dart$3atest..leaf(i64 %x) {{\n {body}\n}}\n");
+        let (_directory, mut summary, inventory) = checked_scalar_sdk(&ir);
+        let mut module = fixture();
+        module.imported_allocation_inventory = Some(inventory);
+        let argument = if variant == 1 {
+            Operand::Constant(Constant::Double(1.0))
+        } else {
+            Operand::Constant(Constant::Int(7))
+        };
+        module.functions[0].blocks[0].instructions.push((
+            ValueId(1),
+            Instruction::CallStatic {
+                symbol: "df.dart$3atest..leaf".into(),
+                args: vec![argument],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        ));
+        match variant {
+            0 => summary.definitions[0].refs.push(0),
+            2 => module
+                .functions
+                .push(function("df.dart$3atest..leaf", vec![])),
+            4 => module.sdk_records.push("df.unproved.startup".into()),
+            _ => {}
+        }
+        assert!(
+            narrow_enabled(&mut module, &[&summary]).is_none(),
+            "variant {variant}"
+        );
+        assert!(module.closed_class_tables.is_none());
+    }
+}

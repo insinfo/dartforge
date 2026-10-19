@@ -159,7 +159,8 @@ pub const UNSUPPORTED_PREFIX: &str = "not supported by the native backend: ";
 /// [`pruning::prune_hir`] with the summaries of the SDK libraries of the profile (the
 /// SDK comes out of the cache, or is compiled now, as the link would do right
 /// after). `None` when the module does not use the source SDK.
-fn prune_program_hir(module: &mut hir::Module, production: bool, sdk_lib: &Path, flags: DartFlags) -> Result<Option<pruning::HirPruning>, String> {
+fn prune_program_hir(module: &mut hir::Module, production: bool, sdk_lib: &Path, flags: DartFlags, timings: bool) -> Result<Option<pruning::HirPruning>, String> {
+    module.imported_allocation_inventory = None;
     if module.sdk_library || module.sdk_records.is_empty() {
         return Ok(None);
     }
@@ -179,6 +180,20 @@ fn prune_program_hir(module: &mut hir::Module, production: bool, sdk_lib: &Path,
     if let Some(directory) = sdk.objects.first().and_then(|path| path.parent()) {
         module.imported_allocation_returns = Some(pruning::receiver_provenance::allocation_certificates::load(
             directory, &sdk.key, production, &artifacts));
+        if production && std::env::var("DARTFORGE_CLOSED_CLASS_REACHABILITY").as_deref() == Ok("1") {
+            let runtime = cache::RuntimeCache::for_production()?.lib_path;
+            module.imported_allocation_inventory = pruning::allocation_inventory::imports::Inventory::load(
+                directory, &sdk.key, production, &artifacts, &runtime).map(std::sync::Arc::new);
+            if timings {
+                match &module.imported_allocation_inventory {
+                    Some(inventory) => {
+                        let (unique, known, pure) = inventory.counts();
+                        eprintln!("  SDK inventory: {unique} unique definitions, {known} covered allocation closures, {pure} exposure-free empty closures");
+                    }
+                    None => eprintln!("  SDK inventory unavailable; imported class coverage remains open"),
+                }
+            }
+        }
     }
     Ok(Some(pruning::prune_hir(module, &refs)))
 }
@@ -538,7 +553,7 @@ fn emit_ir_internal(
     if prune && !std::env::var("DARTFORGE_NO_HIR_PRUNING").is_ok_and(|v| v == "1") {
         let t_prune = Instant::now();
         optimize::prepare_for_pruning(&mut hir_module);
-        if let Some(e) = prune_program_hir(&mut hir_module, options.optimize, &sdk_dir, flags)?
+        if let Some(e) = prune_program_hir(&mut hir_module, options.optimize, &sdk_dir, flags, options.timings)?
             && options.timings
         {
             eprintln!(
@@ -554,7 +569,7 @@ fn emit_ir_internal(
         if optimize::specialize_constants(&mut hir_module, table_exceptions) > 0 {
             // New bodies and folded branches change reachability. Reuse the
             // same SDK summaries before computing effect or escape facts.
-            prune_program_hir(&mut hir_module, options.optimize, &sdk_dir, flags)?;
+            prune_program_hir(&mut hir_module, options.optimize, &sdk_dir, flags, options.timings)?;
         }
     }
     // 2b. HIR optimization (inlining, scalar replacement: `optimize/`).
