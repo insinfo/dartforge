@@ -1,0 +1,32 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/corpus.rs (target/debug/deps/corpus-8a25f1ec9f5b636e)
+
+running 6 tests
+test sass_release_css_on_demand_without_support ... ok
+test injected_dart_executor_runs_and_reuses_actions ... ok
+test corpus_builders_plan_and_scoreboard ... ok
+test state_saved_across_processes ... ok
+test corpus_builders_incremental_equals_from_scratch ... ok
+test corpus_builders_determinism ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.94s
+
+     Running tests/profiles.rs (target/debug/deps/profiles-4c7e8f715b207485)
+
+running 3 tests
+test profile_2_16_incremental_triggers ... ok
+test profile_2_16_equals_build_runner_2_16_1 ... ok
+test profile_2_4_equals_build_runner_2_4_15 ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.01s
+
+     Running tests/vm_executor.rs (target/debug/deps/vm_executor-51c5ff17294967c8)
+
+running 4 tests
+test post_processor_through_the_vm ... ok
+test state_saved_through_the_vm ... ok
+test json_serializable_through_the_vm_equals_build_runner_and_is_incremental ... ok
+test corpus_builders_through_the_vm has been running for over 60 seconds
+test corpus_builders_through_the_vm ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 73.25s

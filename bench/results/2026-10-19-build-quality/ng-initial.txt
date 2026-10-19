@@ -1,0 +1,25 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running tests/ng_transparency.rs (target/debug/deps/ng_transparency-ec7bfde1f2793573)
+
+running 4 tests
+test ng_dependency_through_the_engine_equals_oracle ... FAILED
+test ng_through_the_engine_equals_direct_generator_and_oracle ... ok
+test ng_incremental_equals_from_scratch ... ok
+test ng_dart_edit_in_each_file_equals_from_scratch has been running for over 60 seconds
+test ng_dart_edit_in_each_file_equals_from_scratch ... ok
+
+failures:
+
+---- ng_dependency_through_the_engine_equals_oracle stdout ----
+
+thread 'ng_dependency_through_the_engine_equals_oracle' (1151763) panicked at crates/build/tests/ng_transparency.rs:344:14:
+package_config.json (dart pub get): "could not read /private/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/.tmpvgBgk5/app/.dart_tool/package_config.json: No such file or directory (os error 2)"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    ng_dependency_through_the_engine_equals_oracle
+
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 615.78s
+
+error: test failed, to rerun pass `-p dartforge-build --test ng_transparency`

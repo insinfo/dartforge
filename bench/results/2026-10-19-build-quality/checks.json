@@ -1,0 +1,140 @@
+{
+  "baseline": "ee6e289a",
+  "host": "macOS ARM64",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "dart": "3.6.2",
+  "source_sha256": {
+    "crates/build/src/engine.rs": "28c05197b825eb3d00b87717198f32273b694f16ff2bb806738b8fbc9cc1bf9f",
+    "crates/build/src/natives/ng.rs": "8e79da9217e01dc2a02dfadf219f3019d8d7e4819d6208a6367e16ab8acfa8b6",
+    "crates/build/src/packages.rs": "d91ce6390b5b9ae32759623e53d093610acad61440433748a030b00deb81e52b",
+    "crates/build/src/plan.rs": "4e76a0a7925be364a7c119c90a975b9418923d1d80bc544787019cf053babdb9",
+    "crates/build/tests/ng_transparency.rs": "e60e38613b808491d742198c9f1f1116c904f16226f9e94eb47f9e22d769189b",
+    "crates/build/tests/scc_graphs_2_3_2.json": "a3bbf4402cf4f0646c696562d2e5bb9bbf0e01fefcdf705f71bb43a14bf63abc",
+    "crates/build/tests/scc_oracle.dart": "89461398b391527df9290643f964c63a20ddc85a4de078db495b0e2d7ba38d4b"
+  },
+  "scc_oracle": {
+    "package": "graphs",
+    "version": "2.3.2",
+    "cases": 192,
+    "regenerated_fixture_byte_equal": true,
+    "command": "dart --packages=corpus/builders/cadeia_configuracao/.dart_tool/package_config.json crates/build/tests/scc_oracle.dart crates/build/tests/scc_graphs_2_3_2.json",
+    "source_sha256": "8552c98457877c67e6d4317c3729bf7d2dd61aca836e04073c3c6db72283c05f"
+  },
+  "tests": {
+    "build_default": {
+      "command": "cargo test --locked -p dartforge-build",
+      "exit_code": 0,
+      "unit_passed": 54,
+      "integration_passed": 1,
+      "doctests_passed": 15,
+      "ignored": 18,
+      "log": "suite.txt"
+    },
+    "corpus_vm_profiles": {
+      "command": "cargo test --locked -p dartforge-build --test corpus --test vm_executor --test profiles -- --include-ignored",
+      "exit_code": 0,
+      "passed": 13,
+      "log": "integrations.txt"
+    },
+    "native_executor": {
+      "command": "DARTFORGE_CASES=cadeia_configuracao cargo test --locked -p dartforge-build --test native_executor -- --include-ignored",
+      "exit_code": 0,
+      "passed": 1,
+      "case_filter": [
+        "cadeia_configuracao"
+      ],
+      "producer_sha256": "fd803b145534b2662194787907125cb98512df844d6047c7303f2624965b788a",
+      "log": "native-executor.txt"
+    },
+    "angular": {
+      "command": "cargo test --locked -p dartforge-build --test ng_transparency -- --include-ignored",
+      "initial_exit_code": 101,
+      "initial_passed": 3,
+      "initial_failed": 1,
+      "initial_failure": "Missing app/.dart_tool/package_config.json: the dependency test started before pub get finished",
+      "initial_log": "ng-initial.txt",
+      "sweep_edits": 352,
+      "sweep_passed": true,
+      "retry_command": "cargo test --locked -p dartforge-build --test ng_transparency ng_dependency_through_the_engine_equals_oracle -- --include-ignored",
+      "retry_exit_code": 0,
+      "retry_passed": 1,
+      "retry_log": "ng-dependency.txt",
+      "unique_cases_passed_after_retry": 4
+    }
+  },
+  "environment": {
+    "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "DARTFORGE_BUILD_DART": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+    "PUB_CACHE": "/Volumes/ssd_dock/tools/dart/pub-cache",
+    "DARTFORGE_LLVM_DIR": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+    "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+    "SDKROOT_native_executor": "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk"
+  },
+  "checks": {
+    "build_clippy": {
+      "command": "cargo clippy --locked -p dartforge-build --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "clippy.txt"
+    },
+    "changed_rustfmt": {
+      "exit_code": 0
+    },
+    "workspace_clippy": {
+      "exit_code": 101,
+      "reason": "Remaining diagnostics in dartforge-analysis, dartforge-world and dartforge-emit-js; see the full log",
+      "log": "workspace-clippy.txt"
+    },
+    "workspace_doc": {
+      "exit_code": 0,
+      "warnings": 36,
+      "log": "workspace-doc.txt"
+    },
+    "workspace_fmt": {
+      "exit_code": 1,
+      "reason": "pre-existing repository formatting differences",
+      "evidence": "workspace-failures.json"
+    },
+    "workspace_tests": {
+      "exit_code": 101,
+      "reason": "Apple LLVM 21 linker cannot read LLVM 22 bitcode",
+      "evidence": "workspace-failures.json"
+    }
+  },
+  "benchmark": {
+    "baseline": "ee6e289a",
+    "shapes": [
+      "star",
+      "chain",
+      "cycle"
+    ],
+    "node_counts": [
+      1000,
+      5000,
+      10000
+    ],
+    "paired_samples_per_shape_and_size": 9,
+    "timing_scope": "synthetic SCC only; shared machine, not isolated",
+    "source": "scc-benchmark.py",
+    "samples": "scc-benchmark.csv",
+    "summary": "scc-summary.json"
+  },
+  "unique_directed_tests_passed_after_retry": 88,
+  "artifacts_sha256": {
+    "native-executor.txt": "1e1e11f59de10d0436f30e213f290d264035e63ef5f27918f276143c1762bff6",
+    "workspace-doc.txt": "06ec639fb63fbdd818079790f88edfe4a4b79be6f6e97647deb31877cae47335",
+    "integrations.txt": "36767ab071b00d19450e3eb42c02c6a591af8c60db90f80eaa12d5ac9a9104cd",
+    "ng-initial.txt": "da226c52619e16a4fd3234a29e94a30d43f8e34b3cbaf1b696516bd31fd2998d",
+    "README.md": "a77eea3646903a70bfa9da55e9286fbf08bc1c0e25471f37429b06e7f6545caf",
+    "scc-summary.json": "1acb2166e7a5c76edd39de74c8208f8e1a0acae572c526e5db3b6d5c4fb3c89b",
+    "workspace-fmt-excerpt.txt": "b255b625f165a794183016e56ef15c1a7a35a47e3f5bc5df8f8293f9674fc324",
+    "suite.txt": "fb693801f53a039aa98ef0d72cf951488b3a1069aa7845fa45b6ba937a0b4673",
+    "scc-benchmark.py": "772b703afe041a3d96dd1c480d9804212c3e78e6abef5815419e196416e8f641",
+    "scc-benchmark.csv": "b3ddb6e8a6f21dc392eb25df342b10ec9ceee937ff6097e0165ba51b8113ea23",
+    "workspace-failures.json": "95496b549e79344d647d1d3c0fdf8ae0ce94c9c49c34660a62232155e0db6622",
+    "workspace-tests-excerpt.txt": "44cbe48c82c9ce2c08e2fe71492fcfcf55eb8afadf2a75ba6c3ee81e993d1bed",
+    "pubget.txt": "fe8873b2875f4297f28074da5f56492b08e7733101bf5e1d37f18a0248ab6f48",
+    "clippy.txt": "c83c3f5234fd73fbc93f73e5b4ba7ac9fcceb2465faebe95f5205b573e344eca",
+    "ng-dependency.txt": "0a7354e7bdc6be27b0a5ef78886bf3585009c38e77a520a55de01bd5b90cc362",
+    "workspace-clippy.txt": "60ad4cd9cc8265c7945c0d274e7632e361c4e700cc844d319f81f7aec210f395"
+  }
+}

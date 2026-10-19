@@ -1,0 +1,9 @@
+    Blocking waiting for file lock on build directory
+   Compiling dartforge-build v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/build)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 39.50s
+     Running tests/native_executor.rs (target/debug/deps/native_executor-495c3c83521069bf)
+
+running 1 test
+test corpus_builders_through_the_native_executor ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 38.73s

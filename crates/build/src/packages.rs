@@ -1,7 +1,7 @@
 //! The package graph of `build_runner_core` 8.0.0
 //! (`package_graph/package_graph.dart`, `PackageGraph.forPath`) and the SCCs of
 //! `graphs` 2.3.2, which decide the order of packages and targets.
-use crate::config::{Pubspec, DependencyType, LockedPackage, read_lock};
+use crate::config::{DependencyType, LockedPackage, Pubspec, read_lock};
 use dartforge_elements::config::PackageConfig;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -115,16 +115,16 @@ impl PackageGraph {
             .iter()
             .map(|n| find(n, &root_name, &by_name))
             .collect::<Result<_, _>>()?;
-        for i in 0..nodes.len() {
+        for (i, node) in nodes.iter_mut().enumerate() {
             if i == root {
                 continue;
             }
-            let p = Pubspec::read(&nodes[i].root)?;
+            let p = Pubspec::read(&node.root)?;
             let mut d = p.dependencies.clone();
             d.sort();
             d.dedup();
-            let name = nodes[i].name.clone();
-            nodes[i].deps = d
+            let name = node.name.clone();
+            node.deps = d
                 .iter()
                 .map(|n| find(n, &name, &by_name))
                 .collect::<Result<_, _>>()?;
@@ -158,20 +158,38 @@ impl PackageGraph {
 
 /// `stronglyConnectedComponents` of `graphs` 2.3.2, in the same visiting
 /// order (explicit stack), so that components and ties come out the same.
+/// Each reachable node's edge list is requested once. Suspended traversals
+/// retain ownership of that list instead of copying it for each child.
+///
+/// ```
+/// use dartforge_build::packages::scc;
+/// let graph = [vec![1, 2], vec![2], vec![]];
+/// assert_eq!(scc(&[0], |n| graph[n].clone()), vec![vec![2], vec![1], vec![0]]);
+/// ```
 pub fn scc(start: &[usize], edges: impl Fn(usize) -> Vec<usize>) -> Vec<Vec<usize>> {
+    struct EdgeCursor {
+        edges: Vec<usize>,
+        position: usize,
+    }
+    struct Frame {
+        node: usize,
+        cursor: Option<EdgeCursor>,
+    }
     let mut result = Vec::new();
     let mut lowlink: HashMap<usize, usize> = HashMap::new();
     let mut index: HashMap<usize, usize> = HashMap::new();
     let mut on_stack = std::collections::HashSet::new();
     let mut next = 0usize;
     let mut visited: Vec<usize> = Vec::new();
-    // (node, iterator: edges and current position), `None` = not started yet.
+    // A missing cursor marks a node that has not started yet.
     // Dart builds `[for (node in nodes) _StackState(node)]` and pops from the
     // end: the last node is visited first. This reproduces exactly that.
-    let mut stack: Vec<(usize, Option<(Vec<usize>, usize)>)> =
-        start.iter().map(|&n| (n, None)).collect();
-    'outer: while let Some((node, it)) = stack.pop() {
-        let (mut it, mut low) = match it {
+    let mut stack: Vec<Frame> = start
+        .iter()
+        .map(|&node| Frame { node, cursor: None })
+        .collect();
+    'outer: while let Some(Frame { node, cursor }) = stack.pop() {
+        let (mut cursor, mut low) = match cursor {
             None => {
                 if index.contains_key(&node) {
                     continue;
@@ -187,26 +205,32 @@ pub fn scc(start: &[usize], edges: impl Fn(usize) -> Vec<usize>) -> Vec<Vec<usiz
                 }
                 visited.push(node);
                 on_stack.insert(node);
-                ((edges, 0usize), low)
+                (EdgeCursor { edges, position: 0 }, low)
             }
-            Some((es, pos)) => {
-                let current = es[pos];
+            Some(cursor) => {
+                let current = cursor.edges[cursor.position];
                 let low = lowlink[&node].min(lowlink[&current]);
-                ((es, pos), low)
+                (cursor, low)
             }
         };
         loop {
-            let succ = it.0[it.1];
+            let succ = cursor.edges[cursor.position];
             if !index.contains_key(&succ) {
-                stack.push((node, Some((it.0.clone(), it.1))));
-                stack.push((succ, None));
+                stack.push(Frame {
+                    node,
+                    cursor: Some(cursor),
+                });
+                stack.push(Frame {
+                    node: succ,
+                    cursor: None,
+                });
                 continue 'outer;
             } else if on_stack.contains(&succ) {
                 low = low.min(index[&succ]);
                 lowlink.insert(node, low);
             }
-            it.1 += 1;
-            if it.1 >= it.0.len() {
+            cursor.position += 1;
+            if cursor.position >= cursor.edges.len() {
                 break;
             }
         }
@@ -252,5 +276,38 @@ mod tests {
         let g: [Vec<usize>; 3] = [vec![], vec![], vec![]];
         let r = scc(&[0, 1, 2], |n| g[n].clone());
         assert_eq!(r, vec![vec![2], vec![1], vec![0]]);
+    }
+
+    #[test]
+    fn scc_matches_graphs_2_3_2_component_and_visit_order() {
+        // Generated by tests/scc_oracle.dart, including duplicate edges, roots,
+        // self-loops, disconnected components and empty root lists.
+        let cases: serde_json::Value =
+            serde_json::from_str(include_str!("../tests/scc_graphs_2_3_2.json")).unwrap();
+        let cases = cases.as_array().unwrap();
+        assert_eq!(cases.len(), 192);
+        for (case_index, case) in cases.iter().enumerate() {
+            let start: Vec<usize> = serde_json::from_value(case["start"].clone()).unwrap();
+            let edges: Vec<Vec<usize>> = serde_json::from_value(case["edges"].clone()).unwrap();
+            let expected: Vec<Vec<usize>> =
+                serde_json::from_value(case["components"].clone()).unwrap();
+            let calls = std::cell::RefCell::new(vec![0; edges.len()]);
+            let actual = scc(&start, |n| {
+                calls.borrow_mut()[n] += 1;
+                edges[n].clone()
+            });
+            assert_eq!(actual, expected, "official graph case {case_index}");
+            assert!(calls.borrow().iter().all(|&count| count <= 1));
+        }
+    }
+
+    #[test]
+    fn scc_deep_chain_uses_an_explicit_stack() {
+        let count = 50_000;
+        let components = scc(&[0], |n| if n + 1 < count { vec![n + 1] } else { vec![] });
+        assert_eq!(components.len(), count);
+        for (position, component) in components.iter().enumerate() {
+            assert_eq!(component, &[count - position - 1]);
+        }
     }
 }

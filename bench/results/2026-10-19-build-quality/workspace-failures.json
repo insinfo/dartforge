@@ -1,0 +1,14 @@
+{
+  "fmt": {
+    "exit_code": 1,
+    "full_log_bytes": 15789170,
+    "full_log_sha256": "e337b96df69927807d3d257ea81536b93bdac7d33e94dcd27713f984f7974529",
+    "excerpt": "workspace-fmt-excerpt.txt"
+  },
+  "tests": {
+    "exit_code": 101,
+    "full_log_bytes": 1101427,
+    "full_log_sha256": "c060a9c66317c0871b850c1075eb77fe54b9ca395a31a4145589f5cd8da7f164",
+    "excerpt": "workspace-tests-excerpt.txt"
+  }
+}

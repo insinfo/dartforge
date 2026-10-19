@@ -14,17 +14,17 @@
 //!   [`Engine::materialize`] or [`Demand::Everything`]. With the Dart executor,
 //!   the hidden phases it runs are included too (a later builder may read
 //!   them); only the optional ones stay lazy.
-use crate::query::{SemanticDb, Query, Digest, digest_bytes};
 use crate::executor::{
-    ActionService, GeneratorCtx, Availability, DartExecutor, NativeGenerator, Unavailable,
-    NativeAction, ActionRequest, ExtensionsRequest, NativeRequest, BuilderScript, BuildStepService,
+    ActionRequest, ActionService, Availability, BuildStepService, BuilderScript, DartExecutor,
+    ExtensionsRequest, GeneratorCtx, NativeAction, NativeGenerator, NativeRequest, Unavailable,
     glob_candidates, query_digest,
 };
 use crate::graph::{AssetId, Graph};
 use crate::packages::PackageGraph;
-use crate::plan::{Configs, Phase, TargetNode, Plan, phases};
+use crate::plan::{Configs, Phase, Plan, TargetNode, phases};
+use crate::query::{Digest, Query, SemanticDb, digest_bytes};
 use dartforge_elements::config::PackageConfig;
-use dartforge_elements::generated::{GenerationBuilder, Generation, key};
+use dartforge_elements::generated::{Generation, GenerationBuilder, key};
 use dartforge_elements::model::Program;
 use dartforge_elements::unit_cache::FileStamp;
 use dartforge_intern::Interner;
@@ -243,6 +243,13 @@ pub struct UpdateContext<'a> {
     pub program: Option<(&'a Program, &'a Interner)>,
 }
 
+/// File events used to invalidate cached package queries.
+struct QueryChanges<'a> {
+    changed: &'a HashSet<PathBuf>,
+    dart_changed: bool,
+    structural: &'a HashSet<PathBuf>,
+}
+
 /// One run of a per-package generator in a round.
 struct PackageRound {
     queries: Vec<(Query, Option<Digest>)>,
@@ -355,7 +362,9 @@ fn build_indices(gp: &PackageGraph, graph: &Graph, phase_count: usize) -> Indice
     let mut dirs = BTreeSet::new();
     let root = &gp.nodes[gp.root];
     for (package, paths) in &graph.sources {
-        let Some(node) = gp.node(package) else { continue };
+        let Some(node) = gp.node(package) else {
+            continue;
+        };
         for c in paths {
             if c.contains('$') {
                 continue;
@@ -444,12 +453,10 @@ impl Engine {
         } = build_indices(&package_graph, &graph, phases.len());
         let mut config_files = vec![
             key(&package_graph.root_dir.join("pubspec.lock")),
-            key(
-                &package_graph
-                    .root_dir
-                    .join(".dart_tool")
-                    .join("package_config.json"),
-            ),
+            key(&package_graph
+                .root_dir
+                .join(".dart_tool")
+                .join("package_config.json")),
         ];
         let r = &package_graph.nodes[package_graph.root].root;
         config_files.push(key(&r.join("pubspec.yaml")));
@@ -513,9 +520,8 @@ impl Engine {
         }
         m.recompute_watched();
         if m.options.persist {
-            m.to_restore = crate::persistence::read(&crate::persistence::directory(
-                &m.package_graph.root_dir,
-            ));
+            m.to_restore =
+                crate::persistence::read(&crate::persistence::directory(&m.package_graph.root_dir));
         }
         #[cfg(feature = "native-generators")]
         {
@@ -585,13 +591,12 @@ impl Engine {
             .flat_map(|r| r.queries.iter())
             .chain(self.package_rounds.values().flat_map(|p| p.queries.iter()));
         for (c, _) in queries {
-            if let Query::File(p) = c {
-                if !p.to_string_lossy().ends_with(".dart")
-                    && !self.memory.contains_key(p)
-                    && !self.is_fallback_path(p)
-                {
-                    v.insert(p.clone());
-                }
+            if let Query::File(p) = c
+                && !p.to_string_lossy().ends_with(".dart")
+                && !self.memory.contains_key(p)
+                && !self.is_fallback_path(p)
+            {
+                v.insert(p.clone());
             }
         }
         v.into_iter().collect()
@@ -617,7 +622,9 @@ impl Engine {
             std::thread::scope(|s| {
                 let hs: Vec<_> = paths
                     .chunks(chunk)
-                    .map(|c| s.spawn(move || c.iter().map(|p| FileStamp::read(p)).collect::<Vec<_>>()))
+                    .map(|c| {
+                        s.spawn(move || c.iter().map(|p| FileStamp::read(p)).collect::<Vec<_>>())
+                    })
                     .collect();
                 hs.into_iter()
                     .flat_map(|h| h.join().unwrap_or_default())
@@ -801,7 +808,12 @@ impl Engine {
     /// plan; the records of the actions that still exist (same phase and
     /// same input) are kept.
     fn rebuild_graph(&mut self, changed: &mut HashSet<PathBuf>) -> Result<(), String> {
-        let graph = Graph::build(&self.package_graph, &self.configs, &self.phases, &self.targets)?;
+        let graph = Graph::build(
+            &self.package_graph,
+            &self.configs,
+            &self.phases,
+            &self.targets,
+        )?;
         let mut old: HashMap<(usize, AssetId), ActionRecord> = HashMap::new();
         for (i, r) in std::mem::take(&mut self.records).into_iter().enumerate() {
             if let Some(r) = r {
@@ -856,7 +868,9 @@ impl Engine {
             changed.insert(k);
         }
         for d in &dirs {
-            self.marks.entry(d.clone()).or_insert_with(|| FileStamp::read(d));
+            self.marks
+                .entry(d.clone())
+                .or_insert_with(|| FileStamp::read(d));
         }
         self.graph = graph;
         self.per_phase = per_phase;
@@ -919,7 +933,8 @@ impl Engine {
             let requested = action.post_process
                 || !phase.optional
                     && action.outputs.iter().any(|s| {
-                        self.options.filters.iter().any(|f| f.matches(s)) && self.visible_in_build(s)
+                        self.options.filters.iter().any(|f| f.matches(s))
+                            && self.visible_in_build(s)
                     });
             if requested {
                 stack.push(a);
@@ -947,12 +962,7 @@ impl Engine {
         crate::graph::VISIBLE_OUTSIDE_ROOT
             .iter()
             .map(|s| s.to_string())
-            .chain(
-                self.configs.by_package[p]
-                    .additional_public
-                    .iter()
-                    .cloned(),
-            )
+            .chain(self.configs.by_package[p].additional_public.iter().cloned())
             .any(|g| crate::glob::Glob::new(&g).is_ok_and(|g| g.matches(&id.path)))
     }
 
@@ -1114,9 +1124,11 @@ impl Engine {
                         ctx,
                         g,
                         &package,
-                        &changed,
-                        dart_changed,
-                        &structural,
+                        QueryChanges {
+                            changed: &changed,
+                            dart_changed,
+                            structural: &structural,
+                        },
                         &mut rel,
                     )? {
                         packages_ran.insert(k.clone());
@@ -1286,10 +1298,10 @@ impl Engine {
                     Origin::NotTriggered => rel.not_triggered += 1,
                     Origin::Pending | Origin::Skipped => {}
                 }
-                if let Some(m) = &r.reason {
-                    if r.origin == Origin::Pending {
-                        *rel.pending_by_reason.entry(m.clone()).or_default() += 1;
-                    }
+                if let Some(m) = &r.reason
+                    && r.origin == Origin::Pending
+                {
+                    *rel.pending_by_reason.entry(m.clone()).or_default() += 1;
                 }
                 // Stale fallback (D-B5).
                 if r.origin == Origin::Support {
@@ -1421,7 +1433,9 @@ impl Engine {
     fn check_extensions(&mut self, changed: &mut HashSet<PathBuf>) -> Result<(), String> {
         self.extensions_checked = true;
         let candidates: Vec<usize> = (0..self.phases.len())
-            .filter(|&fi| self.phases[fi].extensions.is_some() && self.native_for_phase(fi).is_none())
+            .filter(|&fi| {
+                self.phases[fi].extensions.is_some() && self.native_for_phase(fi).is_none()
+            })
             .collect();
         let post: Vec<usize> = (0..self.phases.len())
             .filter(|&fi| self.phases[fi].post_process && self.phases[fi].replaced_by.is_none())
@@ -1480,7 +1494,8 @@ impl Engine {
                 .as_ref()
                 .is_some_and(|e| e.declared != v)
             {
-                self.phases[fi].extensions = Some(crate::extensions::Extensions::new_for(&v, &key)?);
+                self.phases[fi].extensions =
+                    Some(crate::extensions::Extensions::new_for(&v, &key)?);
                 differs = true;
             }
         }
@@ -1777,9 +1792,7 @@ impl Engine {
                         };
                         let candidates = glob_candidates(&self.graph, a, &g)
                             .into_iter()
-                            .map(|id| {
-                                (id.path.to_string(), self.graph.generated.contains_key(&id))
-                            })
+                            .map(|id| (id.path.to_string(), self.graph.generated.contains_key(&id)))
                             .collect();
                         query_digest(
                             &Query::ActiveGlobs {
@@ -2224,13 +2237,13 @@ impl Engine {
             }));
         }
         for (id, bytes) in result.outputs {
-            if let Some(already_written) = service.writes.get(&id) {
-                if already_written.as_ref() != bytes.as_ref() {
-                    return Err(DartFailure::Builder(format!(
-                        "Dart builder returned different bytes for {} after writing through BuildStep",
-                        id.text()
-                    )));
-                }
+            if let Some(already_written) = service.writes.get(&id)
+                && already_written.as_ref() != bytes.as_ref()
+            {
+                return Err(DartFailure::Builder(format!(
+                    "Dart builder returned different bytes for {} after writing through BuildStep",
+                    id.text()
+                )));
             }
             service.write(&id, bytes).map_err(|e| {
                 DartFailure::Builder(format!(
@@ -2289,11 +2302,14 @@ impl Engine {
         ctx: &UpdateContext<'_>,
         g: usize,
         package: &Arc<str>,
-        changed: &HashSet<PathBuf>,
-        dart_changed: bool,
-        structural: &HashSet<PathBuf>,
+        changes: QueryChanges<'_>,
         rel: &mut EngineReport,
     ) -> Result<bool, String> {
+        let QueryChanges {
+            changed,
+            dart_changed,
+            structural,
+        } = changes;
         let k = (g, package.clone());
         if let Some(r) = self.package_rounds.get(&k) {
             let maybe = r
@@ -2453,11 +2469,11 @@ impl Engine {
             let mut from_fallback = Vec::new();
             let hidden = self.phases[action.phase].hidden;
             for (s, c) in outputs.iter_mut() {
-                if c.is_none() {
-                    if let Ok(b) = std::fs::read(self.support_path(s, hidden)) {
-                        *c = Some(Arc::from(b));
-                        from_fallback.push(s.clone());
-                    }
+                if c.is_none()
+                    && let Ok(b) = std::fs::read(self.support_path(s, hidden))
+                {
+                    *c = Some(Arc::from(b));
+                    from_fallback.push(s.clone());
                 }
             }
             return ActionRecord {
@@ -2600,10 +2616,7 @@ impl Engine {
                     })
                     .collect();
                 let m = s.refusals.values().next().cloned().unwrap_or_else(|| {
-                    format!(
-                        "{}: output not yet verified byte for byte",
-                        generator.key()
-                    )
+                    format!("{}: output not yet verified byte for byte", generator.key())
                 });
                 r.reason = Some(match r.reason.take() {
                     Some(x) => format!("{m}; {x}"),
@@ -2629,7 +2642,11 @@ impl Engine {
         }
     }
 
-    fn fallback_in_parallel(&self, actions: &[usize], dart_reason: Option<&str>) -> Vec<ActionRecord> {
+    fn fallback_in_parallel(
+        &self,
+        actions: &[usize],
+        dart_reason: Option<&str>,
+    ) -> Vec<ActionRecord> {
         let n = self.options.workers.max(1).min(actions.len());
         if n <= 1 || actions.len() < 8 {
             return actions
@@ -2675,10 +2692,7 @@ impl Engine {
         for s in &action.outputs {
             let loc = self.support_path(s, f.hidden);
             let c: Option<Arc<[u8]>> = std::fs::read(&loc).ok().map(Arc::from);
-            queries.push((
-                Query::File(key(&loc)),
-                c.as_deref().map(digest_bytes),
-            ));
+            queries.push((Query::File(key(&loc)), c.as_deref().map(digest_bytes)));
             outputs.push((s.clone(), c));
         }
         let has_build_dir = self
@@ -2793,12 +2807,11 @@ impl Engine {
         // arrive with the lexical spelling (8.3 alias or link on Windows).
         // The generated file does not exist yet, so only the parent is
         // canonicalized.
-        if !self.natural_paths_map.values().any(|n| n == &k) {
-            if let (Some(parent), Some(name)) = (path.parent(), path.file_name()) {
-                if let Ok(parent) = std::fs::canonicalize(parent) {
-                    k = key(&dartforge_elements::config::without_verbatim(parent).join(name));
-                }
-            }
+        if !self.natural_paths_map.values().any(|n| n == &k)
+            && let (Some(parent), Some(name)) = (path.parent(), path.file_name())
+            && let Ok(parent) = std::fs::canonicalize(parent)
+        {
+            k = key(&dartforge_elements::config::without_verbatim(parent).join(name));
         }
         if let Some(c) = self.memory.get(&k) {
             return Some(c.clone());
@@ -2840,7 +2853,8 @@ impl Engine {
             r.fingerprint = self.fingerprint(a, &r.queries);
             for (s, c) in &r.outputs {
                 if let Some(c) = c {
-                    self.memory.insert(self.natural_paths_map[s].clone(), c.clone());
+                    self.memory
+                        .insert(self.natural_paths_map[s].clone(), c.clone());
                 }
             }
             self.records[a] = Some(r);
@@ -2910,7 +2924,8 @@ impl Engine {
                             format!("{}={}", s.path, &d[..d.len().min(16)])
                         })
                         .collect();
-                    let deleted: Vec<String> = r.deleted_outputs.iter().map(AssetId::text).collect();
+                    let deleted: Vec<String> =
+                        r.deleted_outputs.iter().map(AssetId::text).collect();
                     lines.push(format!(
                         "{head} {:?} {} [{}]{}",
                         r.origin,
@@ -2976,16 +2991,16 @@ impl Engine {
                         (Origin::Dart, Some(c)) if c.as_ref() == expected.as_slice() => {
                             p.equal.push(id.clone())
                         }
-                        _ => p
-                            .different
-                            .push((id.clone(), "post-processor: differs from the official one".into())),
+                        _ => p.different.push((
+                            id.clone(),
+                            "post-processor: differs from the official one".into(),
+                        )),
                     }
                     continue;
                 }
-                let has_post = self
-                    .phases
-                    .iter()
-                    .any(|f| f.post_process && self.package_graph.nodes[f.package].name == *id.package);
+                let has_post = self.phases.iter().any(|f| {
+                    f.post_process && self.package_graph.nodes[f.package].name == *id.package
+                });
                 if has_post {
                     p.pending.push((
                         id.clone(),

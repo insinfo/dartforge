@@ -2,6 +2,23 @@
 
 ## Atualização de 19/10/2026
 
+- Build passa no Clippy com todos os alvos, sem novas supressões. A busca de
+  componentes do grafo move o cursor suspenso em vez de copiar a lista inteira
+  de dependências ao visitar cada filho; contextos privados agrupam eventos de
+  invalidação e dados do planejamento. A ordem coincide com `graphs` 2.3.2 em
+  192 grafos, e a cadeia de 50 mil nós passa sem recursão. No benchmark
+  sintético de estrela com 10 mil nós, as medianas foram 22,723 ms antes e
+  0,810 ms depois; isso não mede o tempo de um build inteiro nem memória total.
+  Passaram 88 casos dirigidos: 54 unitários, 15 doctests, um teste de oráculo,
+  seis de corpus, três de perfis, quatro de executor VM, quatro Angular e um
+  de executor nativo (somente `cadeia_configuracao`, com produtor congelado da
+  rodada anterior). A varredura Angular comparou 352 edições com motores novos.
+  O teste de dependência iniciou antes do `pub get` terminar e falhou por
+  ausência de `package_config.json`; a repetição após a preparação passou.
+  Clippy global ainda falha em world (21), emit-js (31) e analysis (45);
+  formatação geral e link padrão Apple/LLVM 22 continuam pendentes. A geração
+  de documentação passou com avisos existentes. Evidências e limites em
+  `bench/results/2026-10-19-build-quality/checks.json`.
 - Types, macros-host e ng-generator passam no Clippy com todos os alvos,
   sem novas supressões. A refatoração nomeia estruturas de diagnóstico e
   agrupa argumentos relacionados; `compile_asset` recebe `AssetOptions`.

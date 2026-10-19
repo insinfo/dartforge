@@ -130,11 +130,11 @@ fn script_import(import: &str) -> String {
     if let Some(inside) = target.strip_prefix(".dart_tool/build/entrypoint/") {
         return inside.to_string();
     }
-    if target.starts_with(".dart_tool/build/") {
-        return format!("../{}", &target[".dart_tool/build/".len()..]);
+    if let Some(path) = target.strip_prefix(".dart_tool/build/") {
+        return format!("../{path}");
     }
-    if target.starts_with(".dart_tool/") {
-        return format!("../../{}", &target[".dart_tool/".len()..]);
+    if let Some(path) = target.strip_prefix(".dart_tool/") {
+        return format!("../../{path}");
     }
     format!("../../../{target}")
 }
@@ -665,56 +665,55 @@ pub fn phases(
         }
     }
 
-    // `_shouldApply` with memory (the recursion through `applies_builders`
-    // repeats).
-    fn should_apply(
-        a: usize,
-        n: usize,
-        graph: &PackageGraph,
-        plan: &Plan,
-        nodes: &[TargetNode],
-        configs: &Configs,
-        by_application: &HashMap<&str, usize>,
-        applied_with: &HashMap<&str, Vec<usize>>,
-        depth: usize,
-    ) -> bool {
-        let ap = &plan.applications[a];
-        let node = &nodes[n];
-        let package = &graph.nodes[node.package];
-        let all_hidden = ap.applies.iter().all(|b| {
-            by_application
-                .get(b.as_str())
-                .is_none_or(|&i| plan.applications[i].hidden)
-        });
-        if !(ap.hidden && all_hidden) && !package.is_root {
-            return false;
-        }
-        let target = &configs.by_package[node.config].targets[node.target];
-        if let Some(c) = target.cfg(&ap.key) {
-            return c.enabled;
-        }
-        if target.auto_apply_builders && ap.applies_to_package(graph, node.package) {
-            return true;
-        }
-        if depth > 64 {
-            return false;
-        }
-        applied_with.get(ap.key.as_str()).is_some_and(|anchors| {
-            anchors.iter().any(|&anchor| {
-                should_apply(
-                    anchor,
-                    n,
-                    graph,
-                    plan,
-                    nodes,
-                    configs,
-                    by_application,
-                    applied_with,
-                    depth + 1,
-                )
-            })
-        })
+    // Keep application dependencies together across recursive applies_builders checks.
+    struct ApplicationContext<'a> {
+        graph: &'a PackageGraph,
+        plan: &'a Plan,
+        nodes: &'a [TargetNode],
+        configs: &'a Configs,
+        by_application: &'a HashMap<&'a str, usize>,
+        applied_with: &'a HashMap<&'a str, Vec<usize>>,
     }
+    impl ApplicationContext<'_> {
+        fn should_apply(&self, a: usize, n: usize, depth: usize) -> bool {
+            let ap = &self.plan.applications[a];
+            let node = &self.nodes[n];
+            let package = &self.graph.nodes[node.package];
+            let all_hidden = ap.applies.iter().all(|b| {
+                self.by_application
+                    .get(b.as_str())
+                    .is_none_or(|&i| self.plan.applications[i].hidden)
+            });
+            if !(ap.hidden && all_hidden) && !package.is_root {
+                return false;
+            }
+            let target = &self.configs.by_package[node.config].targets[node.target];
+            if let Some(c) = target.cfg(&ap.key) {
+                return c.enabled;
+            }
+            if target.auto_apply_builders && ap.applies_to_package(self.graph, node.package) {
+                return true;
+            }
+            if depth > 64 {
+                return false;
+            }
+            self.applied_with
+                .get(ap.key.as_str())
+                .is_some_and(|anchors| {
+                    anchors
+                        .iter()
+                        .any(|&anchor| self.should_apply(anchor, n, depth + 1))
+                })
+        }
+    }
+    let application_context = ApplicationContext {
+        graph,
+        plan,
+        nodes: &nodes,
+        configs,
+        by_application: &by_application,
+        applied_with: &applied_with,
+    };
 
     let mut equivalents: HashMap<(usize, String), Option<crate::equivalent::Equivalent>> =
         HashMap::new();
@@ -724,17 +723,7 @@ pub fn phases(
         for (ia, ap) in plan.applications.iter().enumerate() {
             for fab in &ap.factories {
                 for &n in cycle {
-                    if !should_apply(
-                        ia,
-                        n,
-                        graph,
-                        plan,
-                        &nodes,
-                        configs,
-                        &by_application,
-                        &applied_with,
-                        0,
-                    ) {
+                    if !application_context.should_apply(ia, n, 0) {
                         continue;
                     }
                     let node = &nodes[n];

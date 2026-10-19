@@ -1,0 +1,9 @@
+    Blocking waiting for file lock on build directory
+   Compiling dartforge-build v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/build)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 31.02s
+     Running tests/ng_transparency.rs (target/debug/deps/ng_transparency-ec7bfde1f2793573)
+
+running 1 test
+test ng_dependency_through_the_engine_equals_oracle ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 4.90s

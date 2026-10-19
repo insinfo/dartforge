@@ -14,8 +14,8 @@
 //! through `import`/`export` (`try_dart`). The rest (new or deleted file,
 //! part, refusal, another package) follows stage A; the package is still the
 //! engine's revalidation unit.
+use crate::executor::{GeneratorCtx, NativeGenerator, NativeOutput, NativeRequest};
 use crate::query::Query;
-use crate::executor::{GeneratorCtx, NativeGenerator, NativeRequest, NativeOutput};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -258,11 +258,14 @@ impl NativeGenerator for NgStageA {
             root: root.clone(),
             generated_sheets: generated_sheets(ctx, root),
         };
-        let resolver =
-            dartforge_ng_generator::resolution::Resolver::new(program, program_names);
+        let resolver = dartforge_ng_generator::resolution::Resolver::new(program, program_names);
         let mut names = dartforge_intern::Interner::new();
-        let (g, scoreboard) =
-            dartforge_ng_generator::generate_with_fallback(&package, &mut names, None, Some(&resolver));
+        let (g, scoreboard) = dartforge_ng_generator::generate_with_fallback(
+            &package,
+            &mut names,
+            None,
+            Some(&resolver),
+        );
         if std::env::var_os("DARTFORGE_ENGINE_TIMES").is_some() {
             eprintln!(
                 "ngdart (stage A): queries {:.1} ms ({} files), generate_with_fallback {:.1} ms",
@@ -281,18 +284,18 @@ impl NativeGenerator for NgStageA {
         for (p, f) in g.iter() {
             if f.generator == "ngdart" && planned.contains(&dartforge_elements::generated::key(p)) {
                 s.outputs.insert(p.clone(), f.content.as_bytes().to_vec());
-                if p.to_string_lossy().ends_with(".template.dart") {
-                    if let Some(source) = f.inputs.first() {
-                        for resource in f.inputs.iter().filter(|e| {
-                            e.extension().is_some_and(|x| {
-                                matches!(x.to_str(), Some("html" | "css" | "scss" | "sass"))
-                            })
-                        }) {
-                            resource_readers
-                                .entry(dartforge_elements::generated::key(resource))
-                                .or_default()
-                                .push(source.clone());
-                        }
+                if p.to_string_lossy().ends_with(".template.dart")
+                    && let Some(source) = f.inputs.first()
+                {
+                    for resource in f.inputs.iter().filter(|e| {
+                        e.extension().is_some_and(|x| {
+                            matches!(x.to_str(), Some("html" | "css" | "scss" | "sass"))
+                        })
+                    }) {
+                        resource_readers
+                            .entry(dartforge_elements::generated::key(resource))
+                            .or_default()
+                            .push(source.clone());
                     }
                 }
             }
@@ -370,7 +373,11 @@ impl NgStageA {
     /// Falls back to stage A (returns `None`) for what it cannot handle this
     /// way: a file outside the package, a part, a file without a previous
     /// template, a file refused before or now, an output that did not exist.
-    fn try_dart(&self, ctx: &mut GeneratorCtx<'_>, request: &NativeRequest) -> Option<NativeOutput> {
+    fn try_dart(
+        &self,
+        ctx: &mut GeneratorCtx<'_>,
+        request: &NativeRequest,
+    ) -> Option<NativeOutput> {
         let root = &request.package_root;
         let canon_root = std::fs::canonicalize(root).ok()?;
         // The events come in lexical and in canonical form: a single set.
@@ -428,11 +435,7 @@ impl NgStageA {
                 .units
                 .first()
                 .and_then(|&u| program.unit(u).path.as_ref());
-            if main
-                .and_then(|x| std::fs::canonicalize(x).ok())
-                .as_ref()
-                != Some(p)
-            {
+            if main.and_then(|x| std::fs::canonicalize(x).ok()).as_ref() != Some(p) {
                 return None;
             }
             queue.push(l);
@@ -471,8 +474,7 @@ impl NgStageA {
             root: root.clone(),
             generated_sheets: generated_sheets(ctx, root),
         };
-        let resolver =
-            dartforge_ng_generator::resolution::Resolver::new(program, program_names);
+        let resolver = dartforge_ng_generator::resolution::Resolver::new(program, program_names);
         for source in &closure {
             let target = dartforge_ng_generator::template_path(source);
             if !cache.output.outputs.contains_key(&target)
@@ -644,8 +646,7 @@ impl NgStageA {
             root: request.package_root.clone(),
             generated_sheets: generated_sheets(ctx, &request.package_root),
         };
-        let resolver =
-            dartforge_ng_generator::resolution::Resolver::new(program, program_names);
+        let resolver = dartforge_ng_generator::resolution::Resolver::new(program, program_names);
         if cache.index.is_none() {
             cache.index = Some(package_index(&package, &resolver));
         }
@@ -712,8 +713,7 @@ fn package_index(
             continue;
         }
         if let Ok(text) = std::fs::read_to_string(&source) {
-            let found =
-                dartforge_ng_generator::analyze_file(Path::new(&source), &text, &mut names);
+            let found = dartforge_ng_generator::analyze_file(Path::new(&source), &text, &mut names);
             index.update(package, &source, &found, Some(resolver));
         }
     }

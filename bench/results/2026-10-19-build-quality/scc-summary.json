@@ -1,0 +1,65 @@
+[
+  {
+    "shape": "star",
+    "nodes": 1000,
+    "samples": 9,
+    "median_before_ns": 198875,
+    "median_after_ns": 94708
+  },
+  {
+    "shape": "star",
+    "nodes": 5000,
+    "samples": 9,
+    "median_before_ns": 2847083,
+    "median_after_ns": 410875
+  },
+  {
+    "shape": "star",
+    "nodes": 10000,
+    "samples": 9,
+    "median_before_ns": 22722792,
+    "median_after_ns": 809833
+  },
+  {
+    "shape": "chain",
+    "nodes": 1000,
+    "samples": 9,
+    "median_before_ns": 153292,
+    "median_after_ns": 141334
+  },
+  {
+    "shape": "chain",
+    "nodes": 5000,
+    "samples": 9,
+    "median_before_ns": 764708,
+    "median_after_ns": 684417
+  },
+  {
+    "shape": "chain",
+    "nodes": 10000,
+    "samples": 9,
+    "median_before_ns": 1517416,
+    "median_after_ns": 1379292
+  },
+  {
+    "shape": "cycle",
+    "nodes": 1000,
+    "samples": 9,
+    "median_before_ns": 149417,
+    "median_after_ns": 132916
+  },
+  {
+    "shape": "cycle",
+    "nodes": 5000,
+    "samples": 9,
+    "median_before_ns": 722500,
+    "median_after_ns": 636625
+  },
+  {
+    "shape": "cycle",
+    "nodes": 10000,
+    "samples": 9,
+    "median_before_ns": 1450000,
+    "median_after_ns": 1293417
+  }
+]

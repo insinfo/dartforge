@@ -8,7 +8,7 @@
 //! Requires `dart pub get` in `corpus/ngdart` (the `package_config.json`):
 //! hence `#[ignore]`, in the group that `ci.yml` satisfies.
 use dartforge_build::query::NoDb;
-use dartforge_build::{UpdateContext, Demand, Engine, EngineOptions};
+use dartforge_build::{Demand, Engine, EngineOptions, UpdateContext};
 use dartforge_elements::config::{PackageConfig, without_verbatim};
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_intern::Interner;
@@ -77,7 +77,10 @@ fn ng_through_the_engine_equals_direct_generator_and_oracle() {
             continue; // outside the plan (build_runner would not generate it either)
         }
         let via_engine = g.get(&k).unwrap_or_else(|| {
-            panic!("{}: generated directly and missing in the engine", k.display())
+            panic!(
+                "{}: generated directly and missing in the engine",
+                k.display()
+            )
         });
         assert_eq!(
             via_engine.content,
@@ -193,7 +196,11 @@ fn ng_incremental_equals_from_scratch() {
         if snippet.is_empty() {
             current.push_str(text);
         } else {
-            assert!(current.contains(snippet), "{}: snippet missing", file.display());
+            assert!(
+                current.contains(snippet),
+                "{}: snippet missing",
+                file.display()
+            );
             current = current.replacen(snippet, text, 1);
         }
         std::fs::write(&file, &current).unwrap();
@@ -204,7 +211,7 @@ fn ng_incremental_equals_from_scratch() {
                     db: &NoDb,
                     program: Some((&p, &names)),
                 },
-                &[file.clone()],
+                std::slice::from_ref(&file),
                 Demand::Everything,
             )
             .expect("update");
@@ -403,7 +410,11 @@ fn ng_dependency_through_the_engine_equals_oracle() {
     ];
     for (file, snippet, text) in steps {
         let current = std::fs::read_to_string(&file).unwrap();
-        assert!(current.contains(snippet), "{}: snippet missing", file.display());
+        assert!(
+            current.contains(snippet),
+            "{}: snippet missing",
+            file.display()
+        );
         std::fs::write(&file, current.replacen(snippet, text, 1)).unwrap();
         let (p, names) = program(&app);
         live.update(
@@ -411,7 +422,7 @@ fn ng_dependency_through_the_engine_equals_oracle() {
                 db: &NoDb,
                 program: Some((&p, &names)),
             },
-            &[file.clone()],
+            std::slice::from_ref(&file),
             Demand::Everything,
         )
         .expect("update");

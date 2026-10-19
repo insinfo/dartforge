@@ -1,0 +1,139 @@
+   Compiling dartforge-build v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/build)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.60s
+     Running unittests src/lib.rs (target/debug/deps/dartforge_build-5f75491dbb0e7158)
+
+running 54 tests
+test command_line::tests::define_normalizes_and_keeps_the_rest ... ok
+test client::tests::handshake_load_and_build_queries_on_the_same_channel ... ok
+test client::tests::incomplete_build_result_is_not_success ... ok
+test command_line::tests::json_like_dart ... ok
+test client::tests::builder_extensions_and_new_round ... ok
+test client::tests::handshake_rejects_executors_without_build_service ... ok
+test client::tests::invalid_query_gets_error_without_ending_action ... ok
+test client::tests::post_processor_inputs_and_deletions ... ok
+test command_line::tests::filter_with_escape_and_glob ... ok
+test config::tests::key_normalization ... ok
+test config::tests::unknown_key_is_an_error ... ok
+test config::tests::sass_builder_build_yaml ... ok
+test equivalent::tests::ngcomponents_scss_builder ... ok
+test config::tests::keys_by_profile ... ok
+test equivalent::tests::shapes_that_are_not_recognized ... ok
+test extensions::tests::exact ... ok
+test extensions::tests::capture ... ok
+test extensions::tests::suffix ... ok
+test executor::service_tests::buildstep_glob_revalidates_generated_output_in_memory ... ok
+test extensions::tests::validations ... ok
+test config::tests::unreadable_build_yaml_is_an_error ... ok
+test glob::tests::any_ranges_options ... ok
+test glob::tests::case_on_windows ... ok
+test executor_deps::tests::diagnoses_what_the_cache_lacks ... ok
+test glob::tests::directory_pruning ... ok
+test glob::tests::literals_and_stars ... ok
+test glob::tests::syntax_errors ... ok
+test native_executor::tests::depfile_round_trip_with_spaces ... ok
+test native_executor::tests::sdk_libraries_referenced_in_the_executable ... ok
+test natives::i18n::tests::long_getter_breaks_after_the_arrow ... ok
+test natives::i18n::tests::names_like_i18n ... ok
+test packages::tests::scc_cycle ... ok
+test executor::service_tests::post_processor_anchor_writes_only_new_assets ... ok
+test oracle::tests::reads_the_build_dart ... ok
+test packages::tests::scc_dependencies_first ... ok
+test native_executor::tests::missing_executor_dependencies ... ok
+test packages::tests::scc_several_starts_in_dart_order ... ok
+test plan::tests::relative_script_import ... ok
+test triggers::tests::directives ... ok
+test triggers::tests::firing ... ok
+test triggers::tests::name_validation ... ok
+test executor::service_tests::phase_visibility_and_the_actions_own_output ... ok
+test value::tests::override_by_key_in_order ... ok
+test triggers::tests::top_level_metadata ... ok
+test value::tests::real_like_dart ... ok
+test vm::tests::dart_literal_escapes_interpolation ... ok
+test vm::tests::depfile_with_escaped_spaces ... ok
+test executor::service_tests::unlisted_dependency_is_readable_through_the_package_filter ... ok
+test vm::tests::absolute_package_config_with_the_executor ... ok
+test persistence::tests::state_round_trip_and_checked_blob ... ok
+test executor_deps::tests::completes_from_cache_with_transitive_dependencies ... ok
+test packages::tests::scc_matches_graphs_2_3_2_component_and_visit_order ... ok
+test packages::tests::scc_deep_chain_uses_an_explicit_stack ... ok
+test client::tests::hung_action_exhausts_the_deadline ... ok
+
+test result: ok. 54 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+
+     Running tests/corpus.rs (target/debug/deps/corpus-8a25f1ec9f5b636e)
+
+running 6 tests
+test corpus_builders_determinism ... ignored, requires `dart pub get` in each case of corpus/builders
+test corpus_builders_incremental_equals_from_scratch ... ignored, requires `dart pub get` in each case of corpus/builders
+test corpus_builders_plan_and_scoreboard ... ignored, requires `dart pub get` in each case of corpus/builders
+test injected_dart_executor_runs_and_reuses_actions ... ignored, requires `dart pub get` in corpus/builders/cadeia_configuracao
+test sass_release_css_on_demand_without_support ... ignored, requires `dart pub get` in corpus/builders/sass_builder_compressed
+test state_saved_across_processes ... ignored, requires `dart pub get` in corpus/builders/cadeia_configuracao
+
+test result: ok. 0 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/native_executor.rs (target/debug/deps/native_executor-495c3c83521069bf)
+
+running 1 test
+test corpus_builders_through_the_native_executor ... ignored, requires dartforge with the native feature and `dart pub get` in each case of corpus/builders
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/ng_transparency.rs (target/debug/deps/ng_transparency-ec7bfde1f2793573)
+
+running 4 tests
+test ng_dart_edit_in_each_file_equals_from_scratch ... ignored, requires `dart pub get` in corpus/ngdart; slow (one new engine per file)
+test ng_dependency_through_the_engine_equals_oracle ... ignored, requires `dart pub get` in corpus/ngdart_dependent/app
+test ng_incremental_equals_from_scratch ... ignored, requires `dart pub get` in corpus/ngdart
+test ng_through_the_engine_equals_direct_generator_and_oracle ... ignored, requires `dart pub get` in corpus/ngdart
+
+test result: ok. 0 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/observed_config.rs (target/debug/deps/observed_config-e059c68285d0a086)
+
+running 1 test
+test watches_dependency_build_yaml_and_overrides ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/profiles.rs (target/debug/deps/profiles-4c7e8f715b207485)
+
+running 3 tests
+test profile_2_16_equals_build_runner_2_16_1 ... ignored, requires the Dart VM and `dart pub get` in corpus/builders/perfil_2_4
+test profile_2_16_incremental_triggers ... ignored, requires the Dart VM and `dart pub get` in corpus/builders/perfil_2_4
+test profile_2_4_equals_build_runner_2_4_15 ... ignored, requires the Dart VM and `dart pub get` in corpus/builders/perfil_2_4
+
+test result: ok. 0 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/vm_executor.rs (target/debug/deps/vm_executor-51c5ff17294967c8)
+
+running 4 tests
+test corpus_builders_through_the_vm ... ignored, requires the Dart VM and `dart pub get` in each case of corpus/builders
+test json_serializable_through_the_vm_equals_build_runner_and_is_incremental ... ignored, requires the Dart VM and `dart pub get` in corpus/builders/json_serializable
+test post_processor_through_the_vm ... ignored, requires the Dart VM and `dart pub get` in corpus/builders/cadeia_configuracao
+test state_saved_through_the_vm ... ignored, requires the Dart VM and `dart pub get` in corpus/builders/json_serializable
+
+test result: ok. 0 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests dartforge_build
+
+running 15 tests
+test crates/build/src/profile.rs - profile::Profile::from_versions (line 77) ... ok
+test crates/build/src/config.rs - config::BuildConfig::from_text_with_profile (line 402) ... ok
+test crates/build/src/executor_deps.rs - executor_deps::satisfies (line 88) ... ok
+test crates/build/src/command_line.rs - command_line::Defines::parse (line 29) ... ok
+test crates/build/src/config.rs - config::BuildConfig::from_text (line 380) ... ok
+test crates/build/src/command_line.rs - command_line::json (line 83) ... ok
+test crates/build/src/executor_deps.rs - executor_deps::Version::parse (line 42) ... ok
+test crates/build/src/packages.rs - packages::scc (line 164) ... ok
+test crates/build/src/native_executor.rs - native_executor::NativeConfig::for_project (line 64) ... ok
+test crates/build/src/command_line.rs - command_line::BuildFilter::from_arg (line 344) ... ok
+test crates/build/src/vm.rs - vm::VmConfig::for_project (line 106) ... ok
+test crates/build/src/triggers.rs - triggers::Triggers::from_configs (line 126) ... ok
+test crates/build/src/profile.rs - profile::Version::read (line 31) ... ok
+test crates/build/src/vm.rs - vm::bootstrap (line 143) ... ok
+test crates/build/src/triggers.rs - triggers::parse (line 219) ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+all doctests ran in 0.60s; merged doctests compilation took 0.40s
