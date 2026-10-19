@@ -1884,3 +1884,128 @@ fn shared_universal_parent_requires_both_declarations_and_never_authorizes_alloc
         } else { assert!(module.closed_class_tables.is_none()); }
     }
 }
+
+#[test]
+fn external_root_argument_packets_require_a_proved_input_domain() {
+    for root in 0..6 {
+        let mut module = fixture();
+        let symbol = "df.external.bridge";
+        let mut bridge = function(
+            symbol,
+            vec![(
+                ValueId(12),
+                Instruction::CallSelectorForward {
+                    arc_owned: false,
+                    selector: "c:used".into(),
+                    recv: Operand::Constant(Constant::Null),
+                    args: Operand::Val(ValueId(10)),
+                    desc: Operand::Val(ValueId(11)),
+                },
+                Type::Ref,
+            )],
+        );
+        bridge.params = vec![
+            (ValueId(10), "arguments".into(), Type::Ptr),
+            (ValueId(11), "descriptor".into(), Type::Ptr),
+        ];
+        module.functions.push(bridge);
+        match root {
+            0 => module.entry_symbol = Some(symbol.into()),
+            1 => module.source_roots.push(symbol.into()),
+            2 => module.call_dart = Some(symbol.into()),
+            3 => module.record = Some(symbol.into()),
+            4 => module.start_rti = Some(symbol.into()),
+            _ => module.sdk_records.push(symbol.into()),
+        }
+        assert!(
+            audit(&mut module, &[]).is_err(),
+            "unproved external argument packet at root {root}"
+        );
+        assert!(module.closed_class_tables.is_none());
+    }
+}
+
+#[test]
+fn raw_argument_packet_addresses_cannot_be_fabricated_by_casts_or_unboxing() {
+    for variant in 0..3 {
+        let mut module = fixture();
+        let main = &mut module.functions[0];
+        main.params
+            .push((ValueId(10), "address bits".into(), Type::I64));
+        let (instruction, target) = match variant {
+            0 => (
+                Instruction::Bitcast {
+                    op: Operand::Val(ValueId(10)),
+                    to: Type::Ptr,
+                },
+                Type::Ptr,
+            ),
+            1 => (
+                Instruction::Bitcast {
+                    op: Operand::Val(ValueId(10)),
+                    to: Type::Ref,
+                },
+                Type::Ref,
+            ),
+            _ => (
+                Instruction::Unbox {
+                    op: Operand::Val(ValueId(0)),
+                    to: Type::Ptr,
+                },
+                Type::Ptr,
+            ),
+        };
+        main.blocks[0]
+            .instructions
+            .push((ValueId(11), instruction, target));
+        assert!(
+            audit(&mut module, &[]).is_err(),
+            "unproved pointer fabrication {variant}"
+        );
+        assert!(module.closed_class_tables.is_none());
+    }
+}
+
+#[test]
+fn local_stack_addresses_keep_identity_casts_without_opening_external_inputs() {
+    let mut module = fixture();
+    module.functions[0].blocks[0].instructions.extend([
+        (ValueId(10), Instruction::Alloca(Type::I64), Type::Ptr),
+        (
+            ValueId(11),
+            Instruction::Bitcast {
+                op: Operand::Val(ValueId(10)),
+                to: Type::Ptr,
+            },
+            Type::Ptr,
+        ),
+    ]);
+    assert!(audit(&mut module, &[]).is_ok());
+    assert_eq!(
+        module.closed_class_tables.as_ref().unwrap(),
+        &HashSet::from([300])
+    );
+}
+
+#[test]
+fn scalar_external_inputs_keep_their_closed_class_proof() {
+    for ty in [
+        Type::I1,
+        Type::I8,
+        Type::I64,
+        Type::F64,
+        Type::V4F32,
+        Type::V4I32,
+        Type::V2F64,
+    ] {
+        let mut module = fixture();
+        module.functions[0]
+            .params
+            .push((ValueId(10), "scalar input".into(), ty));
+        assert!(audit(&mut module, &[]).is_ok(), "{ty:?}");
+        assert_eq!(
+            module.closed_class_tables.as_ref().unwrap(),
+            &HashSet::from([300])
+        );
+    }
+}

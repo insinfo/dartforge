@@ -1,0 +1,4 @@
+{
+  "crates/emit_native/src/pruning/class_reachability.rs": "935c2cc34f6acda647b03459a80266348b400171a256dae108c9261765585428",
+  "crates/emit_native/src/pruning/class_reachability/tests.rs": "a1e49d665bcb4e31397480983c58d0f88ffc4446088016f83ec2c9aa46ea26bc"
+}

@@ -1,0 +1,50 @@
+{
+  "README.md": {
+    "bytes": 2686,
+    "sha256": "6f226cc2615f11b1ef00186d7d26746c591268e10aac8c82e8899b8c21aba79e"
+  },
+  "checks.json": {
+    "bytes": 528,
+    "sha256": "217fa0744fdc069b8ea20f1191cb2a29c8c4344dec6d40caada3cc7c74bac696"
+  },
+  "clippy.log": {
+    "bytes": 376,
+    "sha256": "212f52ae172b7d816a6ee8df41a1217865975c4ee08562016dd079737d9713b9"
+  },
+  "directed.log": {
+    "bytes": 5185,
+    "sha256": "b6f4e618cc05f1d446d35363d484e3a02df3500121ffea75ba86c522d1939285"
+  },
+  "doc.log": {
+    "bytes": 504,
+    "sha256": "3402ce983200d91ab3e1f18fe7b0846a8b18f8c6a558dc596cbec844b3f17d90"
+  },
+  "environment.json": {
+    "bytes": 611,
+    "sha256": "df32941307331f71db49a0643ddd63a39c332ffd0d6928a0d6d6bdac76a15fec"
+  },
+  "external-input-before.log": {
+    "bytes": 1018,
+    "sha256": "8fb5b3c0769611cd0d720c2f66246504f05f57df97591dfd9d5ae9070ae0d1fa"
+  },
+  "fmt-excerpt.log": {
+    "bytes": 4959,
+    "sha256": "2e69de2bbe49721a18d9977e626c13b6ca838ab1d1cd091da7130666d951eedf"
+  },
+  "fmt-original.json": {
+    "bytes": 156,
+    "sha256": "1fc680584303e76ce998fa5617a94b8fc4a4b0ba1a690612a6bc4fa99b9eb911"
+  },
+  "log-normalization.json": {
+    "bytes": 414,
+    "sha256": "fa4791e7e8faca89685983280583c791b8e518269e4e5555afe205d497d0326f"
+  },
+  "scalar-cast-before.log": {
+    "bytes": 1038,
+    "sha256": "fd81d6d967e24d8dea5b6b836174c05247c4d175eb1257b476d8765c6c9f2c85"
+  },
+  "sources.json": {
+    "bytes": 261,
+    "sha256": "6b38a1d8cfd9329f7cce97578d6bb7875f6aeb20e57b016eec4a2e1eaa0bf02e"
+  }
+}

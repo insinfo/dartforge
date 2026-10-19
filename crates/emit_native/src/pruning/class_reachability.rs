@@ -196,8 +196,9 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
             ));
         }
     }
-    // External entry inputs do not supply a closed class universe. An imported
-    // startup is admitted only as a zero-argument void call with a pure closure.
+    // Managed references and raw argument-packet pointers from external entries
+    // do not supply a closed class universe. Imported startup remains limited
+    // to zero-argument void calls with a pure closure.
     for symbol in module
         .entry_symbol
         .iter()
@@ -208,7 +209,7 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
         .chain(&module.sdk_records)
     {
         match functions.get(symbol.as_str()) {
-            Some(body) if !body.params.iter().any(|(_, _, ty)| *ty == Type::Ref) => {}
+            Some(body) if body.params.iter().all(|(_, _, ty)| scalar_entry_type(*ty)) => {}
             None if imports.is_some_and(|inventory| inventory.call(symbol, &[], Type::Void)) => {}
             _ => {
                 return Err(format!(
@@ -376,6 +377,16 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
                             && shape.operand_type(args) == Some(Type::Ptr)
                             && shape.operand_type(desc) == Some(Type::Ptr)
                     }
+                    // A pointer identity cast preserves an existing address.
+                    // Reinterpreting scalar bits or a managed value would bypass
+                    // the external packet-input boundary above.
+                    Instruction::Bitcast { op, to: Type::Ptr } => {
+                        *result == Type::Ptr && shape.operand_type(op) == Some(Type::Ptr)
+                    }
+                    Instruction::Unbox { op, to } => {
+                        *result == *to && scalar_entry_type(*to)
+                            && shape.operand_type(op) == Some(Type::Ref)
+                    }
                     Instruction::Alloca(ty) => *result == Type::Ptr && *ty != Type::Void,
                     Instruction::Load { ptr, ty } => {
                         *result == *ty
@@ -454,7 +465,6 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
                     | Instruction::Trunc { .. }
                     | Instruction::Bitcast { .. }
                     | Instruction::Box { .. }
-                    | Instruction::Unbox { .. }
                     | Instruction::GetField { .. }
                     | Instruction::SetField { .. }
                     | Instruction::GetListElement { .. }
@@ -547,6 +557,13 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
     }
     module.closed_class_tables = Some(active);
     Ok(reach)
+}
+
+// These representations contain scalar data, not managed inputs or raw packet
+// address capabilities. New HIR representations need an explicit review here.
+fn scalar_entry_type(ty: Type) -> bool {
+    matches!(ty, Type::I1 | Type::I8 | Type::I64 | Type::F64
+        | Type::V4F32 | Type::V4I32 | Type::V2F64)
 }
 
 /// Explicit creation/field/pending APIs admitted by this closed-image proof.

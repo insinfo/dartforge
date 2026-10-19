@@ -1,0 +1,12 @@
+{
+  "base_revision": "7465fee8035a6db8ff8399923144307f8640df74",
+  "host": "macOS ARM64",
+  "llvm": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+  "sdk": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+  "command": "cargo test --locked -p dartforge-emit-native --lib --target-dir target/impl-a pruning::class_reachability -- --include-ignored",
+  "environment": {
+    "DARTFORGE_LLVM_DIR": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+    "LLVM_SYS_221_PREFIX": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+    "DARTFORGE_TEST_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+  }
+}

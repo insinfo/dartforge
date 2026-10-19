@@ -506,3 +506,20 @@ ambíguos continuam colidindo; outros CIDs não recebem essa permissão. A marca
 não autoriza alocar CID 0, executar inicializadores desconhecidos, acessar
 layouts ou atravessar chamadas nativas não provadas. Essas obrigações continuam
 independentes da identidade do pai universal.
+
+### Entradas externas e endereços de pacotes
+
+Uma entrada externa com parâmetro `ptr` pode receber um pacote de argumentos ou
+seu descritor, cujo conteúdo não foi produzido pela imagem provada. Por isso a
+prova fechada recusa tanto `Ref` quanto ponteiros nessas entradas, inclusive
+raízes explícitas, callbacks e inicializadores. Entradas locais com inteiros,
+booleanos, double e vetores sem referências continuam admitidas; isso não
+certifica a ABI de um callback nativo específico.
+
+A rejeição não pode ser contornada reinterpretando um inteiro ou valor gerenciado
+como ponteiro. Casts de identidade `ptr` → `ptr` preservam um endereço existente;
+unboxing precisa partir de `Ref` e produzir uma representação escalar com tipo de
+resultado correspondente. Não há nova autorização para entradas do loop de
+eventos: o domínio do `Ref` de `df.call_dart0` continua sem prova e conserva o
+registro amplo. A análise de pacotes encaminhados e de callbacks permanece
+separada da cobertura de alocações.

@@ -1,0 +1,19 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.43s
+     Running unittests src/lib.rs (target/impl-a/debug/deps/dartforge_emit_native-845e7f740af4002d)
+
+running 1 test
+
+thread 'pruning::class_reachability::tests::external_root_argument_packets_require_a_proved_input_domain' (2113669) panicked at crates/emit_native/src/pruning/class_reachability/tests.rs:1909:9:
+unproved external argument packet at root 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test pruning::class_reachability::tests::external_root_argument_packets_require_a_proved_input_domain ... FAILED
+
+failures:
+
+failures:
+    pruning::class_reachability::tests::external_root_argument_packets_require_a_proved_input_domain
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 841 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

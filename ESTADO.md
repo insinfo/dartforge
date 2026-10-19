@@ -3,6 +3,21 @@
 ## Atualização de 19/10/2026
 
 
+- A investigação do callback encontrou uma lacuna separada na prova: raízes
+  externas aceitavam `ptr` e podiam encaminhar pacotes sem domínio provado;
+  casts de inteiros para ponteiros também eram aprovados. Dois testes HIR
+  falhavam antes por aprovação indevida. Raízes locais agora exigem tipos
+  escalares revisados; casts que fabricam ponteiros e unboxing para endereços
+  são recusados. Casts de identidade de endereços locais continuam aceitos.
+  Passaram os 41 testes da prova de classes, incluindo regressões nas seis
+  categorias de raiz, controles escalares e programas compilados de closures
+  com GC sob estresse. Clippy/docs estritos do workspace passam; fmt global
+  continua pendente. Não foi repetida a suíte integral nem a matriz desktop.
+  O Ref externo de `df.call_dart0` continua sem prova; não há nova autorização
+  de callbacks, poda completa, medição de tamanho ou desempenho. Evidências:
+  `bench/results/2026-10-19-entry-packet-boundaries/README.md`.
+
+
 - O pai universal sintético 0 tem agora certificado próprio, emitido somente
   para uma declaração sem identidade física, tabelas, campos, layout, ancestral
   próprio ou alocação local. O resumo versão 9 conserva a marca e rejeita

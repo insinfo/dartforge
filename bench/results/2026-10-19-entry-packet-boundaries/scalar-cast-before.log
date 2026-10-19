@@ -1,0 +1,19 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.81s
+     Running unittests src/lib.rs (target/impl-a/debug/deps/dartforge_emit_native-845e7f740af4002d)
+
+running 1 test
+
+thread 'pruning::class_reachability::tests::raw_argument_packet_addresses_cannot_be_fabricated_by_casts_or_unboxing' (2114575) panicked at crates/emit_native/src/pruning/class_reachability/tests.rs:1926:9:
+unproved pointer fabrication 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test pruning::class_reachability::tests::raw_argument_packet_addresses_cannot_be_fabricated_by_casts_or_unboxing ... FAILED
+
+failures:
+
+failures:
+    pruning::class_reachability::tests::raw_argument_packet_addresses_cannot_be_fabricated_by_casts_or_unboxing
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 842 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`
