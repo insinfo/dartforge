@@ -1,0 +1,51 @@
+[
+  {
+    "file": "native-tests.log",
+    "original_bytes": 3875,
+    "original_sha256": "42b40cc843a7f97deda533feed401dc849cfe10c5ef736f9f6c91e7f151b1b9a",
+    "stored_sha256": "99c06b39515d820e16ce0cd9b635d3cd547ba95a53bb376156f826eda00d5d20",
+    "excerpt": false
+  },
+  {
+    "file": "embedded-tests.log",
+    "original_bytes": 152578,
+    "original_sha256": "e86a4d42979304439a30366df48002b1fd31cdbd02d55667df8d73aac00452ac",
+    "stored_sha256": "91c760e6314bd55be02991ad3d1e53c974a4dfb162084e904b9b60eb6233a9e7",
+    "excerpt": false
+  },
+  {
+    "file": "doctest.log",
+    "original_bytes": 596,
+    "original_sha256": "3014556fad730ebd363483fa0493dad9dd93c5c582732f32663626e7562f75a6",
+    "stored_sha256": "3014556fad730ebd363483fa0493dad9dd93c5c582732f32663626e7562f75a6",
+    "excerpt": false
+  },
+  {
+    "file": "clippy.log",
+    "original_bytes": 376,
+    "original_sha256": "8de50d212b88b7d9bc27bbe427a365796d0fe7b8470a77f1d94d469d22706d3a",
+    "stored_sha256": "8de50d212b88b7d9bc27bbe427a365796d0fe7b8470a77f1d94d469d22706d3a",
+    "excerpt": false
+  },
+  {
+    "file": "feature-clippy.log",
+    "original_bytes": 178,
+    "original_sha256": "4946a331ca74042a0bd8a1927e57c1df2b965f821db3927b86cedb31bf842804",
+    "stored_sha256": "4946a331ca74042a0bd8a1927e57c1df2b965f821db3927b86cedb31bf842804",
+    "excerpt": false
+  },
+  {
+    "file": "doc.log",
+    "original_bytes": 504,
+    "original_sha256": "92077b5be5b446adee6f5967134a3098d2b0d542c705fb0b034aae97147010df",
+    "stored_sha256": "92077b5be5b446adee6f5967134a3098d2b0d542c705fb0b034aae97147010df",
+    "excerpt": false
+  },
+  {
+    "file": "fmt-excerpt.log",
+    "original_bytes": 15760016,
+    "original_sha256": "0e918a9aa51b443f872620cd30fda2dde4e22bc129d7b7166b0446a3a4e6987a",
+    "stored_sha256": "b72814a0f65e5a5539705b89cf410a7e053928a67c578bf29f4102975febdb76",
+    "excerpt": true
+  }
+]

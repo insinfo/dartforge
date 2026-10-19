@@ -1,0 +1,7 @@
+{
+  "Cargo.lock": "c941401c9771c5ab2c55ab093413da101fd2ff4872ac57594b9c533ebe420b58",
+  "crates/emit_native/Cargo.toml": "58e48388bb6aa4f2f9377fe6ecb8c547a03659a567705502aa1ab12a15e19d81",
+  "crates/emit_native/src/lib.rs": "25ede540d889333979d7a41883e1208eb5ca50f9043b2a7230a2fc77541899ab",
+  "crates/emit_native/src/native_inputs.rs": "fdc76ba626d76dd643d709c34e7576c51ec12100f7bc747b93071be28fb35a02",
+  "crates/emit_native/src/native_inputs/tests.rs": "75e44ea7e867f211ec2da6fb791449a45ec3119f91b2e03f86700a084f693e04"
+}

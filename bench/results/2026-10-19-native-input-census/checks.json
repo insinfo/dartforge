@@ -1,0 +1,74 @@
+[
+  {
+    "name": "fmt",
+    "command": [
+      "cargo",
+      "fmt",
+      "--all",
+      "--",
+      "--check"
+    ],
+    "exit": 1
+  },
+  {
+    "name": "clippy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--workspace",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 0
+  },
+  {
+    "name": "feature-clippy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "-p",
+      "dartforge-emit-native",
+      "--features",
+      "embedded-llvm",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 0
+  },
+  {
+    "name": "doc",
+    "command": [
+      "cargo",
+      "doc",
+      "--locked",
+      "--workspace",
+      "--no-deps",
+      "--document-private-items"
+    ],
+    "exit": 0
+  },
+  {
+    "name": "native-inputs-default",
+    "command": "cargo test --locked -p dartforge-emit-native --lib native_inputs -- --include-ignored --nocapture",
+    "exit": 0,
+    "passed": 11
+  },
+  {
+    "name": "native-inputs-embedded",
+    "command": "cargo test --locked -p dartforge-emit-native --features embedded-llvm --lib --target-dir target/impl-a native_inputs -- --include-ignored --nocapture",
+    "exit": 0,
+    "passed": 12
+  },
+  {
+    "name": "doctest",
+    "command": "cargo test --locked -p dartforge-emit-native --doc native_inputs::inspect",
+    "exit": 0,
+    "passed": 1
+  }
+]

@@ -737,3 +737,44 @@ uma certificação de seções nativas finais. Bibliotecas do runtime, entradas
 estrangeiras, resoluções de marcadores, relocação, comdats e opções do ligador
 continuam exigindo cobertura própria. O teste não altera as condições de
 autorização de imagens/classes nem libera os startups completos do SDK.
+
+
+### Entradas nativas e arquivos do runtime
+
+`dartforge_emit_native::native_inputs::inspect` enumera objetos relocáveis
+Mach-O/ELF/COFF e membros de bibliotecas autocontidas (`.a`/`.lib`), sem abrir caminhos externos
+ou executar código do destino. Usa `object` com leitores desses formatos,
+sem os recursos de escrita/descompressão. O resultado conserva ordem e nomes
+em bytes, inclusive membros com nomes duplicados, digest da entrada e de cada
+membro, faixas físicas, seções/segmentos, conteúdo armazenado e flags. Zonas
+virtuais sem conteúdo não exigem alocação do tamanho lógico.
+
+As seções candidatas de imagem e bitcode, `.drectve`, comandos Mach-O
+`LC_LINKER_OPTION` e símbolos candidatos a marcadores ficam explícitos. Marcadores
+conservam definição de endereço conhecido, estado indefinido/common, fraqueza,
+escopo e classificação/índice de seção. Um símbolo common não se confunde com
+uma referência indefinida só porque ainda não tem endereço conhecido.
+
+Arquivos thin, membros aninhados/bitcode bruto, membros COFF de importação curta e
+imagens não relocáveis são recusados. Falha num membro posterior não publica
+inventário parcial. A leitura Mach-O percorre os comandos de carga explicitamente
+com propagação de erros: o parser unificado tolerava uma iteração truncada que
+poderia parecer um objeto sem seções. Isso não pretende verificar toda a gramática
+de cada formato ou provar os efeitos de todas as diretivas/relocações.
+
+Na rodada macOS ARM64, cada uma das três variantes do runtime tinha 466 membros.
+Nenhuma seção nativa candidata à imagem ou símbolo de marcador foi observado.
+Cada variante continha 229 seções candidatas a bitcode: 1.331.200 bytes ao todo.
+As faixas/digests permitiram ler os 229 módulos embutidos da variante production
+com a API LLVM verificada, sem contribuições explícitas de globais/funções à
+seção de imagem. Cinco assemblies inline de `compiler_builtins` foram preservados
+como não revisados; a ausência de assembly de módulo não os autoriza.
+
+Essas observações não autorizam `register_image` nem mudam a poda. Ainda faltam
+revisão do assembly, demais entradas estrangeiras, seleção dos membros pelo
+ligador, resolução dos marcadores, opções/diretivas, relocação, LTO e imagem
+final. Objetos para cinco destinos foram inspecionados em fixtures; essa rodada
+não executa os sistemas estrangeiros nem inspeciona os runtimes Windows/Linux.
+A nova dependência atualiza `Cargo.lock`, que participa do hash de fontes do
+runtime: bundles antigos precisam ser reexportados, embora o digest do arquivo
+production local tenha permanecido igual ao da rodada anterior.

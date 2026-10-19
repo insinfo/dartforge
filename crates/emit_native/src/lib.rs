@@ -22,6 +22,7 @@ pub mod hir;
 pub mod llvm;
 pub mod lower;
 pub mod native_world;
+pub mod native_inputs;
 pub mod partition;
 pub mod natives;
 pub mod optimize;

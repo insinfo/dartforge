@@ -3,6 +3,24 @@
 ## Atualização de 19/10/2026
 
 
+- A nova API `native_inputs::inspect` observa objetos Mach-O/ELF/COFF e membros
+  de bibliotecas sem executar destinos ou seguir caminhos externos. Preserva
+  nomes/duplicatas, faixas, digests, seções e estados de marcadores; distingue
+  common de referência indefinida. Um comando Mach-O truncado agora é recusado
+  explicitamente, sem parecer um objeto sem seções. Passaram 12 testes com LLVM,
+  incluindo as três variantes reais do runtime e objetos para cinco destinos,
+  mais o exemplo executável; Clippy/docs estritos passam. Cada runtime local tem
+  466 membros e 229 seções candidatas a bitcode (1.331.200 bytes). Os 229 módulos
+  embutidos de production foram lidos/verificados por LLVM, sem globais/funções
+  na imagem; cinco assemblies de compiler_builtins seguem não revisados. O
+  digest do arquivo production é igual ao anterior. A dependência `object`
+  atualiza Cargo.lock e a identidade de fontes do runtime: bundles devem ser
+  reexportados. Isso não autoriza imagens/classes; ligador, relocação, LTO,
+  entradas estrangeiras e imagem final seguem pendentes. Sem nova matriz de
+  execução desktop/JIT, aprovação global ou ganho de binário comprovado.
+  Evidências: `bench/results/2026-10-19-native-input-census/README.md`.
+
+
 - A inspeção estrutural LLVM agora lê IR/bitcode verificado e preserva nomes de
   seção completos, inclusive NULs e barras invertidas da impressão canônica.
   A integração com `embedded-llvm` conferiu os bytes/digests dos 15 artefatos

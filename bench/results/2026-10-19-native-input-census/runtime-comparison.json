@@ -1,0 +1,9 @@
+{
+  "prior_publication": "target/native_cache/sdk/2a56c339041dbb4e12c4056c9af637a3/allocation-inventory.json",
+  "prior_publication_sha256": "01c7b102101421a331e75a21113843e19c3b5c67f529af81abf179657e29bd56",
+  "prior_runtime_digest": "09d43a86fbf7f000695b1dc1af47879107fdebd3cccf71931e9b5bd5c1e2f142",
+  "current_production_digest": "09d43a86fbf7f000695b1dc1af47879107fdebd3cccf71931e9b5bd5c1e2f142",
+  "artifact_unchanged": true,
+  "runtime_source_hash_includes_cargo_lock": true,
+  "native_link_image_verified": false
+}

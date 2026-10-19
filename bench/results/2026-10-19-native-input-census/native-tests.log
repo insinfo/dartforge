@@ -1,0 +1,26 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.78s
+     Running unittests src/lib.rs (target/debug/deps/dartforge_emit_native-0dc956574e0a3a69)
+
+running 11 tests
+test native_inputs::tests::managed_candidates_cover_macho_attributes_and_coff_subsections ... ok
+test native_inputs::tests::empty_archive_is_observed_without_claiming_a_link_image ... ok
+test native_inputs::tests::failed_macho_load_command_iteration_is_not_an_empty_object ... ok
+test native_inputs::tests::common_marker_storage_is_not_mistaken_for_an_undefined_reference ... ok
+test native_inputs::tests::macho_linker_option_commands_are_recorded_as_uninterpreted_inputs ... ok
+test native_inputs::tests::bsd_member_names_are_bytes_and_do_not_need_utf8 ... ok
+test native_inputs::tests::coff_directive_storage_is_observed_and_truncation_is_rejected ... ok
+test native_inputs::tests::standalone_and_duplicate_archive_members_keep_identity_and_digest ... ok
+test native_inputs::tests::thin_bitcode_nested_and_invalid_late_members_return_no_inventory ... ok
+{"digest":"d0a2a373f5f42ee65b79d12f17ddb6d02688ff1015f08d84f8edc47041f6456e","executed":false,"managed_sections":1,"marker_references":1,"target":"aarch64-apple-darwin"}
+{"digest":"6f7501c0fadb817bdf0ef78f773117816806bb2e8ee707c198114c0dc9b63dec","executed":false,"managed_sections":1,"marker_references":1,"target":"x86_64-apple-darwin"}
+{"digest":"aa31b5f1079d53e45997f6049b02094e3069e4f9335ef3c2f465e9ac0e8aec73","executed":false,"managed_sections":1,"marker_references":1,"target":"aarch64-unknown-linux-gnu"}
+{"digest":"f9af8ac723960cfc56bf45d88f1410618c3afbeab10c7551c6b566766aeb8441","executed":false,"managed_sections":1,"marker_references":1,"target":"x86_64-unknown-linux-gnu"}
+{"digest":"3fab7cf9a1670b25ab1b5760d16f56c84c01cfc567d98597de57709e84912199","executed":false,"managed_sections":1,"marker_references":1,"target":"x86_64-pc-windows-msvc"}
+test native_inputs::tests::real_objects_preserve_image_sections_and_marker_references_on_five_targets ... ok
+{"digest":"2e108dbfcfe167b53fae6760d1795fe16679feefb4672f173c836c4f4361840a","directive_sections":0,"embedded_bitcode_candidates":229,"embedded_max_payload_bytes":47904,"embedded_payload_bytes":1331200,"macho_linker_options":0,"managed_candidates":0,"marker_symbols":0,"members":466,"native_link_image_verified":false,"path":"/Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/build/dartforge-emit-native-fd70b14585a53b2b/out/dartforge_runtime_869f65d56420d7d4ab7a637236da6e5a.a","sections":4881,"variant":"main"}
+{"digest":"e3b0b93c88dd4aa51b061673720d901527c7dfe77bd1ff1d00344eb7b1e0a945","directive_sections":0,"embedded_bitcode_candidates":229,"embedded_max_payload_bytes":47904,"embedded_payload_bytes":1331200,"macho_linker_options":0,"managed_candidates":0,"marker_symbols":0,"members":466,"native_link_image_verified":false,"path":"/Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/build/dartforge-emit-native-fd70b14585a53b2b/out/dartforge_rtdll_bc04ea0c61a1150701843e5fe4cee230.a","sections":4891,"variant":"dll"}
+{"digest":"09d43a86fbf7f000695b1dc1af47879107fdebd3cccf71931e9b5bd5c1e2f142","directive_sections":0,"embedded_bitcode_candidates":229,"embedded_max_payload_bytes":47904,"embedded_payload_bytes":1331200,"macho_linker_options":0,"managed_candidates":0,"marker_symbols":0,"members":466,"native_link_image_verified":false,"path":"/Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/build/dartforge-emit-native-fd70b14585a53b2b/out/dartforge_rtprod_abad1dcb50190c01c19537550440cbe7.a","sections":4881,"variant":"production"}
+test native_inputs::tests::selected_runtime_archives_are_enumerated_without_authorizing_images ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 887 filtered out; finished in 1.40s

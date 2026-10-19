@@ -26,6 +26,8 @@ tempfile = "3"
 # The embedded object generator (`src/generator.rs`): LLVM in the process, without
 # Clang on the machine of whoever uses dartforge.
 dartforge-llvm = { path = "../llvm", optional = true }
+# Inspect native archive members without a subprocess or target execution.
+object = { version = "0.39.1", default-features = false, features = ["read_core", "archive", "coff", "elf", "macho", "std"] }
 
 [features]
 embedded-llvm = ["dep:dartforge-llvm"]

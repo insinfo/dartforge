@@ -1,0 +1,8 @@
+{
+  "base": "b5d6473bb9d7dcb53786d469f73f48a727f53eb3",
+  "system": "Darwin arm64",
+  "llvm": "22.1.8",
+  "object_crate": "0.39.1",
+  "llvm_prefix": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+  "native_link_image_verified": false
+}
