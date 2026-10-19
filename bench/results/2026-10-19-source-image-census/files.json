@@ -1,0 +1,18 @@
+{
+  "README.md": "8b5b2cc52240569eca4416b50973953774351fe8d9c848e615526adcdb9e1489",
+  "before-tsd-review.json": "2da2520be7b484c4f45f4a3c905f11c07a775ec4542be13a8fa6b57522638431",
+  "checks.json": "217fa0744fdc069b8ea20f1191cb2a29c8c4344dec6d40caada3cc7c74bac696",
+  "class-proof.log": "b227f7c320bb9619f5bd51650cc84b5b627f892ea59660e286a6358ff24c69b6",
+  "clippy.log": "a73f48f9a02057f20a583a2e326baebe34593cdfc934fe60857161b5d8dfa49c",
+  "doc.log": "8243b52d9ba490e8b515227c7bb0247355964a9d37496831767bacc8630623e0",
+  "empty-doctest-filter.log": "061482443152d3ca097409f4d1f7d3a785b611e906abb64d90459ad639fdc245",
+  "environment.json": "92bb7813c8534feccfaff89a586d4c48e78eac1fe18cd8dcef30ff455728fa61",
+  "fmt-excerpt.log": "c81626b08228bbb164c04c52ccdba9c6183c95d146e62ba1bcf50b4375b8096f",
+  "fmt-original.json": "2e46442d8978a9bfcbba9adf93c0f759d09a62f77098fe9afe1cd488c49c486e",
+  "inventory.log": "182f3b749abb341bba876d94b912c5939cbd776aefb3f931cdf343adb80746ee",
+  "log-normalization.json": "3aa56695739755996cf049a2cecb5e2bbc2c99bde7cd3242baf8b871917a1303",
+  "pruning.log": "901675373ac514da8aa043e184c898a96706e05cd3f40828d4f964b6f12ae4df",
+  "sdk-comparison.json": "8e2b86fdac43259abbd6bdbf26d8f0fce298b812729bff2a652139760b755f5d",
+  "sources.json": "4928b238e3a87998d96b7cbdbc7064241e29f742b025d91d9b2fd37b55fe92a9",
+  "tsd-contract.log": "2627e9e6c3aada80bf6f2cf11c4b893bf8194842fd7a0dbab15c287102fe5436"
+}

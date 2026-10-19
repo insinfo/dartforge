@@ -1138,6 +1138,10 @@ pub fn with_context_in_tls(ir: &str, mode: ContextInTls, variable: &str, single_
     s
 }
 
+/// Exact section-neutral ARM64 instruction used by the macOS TSD lookup.
+pub(crate) const MACOS_ARM64_TSD_READ: &str =
+    "%t = call i64 asm \"mrs $0, TPIDRRO_EL0\", \"=r\"() nounwind memory(none)";
+
 /// The `@df.context` of [`with_context_in_tls`] on macOS arm64: the thread
 /// pointer (`TPIDRRO_EL0`, the base of the thread's TSD) plus the offset of the
 /// runtime's `pthread` key slot (`dartforge_context_slot`), read inline, like Go
@@ -1178,7 +1182,7 @@ fn context_in_tsd(attribute: &str, single_image: bool) -> String {
         "\n@dartforge_context_slot = external {preemption}global i64, align 8\n\
          define internal ptr @df.context() nounwind willreturn memory(none){attribute} {{\n\
          \x20 %o = load i64, ptr @dartforge_context_slot, align 8, !invariant.load !{{}}\n\
-         \x20 %t = call i64 asm \"mrs $0, TPIDRRO_EL0\", \"=r\"() nounwind memory(none)\n\
+         \x20 {MACOS_ARM64_TSD_READ}\n\
          \x20 %b = and i64 %t, -8\n\
          \x20 %a = add i64 %b, %o\n\
          \x20 %p = inttoptr i64 %a to ptr\n\

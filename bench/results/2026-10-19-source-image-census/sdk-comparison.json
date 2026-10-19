@@ -1,0 +1,168 @@
+{
+  "old": {
+    "path": "target/native_cache/sdk/84edde5eda74e85f6d323dcbf6ed60f0/allocation-inventory.json",
+    "bytes": 68851974,
+    "schema": 4,
+    "sha256": "bbb9d701c3e12ad85eb9af3aa6d8b0c006f1775030141cc0ba3161bb1d39dbc6"
+  },
+  "new": {
+    "path": "target/native_cache/sdk/4960807466c678a800b4c1f808699d60/allocation-inventory.json",
+    "bytes": 69945429,
+    "schema": 5,
+    "sha256": "db6fb5a26afeafd8e7e2cb688b308f338c290abaf226ba210db8ffd6ec742795"
+  },
+  "module_ir_digests_unchanged": true,
+  "startup_body_digests_unchanged": true,
+  "growth_percent": 1.588124401487745,
+  "source_censuses": [
+    {
+      "module": "dart:_internal",
+      "members": 347,
+      "member_kinds": {
+        "anchor": 1,
+        "static_string": 346
+      },
+      "marker_lines": 3,
+      "obligations": []
+    },
+    {
+      "module": "dart:core",
+      "members": 868,
+      "member_kinds": {
+        "anchor": 1,
+        "static_string": 867
+      },
+      "marker_lines": 3,
+      "obligations": []
+    },
+    {
+      "module": "dart:_compact_hash",
+      "members": 91,
+      "member_kinds": {
+        "anchor": 1,
+        "static_string": 90
+      },
+      "marker_lines": 3,
+      "obligations": []
+    },
+    {
+      "module": "dart:collection",
+      "members": 276,
+      "member_kinds": {
+        "anchor": 1,
+        "static_string": 275
+      },
+      "marker_lines": 3,
+      "obligations": []
+    },
+    {
+      "module": "dart:math",
+      "members": 44,
+      "member_kinds": {
+        "anchor": 1,
+        "static_string": 43
+      },
+      "marker_lines": 3,
+      "obligations": []
+    },
+    {
+      "module": "dart:convert",
+      "members": 350,
+      "member_kinds": {
+        "anchor": 1,
+        "static_string": 349
+      },
+      "marker_lines": 3,
+      "obligations": []
+    },
+    {
+      "module": "dart:async",
+      "members": 481,
+      "member_kinds": {
+        "anchor": 1,
+        "static_string": 480
+      },
+      "marker_lines": 3,
+      "obligations": []
+    },
+    {
+      "module": "dart:typed_data",
+      "members": 411,
+      "member_kinds": {
+        "anchor": 1,
+        "static_string": 410
+      },
+      "marker_lines": 3,
+      "obligations": []
+    },
+    {
+      "module": "dart:isolate",
+      "members": 97,
+      "member_kinds": {
+        "anchor": 1,
+        "static_string": 96
+      },
+      "marker_lines": 3,
+      "obligations": []
+    },
+    {
+      "module": "dart:developer",
+      "members": 92,
+      "member_kinds": {
+        "anchor": 1,
+        "static_string": 91
+      },
+      "marker_lines": 3,
+      "obligations": []
+    },
+    {
+      "module": "dart:nativewrappers",
+      "members": 1,
+      "member_kinds": {
+        "anchor": 1
+      },
+      "marker_lines": 3,
+      "obligations": []
+    },
+    {
+      "module": "dart:ffi",
+      "members": 156,
+      "member_kinds": {
+        "anchor": 1,
+        "static_string": 155
+      },
+      "marker_lines": 3,
+      "obligations": []
+    },
+    {
+      "module": "dart:_http",
+      "members": 901,
+      "member_kinds": {
+        "anchor": 1,
+        "static_string": 900
+      },
+      "marker_lines": 3,
+      "obligations": []
+    },
+    {
+      "module": "dart:io",
+      "members": 1084,
+      "member_kinds": {
+        "anchor": 1,
+        "static_string": 1083
+      },
+      "marker_lines": 3,
+      "obligations": []
+    },
+    {
+      "module": "dart:mirrors",
+      "members": 56,
+      "member_kinds": {
+        "anchor": 1,
+        "static_string": 55
+      },
+      "marker_lines": 3,
+      "obligations": []
+    }
+  ]
+}

@@ -27,6 +27,7 @@ struct Abi {
 struct ModuleRecord {
     module: String,
     final_ir_digest: String,
+    image_census: super::images::Census,
 }
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -88,6 +89,7 @@ pub(crate) struct Inventory {
     known_allocations: usize,
     image_strings: usize,
     image_string_cids: BTreeSet<u32>,
+    clean_source_images: usize,
     table_declarations: HashMap<String, u32>,
     metadata_startups: HashSet<String>,
 }
@@ -190,6 +192,25 @@ impl Inventory {
         {
             return None;
         }
+        for module in &raw.modules {
+            let globals: Vec<_> = raw
+                .globals
+                .iter()
+                .filter(|g| g.module == module.module)
+                .map(|g| (g.symbol.as_str(), g.initializer.as_str()))
+                .collect();
+            if !module
+                .image_census
+                .matches_globals(&module.final_ir_digest, &globals)
+            {
+                return None;
+            }
+        }
+        let clean_source_images = raw
+            .modules
+            .iter()
+            .filter(|m| m.image_census.is_clean())
+            .count();
         let declared: HashMap<_, HashMap<_, usize>> = summaries
             .iter()
             .map(|s| {
@@ -403,6 +424,7 @@ impl Inventory {
             known_allocations,
             image_strings,
             image_string_cids,
+            clean_source_images,
             table_declarations,
             metadata_startups,
         })
@@ -569,6 +591,9 @@ impl Inventory {
         self.definitions.contains(key)
     }
     /// Observations only: not a complete section census or registration proof.
+    pub(crate) fn clean_source_image_count(&self) -> usize {
+        self.clean_source_images
+    }
     pub(crate) fn image_string_counts(&self) -> (usize, &BTreeSet<u32>) {
         (self.image_strings, &self.image_string_cids)
     }

@@ -191,6 +191,8 @@ fn prune_program_hir(module: &mut hir::Module, production: bool, sdk_lib: &Path,
                         eprintln!("  SDK inventory: {unique} unique definitions, {known} covered allocation closures, {pure} exposure-free empty closures");
                         let (strings, cids) = inventory.image_string_counts();
                         eprintln!("  SDK static strings: {strings} checked literal definitions, CIDs {cids:?}; linked image ranges remain unverified");
+                        let source_images = inventory.clean_source_image_count();
+                        eprintln!("  SDK source image census: {source_images} modules without opaque source contributions; linker inputs remain unverified");
                     }
                     None => eprintln!("  SDK inventory unavailable; imported class coverage remains open"),
                 }

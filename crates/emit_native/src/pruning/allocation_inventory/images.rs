@@ -1,6 +1,8 @@
 //! Validate individual permanent string blocks, not whole linked image ranges.
 //! A known block layout does not authorize registration or expose its handle.
 use dartforge_runtime::layout::{self, cid, flags, state};
+mod census;
+pub(super) use census::{Census, observe as source_census};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct StaticString {

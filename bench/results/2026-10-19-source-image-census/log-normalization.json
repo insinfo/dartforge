@@ -1,0 +1,30 @@
+{
+  "inventory.log": {
+    "original_sha256": "f84803e426d36c71f7fb89539c9c6cd18376b36761bdcda1dfa9eec555c7f556",
+    "stored_sha256": "182f3b749abb341bba876d94b912c5939cbd776aefb3f931cdf343adb80746ee"
+  },
+  "class-proof.log": {
+    "original_sha256": "df997dad7824c4a625f6c581fa93dbb30378d22066634d584d87bca97b324d65",
+    "stored_sha256": "b227f7c320bb9619f5bd51650cc84b5b627f892ea59660e286a6358ff24c69b6"
+  },
+  "pruning.log": {
+    "original_sha256": "31921368c09f677dc239bbe59992cb45c4e0421ff418a24766b42fb48e910435",
+    "stored_sha256": "901675373ac514da8aa043e184c898a96706e05cd3f40828d4f964b6f12ae4df"
+  },
+  "tsd-contract.log": {
+    "original_sha256": "88745b4c74f3be185595d8e8c7bb4671bf0ed9abbdf18797a0fd01a9fbe4cfd0",
+    "stored_sha256": "2627e9e6c3aada80bf6f2cf11c4b893bf8194842fd7a0dbab15c287102fe5436"
+  },
+  "clippy.log": {
+    "original_sha256": "a73f48f9a02057f20a583a2e326baebe34593cdfc934fe60857161b5d8dfa49c",
+    "stored_sha256": "a73f48f9a02057f20a583a2e326baebe34593cdfc934fe60857161b5d8dfa49c"
+  },
+  "doc.log": {
+    "original_sha256": "8243b52d9ba490e8b515227c7bb0247355964a9d37496831767bacc8630623e0",
+    "stored_sha256": "8243b52d9ba490e8b515227c7bb0247355964a9d37496831767bacc8630623e0"
+  },
+  "empty-doctest-filter.log": {
+    "original_sha256": "061482443152d3ca097409f4d1f7d3a785b611e906abb64d90459ad639fdc245",
+    "stored_sha256": "061482443152d3ca097409f4d1f7d3a785b611e906abb64d90459ad639fdc245"
+  }
+}

@@ -30,7 +30,7 @@ fn primitive(token: &str) -> bool {
     matches!(token, "void" | "i1" | "i8" | "i16" | "i32" | "i64" | "float" | "double" | "ptr")
 }
 /// Skip a quoted LLVM identifier/string, accepting only LLVM hex escapes.
-fn quoted_end(text: &[u8], start: usize) -> Option<usize> {
+pub(super) fn quoted_end(text: &[u8], start: usize) -> Option<usize> {
     let mut index = start + 1;
     while index < text.len() {
         match text[index] {
@@ -327,7 +327,7 @@ pub(crate) fn audit(modules: &[(&str, &str)]) -> Bundle {
         }
     }
     let mut bundle = close(definitions, globals);
-    bundle.modules = modules.iter().map(|(module, ir)| json!({"module":module,"final_ir_digest":blake3::hash(ir.as_bytes()).to_hex().to_string()})).collect();
+    bundle.modules = modules.iter().map(|(module, ir)| json!({"module":module,"final_ir_digest":blake3::hash(ir.as_bytes()).to_hex().to_string(),"image_census":super::images::source_census(ir)})).collect();
     bundle
 }
 

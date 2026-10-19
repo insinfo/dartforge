@@ -1,0 +1,51 @@
+{
+  "path": "target/native_cache/sdk/7f2dbdc5a7d9ce2d2c209525d87e5162/allocation-inventory.json",
+  "sha256": "0e15a23cf4c1d97d5e48bd649a75bfa070f96ecc82f0472dfb57ff6df8c6189c",
+  "source_obligations": {
+    "dart:_internal": [
+      "unreviewed_assembly:225335"
+    ],
+    "dart:core": [
+      "unreviewed_assembly:533501"
+    ],
+    "dart:_compact_hash": [
+      "unreviewed_assembly:89764"
+    ],
+    "dart:collection": [
+      "unreviewed_assembly:276663"
+    ],
+    "dart:math": [
+      "unreviewed_assembly:28402"
+    ],
+    "dart:convert": [
+      "unreviewed_assembly:286581"
+    ],
+    "dart:async": [
+      "unreviewed_assembly:426584"
+    ],
+    "dart:typed_data": [
+      "unreviewed_assembly:515568"
+    ],
+    "dart:isolate": [
+      "unreviewed_assembly:37259"
+    ],
+    "dart:developer": [
+      "unreviewed_assembly:23747"
+    ],
+    "dart:nativewrappers": [
+      "unreviewed_assembly:1337"
+    ],
+    "dart:ffi": [
+      "unreviewed_assembly:73532"
+    ],
+    "dart:_http": [
+      "unreviewed_assembly:475725"
+    ],
+    "dart:io": [
+      "unreviewed_assembly:725338"
+    ],
+    "dart:mirrors": [
+      "unreviewed_assembly:16732"
+    ]
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "crates/emit_native/src/lib.rs": "c97dcc714c64a71a99044e787fc6035d09073cf9728bb7b69147b90c48fd93a7",
+  "crates/emit_native/src/sdk_module.rs": "2668c279165e2986b02f83f6b96664672a3061d43c4fd4d80515201f902f6d05",
+  "crates/emit_native/src/target.rs": "e381fa13986635422cacf1bf8c109f8a425c2cfb31b5fd3e786a3740327e5c38",
+  "crates/emit_native/src/pruning/allocation_inventory/images.rs": "b9acc61d089f79f46e2d18809b616b8ce348238fb87f235dd043bbda05d5af62",
+  "crates/emit_native/src/pruning/allocation_inventory/images/census.rs": "9cdd8d5f2064079a75e32754f86b422d8c93187fc4669e2c264061a64449a0ff",
+  "crates/emit_native/src/pruning/allocation_inventory/closure.rs": "f7f182bc3253c78868229668ea93e3cc70adc857502cbcc6183f2c09c93486fa",
+  "crates/emit_native/src/pruning/allocation_inventory/imports.rs": "4962a16aeb6f380613c441ce57e23256749eb9cc917f57b7f715a88a16e60e60",
+  "crates/emit_native/src/pruning/allocation_inventory/imports/tests.rs": "9e616b322356a47201b91c8a04bee6e32e418bed28fbb945e35d34c9fda65d0d",
+  "crates/emit_native/src/pruning/allocation_inventory/publication.rs": "7320cda822cf2c380a818dc9b08e08b18822c8c7306a3c00cce75508b48a39b2"
+}

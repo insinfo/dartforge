@@ -3,6 +3,22 @@
 ## Atualização de 19/10/2026
 
 
+- O schema 5 vincula um censo de seções/marcadores ao IR final de cada módulo.
+  O scanner separa símbolos, strings e comentários, registra contribuições de
+  funções/globais e conserva obrigações para assembly, atributos e formas não
+  revisadas. Protocolos Mach-O/ELF/COFF compartilham o produtor do emissor. A
+  rodada inicial isolou a leitura TSD ARM64 repetida nos 15 módulos; sua sequência
+  exata foi revisada sem autorizar as leituras de memória seguintes. No SDK final,
+  os 15 censos de fonte não têm contribuições opacas no subconjunto suportado:
+  5.240 strings, 15 âncoras e 45 linhas de marcadores. Isso não prova os objetos,
+  arquivos do runtime ou entradas/opções do ligador, nem autoriza register_image.
+  Passaram 64 testes de inventário com SDK real, 51 de classes e 14 gerais de poda;
+  Clippy/docs estritos passam. IR dos módulos e 15 startups permanece igual; JSON
+  de cache cresceu 1,6%. Fmt, aprovação integral, imagem/startup completos e poda
+  do explorador seguem pendentes, sem nova matriz desktop/JIT ou ganho de binário.
+  Evidências: `bench/results/2026-10-19-source-image-census/README.md`.
+
+
 - O schema 4 preserva o inicializador de todos os globais e revalida digest,
   símbolo e classificação. Um observador de strings estáticas confere header
   permanente/RAW, CID, palavras, comprimento, bytes/padding, hash VM e chave

@@ -375,7 +375,12 @@ pub fn image_section() -> &'static str {
 /// in ELF and Mach-O the linker defines the section start and end symbols — the
 /// anchor guarantees that the section exists even without any literal.
 pub fn image_markers() -> (String, &'static str, &'static str) {
-    match target_os() {
+    image_markers_for(target_os())
+}
+
+/// The marker protocol of an explicit object format, independent of host state.
+pub(crate) fn image_markers_for(os: Os) -> (String, &'static str, &'static str) {
+    match os {
         Os::Windows => (
             "$df.img.a = comdat any\n$df.img.z = comdat any\n\
              @df.img.a = linkonce_odr hidden constant [2 x i64] zeroinitializer, section \".dfimg$a\", comdat, align 8\n\

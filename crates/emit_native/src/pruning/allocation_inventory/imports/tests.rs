@@ -39,6 +39,7 @@ fn static_block_observations_do_not_authorize_handles_or_image_registration() {
     let (dir, names, runtime) = fixtures(&ir);
     let inventory = Inventory::load(dir.path(), "test-key", true, &names, &runtime).unwrap();
     let (count, cids) = inventory.image_string_counts();
+    assert_eq!(inventory.clean_source_image_count(), 1);
     assert_eq!(count, 1);
     assert_eq!(
         cids,
@@ -48,6 +49,35 @@ fn static_block_observations_do_not_authorize_handles_or_image_registration() {
     assert!(!inventory.known_node(symbol));
     assert!(!inventory.call(LEAF, &[], Type::Ref));
     assert!(!inventory.call(LEAF, &[], Type::I64));
+}
+
+#[test]
+fn source_image_census_is_bound_to_the_module_and_stored_global_observations() {
+    let literal = super::super::images::tests::emitted_literal(b"census");
+    let ir = format!("{literal}\n{}", crate::target::image_markers().0);
+    for variant in 0..4 {
+        let (dir, names, runtime) = fixtures(&ir);
+        rewrite(dir.path(), |value| {
+            let census = &mut value["inventory"]["modules"][0]["image_census"];
+            match variant {
+                0 => census["source_digest"] = serde_json::json!("0".repeat(64)),
+                1 => census["members"] = serde_json::json!([]),
+                2 => census["marker_lines"] = serde_json::json!([]),
+                _ => census["members"][0]["kind"] = serde_json::json!("anchor"),
+            }
+        });
+        assert!(super::super::publication::verify(
+            dir.path(),
+            "test-key",
+            true,
+            &names,
+            &runtime
+        ));
+        assert!(
+            Inventory::load(dir.path(), "test-key", true, &names, &runtime).is_none(),
+            "variant {variant}"
+        );
+    }
 }
 
 #[test]
@@ -525,6 +555,8 @@ fn actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup() {
     );
     let (unique, known, pure) = inventory.counts();
     let (image_strings, image_cids) = inventory.image_string_counts();
+    let clean_source_images = inventory.clean_source_image_count();
+    assert!(clean_source_images <= crate::sdk_module::SOURCE_LIBRARIES.len());
     assert!(image_strings > 0);
     assert!(image_cids.iter().all(|cid| {
         [
@@ -557,7 +589,7 @@ fn actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup() {
     );
     println!(
         "{}",
-        serde_json::json!({"key":sdk.key,"unique_definitions":unique,"allocation_closures":known,"reviewed_empty_closures":pure,"startup_complete":false,"table_declarations":declarations,"checked_static_strings":image_strings,"image_string_cids":image_cids})
+        serde_json::json!({"key":sdk.key,"unique_definitions":unique,"allocation_closures":known,"reviewed_empty_closures":pure,"startup_complete":false,"table_declarations":declarations,"checked_static_strings":image_strings,"image_string_cids":image_cids,"clean_source_images":clean_source_images})
     );
 }
 

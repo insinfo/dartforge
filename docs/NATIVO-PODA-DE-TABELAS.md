@@ -671,3 +671,35 @@ CIDs encontrados, antes de deduplicação pelo ligador. Não é contagem de obje
 `register_image`, exposição de handles estáticos ou retorno `Ref`/`ptr` de uma
 importação. Os testes verificam explicitamente essa fronteira e a recusa de
 classificações alteradas mesmo após recomputar a integridade da publicação.
+
+### Censo de contribuições no IR — schema 5
+
+Cada módulo conserva agora `image_census`, vinculado ao seu digest de IR final:
+membros das seções de imagem, linhas canônicas dos marcadores e obrigações
+abertas. O protocolo de marcadores vem da mesma função usada pelo emissor, com
+formato explícito, sem depender do host para examinar Mach-O, ELF e COFF.
+
+O scanner percorre todas as linhas, distingue símbolos/strings/comentários e
+considera contribuições de funções e globais. Reconhece os literais já
+validados e as âncoras zeradas exatas. Define obrigações para símbolos de
+marcadores substituídos, declarações incompletas/duplicadas, formatos misturados,
+globais multilinha, funções na seção e construções não revisadas. Assembly fica
+aberto, salvo a diretiva exata do emissor que apenas retém os stackmaps e a
+instrução ARM64 exata usada para ler o TSD no macOS. Essa instrução não muda
+seções; sua string é compartilhada com o produtor. As leituras de memória e a
+conversão para ponteiro que a seguem continuam sem prova de alocação/exposição.
+Variantes do assembly não são aprovadas. Atributos
+textuais de função também exigem revisão; `disable-tail-calls=true` é tratado
+explicitamente. Strings com `section` e nomes entre aspas não viram diretivas.
+
+O leitor reconcilia a parte global do censo com os inicializadores preservados,
+os marcadores canônicos e o digest do módulo. Um registro sem obrigações informa
+somente ausência de contribuições opacas no subconjunto de IR examinado pelo
+produtor. Não verifica toda a gramática LLVM nem substitui a inspeção de objetos,
+arquivos do runtime, bibliotecas estrangeiras, relocação, deduplicação ou opções
+do ligador. As observações de corpos não são uma segunda cópia do IR completo;
+continuam vinculadas à publicação do compilador e ao snapshot imutável.
+
+Esse estado não entra nas condições de autorização: um censo de fonte limpo
+continua insuficiente para `register_image`, retorno de handles ou ativação de
+classes. A prova dos startups completos e da imagem ligada permanece pendente.
