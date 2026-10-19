@@ -18,5 +18,9 @@
   "pre-prune.log": {
     "original_sha256": "edaaf39daf0eee7cbfb9a67934ca36ab6a6a0ee65e891a6693994e1cb28560c2",
     "stored_sha256": "ce4d47f367c9b801caece40bec0398d312d79f66dcb6d7a42145e702e4c4dda0"
+  },
+  "fmt-excerpt.log": {
+    "original_excerpt_sha256": "01054a49438d9d61d5f76240fec3791b9a8524f559e2a84b9c250e371ae5be09",
+    "stored_sha256": "c81626b08228bbb164c04c52ccdba9c6183c95d146e62ba1bcf50b4375b8096f"
   }
 }
