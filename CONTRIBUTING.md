@@ -27,7 +27,23 @@ semantics that tests can demonstrate, including side effects, evaluation order a
     cargo test --locked --workspace -- --include-ignored
     cargo doc --locked --workspace --no-deps --document-private-items
 
-Tests ignored by default require Node. On PowerShell, `scripts/check.ps1` runs these checks
+On macOS, the repository Cargo linker selects matching LLVM LLD for archives
+containing bitcode; ordinary direct links keep the system C compiler. LLVM archive and nested
+response-file inspection require Python 3. Set `DARTFORGE_MACOS_SDK_ROOT` to pin a macOS SDK; otherwise the
+active SDK may be replaced by an installed compatible SDK when LLVM cannot read
+its stubs. See `docs/JIT.md` for toolchain selection and explicit linker overrides.
+
+Ignored tests have additional prerequisites: Node, the Dart source SDK, resolved
+corpus dependencies, and a current native compiler for builder integrations.
+`DARTFORGE_COMPILER` selects that compiler; its default is
+`target/release/dartforge`. For a debug compiler, build
+`cargo build --locked -p dartforge-cli --features jit` and set
+`DARTFORGE_COMPILER` to the resulting `target/debug/dartforge` (or the executable
+in your custom target directory). Keep LLVM tools on PATH when runtime SDK
+support libraries need to be built; selecting a prefix for Cargo does not add
+runtime tools to the caller's PATH.
+
+On PowerShell, `scripts/check.ps1` runs these checks
 together and requires documentation to build without warnings. CI checks behavior only: it
 does not run `cargo fmt` or `cargo doc` (the project owner's decision; see the header of
 `.github/workflows/ci.yml`).

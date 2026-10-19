@@ -1,0 +1,27 @@
+{
+  "fmt": {
+    "exit": 1,
+    "local_full_log": "/tmp/forge-cargo-linker-root/fmt.log",
+    "bytes": 15734580,
+    "sha256": "43b95c46f5552de15a8505bcda338f9e6b967fadf7ba2a2180b9cc005b33237a"
+  },
+  "clippy": {
+    "exit": 101,
+    "local_full_log": "/tmp/forge-cargo-linker-root/clippy.log",
+    "bytes": 34518,
+    "sha256": "07cde1bb8ecd4b46c084dd03f1aaa90905fbc42b3045b947b525d6478e2b8e97"
+  },
+  "test": {
+    "exit": 101,
+    "local_full_log": "/tmp/forge-cargo-linker-root/test.log",
+    "bytes": 767943,
+    "sha256": "e18d192bfc4892adadb9c9d7cd26d2eb2181a6fc73f79190204e4d816870824e",
+    "passed_before_failure": 227
+  },
+  "doc": {
+    "exit": 0,
+    "local_full_log": "/tmp/forge-cargo-linker-root/doc.log",
+    "bytes": 18005,
+    "sha256": "5f33b57e823e78d61ea6188e57e81ac35515664c3a84c4d7f7197bef4cbe4c55"
+  }
+}

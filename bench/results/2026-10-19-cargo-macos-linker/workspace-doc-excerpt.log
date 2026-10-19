@@ -1,0 +1,46 @@
+    Checking dartforge-diagnostics v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/diagnostics)
+    Checking dartforge-intern v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/intern)
+    Checking icu_locale_fallback v2.3.0
+    Checking dartforge-frontend v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/frontend)
+    Checking oxc_span v0.152.0
+    Checking dartforge-elements v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/elements)
+   Compiling phf_macros v0.14.0
+    Checking dartforge-types v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/types)
+    Checking icu_segmenter_data v2.3.0
+    Checking phf_shared v0.14.0
+    Checking cow-utils v0.1.3
+    Checking phf v0.14.0
+    Checking icu_segmenter v2.3.0
+    Checking unicode-width v0.2.2
+    Checking unicode-id-start v1.5.0
+    Checking nonmax v0.5.5
+    Checking smawk v0.3.3
+    Checking oxc_index v5.0.0
+    Checking textwrap v0.16.4
+    Checking dragonbox_ecma v0.1.12
+[... excerpt ...]
+warning: unresolved link to `ligado`
+  --> crates/types/src/inference/patterns/matching.rs:17:45
+   |
+17 | //! Only the analyzer uses this path (see [`ligado`]); the compilers keep the
+   |                                             ^^^^^^ no item named `ligado` in scope
+   |
+   = help: to escape `[` and `]` characters, add '\' before them like `\[` or `\]`
+
+warning: unresolved link to `crate::display::Displayer::argumentos`
+    --> crates/types/src/inference/mod.rs:1058:41
+     |
+1058 |     /// `ErrorReporter`'s conversion ([`crate::display::Displayer::argumentos`],
+     |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the struct `Displayer` has no field or associated item named `argumentos`
+
+ Documenting dartforge-elements v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/elements)
+warning: `dartforge-types` (lib doc) generated 18 warnings
+ Documenting dartforge-formatter v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/formatter)
+ Documenting dartforge-frontend v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/frontend)
+ Documenting dartforge-dfexec v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/dfexec)
+ Documenting dartforge-diagnostics v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/diagnostics)
+ Documenting dartforge-intern v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/intern)
+ Documenting dartforge-instrument v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/instrument)
+ Documenting dartforge-abi v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/abi)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 12s
+   Generated /Volumes/ssd_dock/MyRustProjects/dartforge/target/doc/dartforge_abi/index.html and 29 other files

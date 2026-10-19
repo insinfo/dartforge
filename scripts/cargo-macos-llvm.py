@@ -8,19 +8,41 @@ An explicit SDKROOT is validated and never replaced with another SDK.
 import os
 from pathlib import Path
 import platform
+import re
 import shlex
 import subprocess
 import sys
 import tempfile
 
 
+def llvm_prefix(environment, run=subprocess.run):
+    """Find LLVM 22.1 using explicit configuration or llvm-sys's PATH order."""
+    explicit = environment.get('DARTFORGE_LLVM_DIR') or environment.get('LLVM_SYS_221_PREFIX')
+    if explicit:
+        return Path(explicit).resolve()
+    for binary in ('llvm-config-22', 'llvm-config22', 'llvm22-config',
+                   'llvm-config-22.1', 'llvm-config221', 'llvm-config'):
+        try:
+            version = run([binary, '--version'], capture_output=True, text=True, env=environment)
+            if version.returncode or not re.match(r'^22\.1(?:\.|$)', version.stdout.strip()):
+                continue
+            prefix = run([binary, '--prefix'], capture_output=True, text=True, env=environment)
+            if prefix.returncode == 0 and prefix.stdout.strip():
+                return Path(prefix.stdout.strip()).resolve()
+        except OSError:
+            continue
+    raise ValueError('LLVM 22.1 was not found. Set DARTFORGE_LLVM_DIR or expose llvm-config on PATH.')
+
+
 def prepare(environment, run=subprocess.run):
     """Return a child environment after a real linker/SDK compatibility probe."""
     environment = dict(environment)
-    prefix = environment.get('DARTFORGE_LLVM_DIR') or environment.get('LLVM_SYS_221_PREFIX')
-    if not prefix:
-        raise ValueError('Set DARTFORGE_LLVM_DIR to the complete LLVM installation.')
-    prefix = Path(prefix).resolve()
+    prefix = llvm_prefix(environment, run)
+    pinned = environment.get('DARTFORGE_MACOS_SDK_ROOT')
+    if pinned:
+        if environment.get('SDKROOT') and Path(environment['SDKROOT']).resolve() != Path(pinned).resolve():
+            raise ValueError('DARTFORGE_MACOS_SDK_ROOT conflicts with SDKROOT.')
+        environment['SDKROOT'] = pinned
     clang = prefix / 'bin/clang'
     linker = prefix / 'bin/ld64.lld'
     for tool in (clang, linker):

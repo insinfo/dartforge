@@ -2,6 +2,23 @@
 
 ## Atualização de 19/10/2026
 
+- Cargo no macOS agora seleciona o linker compatível sem flags manuais: o
+  wrapper do repositório usa `cc` para ligações comuns e examina arquivos LLVM
+  antes de escolher Clang/LLD para bitcode. Bibliotecas LLVM não empacotadas
+  (`-lLLVM*`) também são cobertas; escolhas explícitas de linker são preservadas.
+  O SDK ativo é negociado quando necessário; `DARTFORGE_MACOS_SDK_ROOT` fixa um
+  SDK, inclusive o ativo, sem substituição silenciosa. Passaram 19 testes Python,
+  17 testes LLVM, 33 da CLI padrão e seis doctests JIT com Cargo normal.
+  A CLI JIT foi montada sem `SDKROOT` e executou um programa com argumentos e
+  closure com saída idêntica à VM 3.6.2. O builder nativo `cadeia_configuracao`
+  passou com o compilador novo: 22 saídas iguais e três edições incrementais.
+  A suíte global avançou além da ligação: 227 testes passaram antes da falta
+  do compilador padrão `target/release/dartforge`; isso continua sendo falha da
+  rodada global, não aprovação. Fmt/Clippy globais seguem pendentes, e docs
+  geram avisos. O action macOS deixa de impor linker/rustdoc flags globais e
+  executa os testes do seletor; não há nova certificação Windows/Linux.
+  Evidências: `bench/results/2026-10-19-cargo-macos-linker/README.md`.
+
 - A análise experimental de tabelas fechadas admite entradas tipadas de closures
   locais com ABI conferida, contexto `Ref` e até 12 argumentos representáveis.
   A leitura direta do campo de código precisa vir de um handle local protegido;

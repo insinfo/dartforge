@@ -1,0 +1,46 @@
+warning: output filename collision at /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/examples/oracle
+  |
+  = note: the example target `oracle` in package `dartforge-ng-generator v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/ng_generator)` has the same output filename as the example target `oracle` in package `dartforge-formatter v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/formatter)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+warning: output filename collision at /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/examples/oracle.dSYM
+  |
+  = note: the example target `oracle` in package `dartforge-ng-generator v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/ng_generator)` has the same output filename as the example target `oracle` in package `dartforge-formatter v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/formatter)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+   Compiling cfg-if v1.0.5
+   Compiling serde_core v1.0.229
+   Compiling itoa v1.0.18
+   Compiling zmij v1.0.23
+   Compiling memchr v2.8.3
+   Compiling libc v0.2.189
+   Compiling serde v1.0.229
+   Compiling zerofrom v0.1.8
+   Compiling stable_deref_trait v1.2.1
+   Compiling yoke v0.8.3
+[... excerpt ...]
+test empty_sections_nested_options_and_other_documents_do_not_create_an_engine ... ok
+test builder_definitions_in_resolved_dependencies_accept_equivalent_yaml_forms ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/native_executor.rs (target/debug/deps/native_executor-e9768ede547ae306)
+
+running 1 test
+test corpus_builders_through_the_native_executor ... FAILED
+
+failures:
+
+---- corpus_builders_through_the_native_executor stdout ----
+
+thread 'corpus_builders_through_the_native_executor' (1681706) panicked at crates/build/tests/native_executor.rs:141:5:
+compiler /Volumes/ssd_dock/MyRustProjects/dartforge/crates/build/../../target/release/dartforge does not exist
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    corpus_builders_through_the_native_executor
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p dartforge-build --test native_executor`

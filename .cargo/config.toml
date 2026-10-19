@@ -7,3 +7,8 @@
 # mistaken for the current compiler.
 [build]
 jobs = 6
+
+# LLVM's static archives can contain bitcode newer than Apple's libLTO.
+# The wrapper leaves ordinary links and explicit linker choices alone.
+[target.'cfg(target_os = "macos")']
+linker = "scripts/rust-linker-macos.sh"

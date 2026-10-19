@@ -1,0 +1,13 @@
+{
+  "archive": "target/impl-a/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib",
+  "contains_bitcode": true,
+  "command": [
+    "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+    "target/impl-a/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib",
+    "-isysroot",
+    "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk",
+    "-fuse-ld=/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/ld64.lld"
+  ],
+  "SDKROOT": "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk",
+  "pinned_incompatible_sdk_rejected": "No compatible macOS SDK found.\n/Library/Developer/CommandLineTools/SDKs/MacOSX27.0.sdk: ld64.lld: warning: directory not found for option -L/usr/local/lib\nld64.lld: error: could not load TAPI file at /Library/Developer/CommandLineTools/SDKs/MacOSX27.0.sdk/usr/lib/libSystem.tbd: malformed file\n/Library/Developer/CommandLineTools/SDKs/MacOSX27.0.sdk/usr/lib/libSystem.tbd:4:20: error: unknown architecture\n                   arm64e.x1-macos, arm64e.x1-maccatalyst ]\n                   ^~~~~~~~~~~~~~~\n\nclang: error: linker command failed with exit code 1 (use -v to see invocation)"
+}

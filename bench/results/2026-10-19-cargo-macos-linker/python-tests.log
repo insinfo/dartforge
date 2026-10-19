@@ -1,0 +1,24 @@
+test_encoded_flags_take_precedence_even_when_empty (test_cargo_macos_llvm.MacosLinkerTests) ... ok
+test_explicit_incompatible_sdk_is_not_replaced (test_cargo_macos_llvm.MacosLinkerTests) ... ok
+test_missing_path_tool_reports_configuration_and_explicit_prefix_wins (test_cargo_macos_llvm.MacosLinkerTests) ... ok
+test_missing_tool_fails_before_running_cargo (test_cargo_macos_llvm.MacosLinkerTests) ... ok
+test_path_discovery_skips_wrong_versions_and_uses_reported_prefix (test_cargo_macos_llvm.MacosLinkerTests) ... ok
+test_probes_sdk_and_preserves_paths_and_flags (test_cargo_macos_llvm.MacosLinkerTests) ... ok
+test_project_sdk_pin_is_shared_with_the_cargo_helper (test_cargo_macos_llvm.MacosLinkerTests) ... ok
+test_bitcode_link_preserves_original_arguments_and_selects_sdk (test_rust_linker_macos.RustLinkerTests) ... ok
+test_custom_sdk_does_not_require_discovery_of_an_installed_sdk (test_rust_linker_macos.RustLinkerTests) ... ok
+test_explicit_sdk_is_preserved_and_invalid_sdk_is_rejected (test_rust_linker_macos.RustLinkerTests) ... ok
+test_malformed_archives_are_not_silently_classified_as_native (test_rust_linker_macos.RustLinkerTests) ... ok
+test_native_and_bitcode_members_in_bsd_and_gnu_archives (test_rust_linker_macos.RustLinkerTests) ... ok
+test_ordinary_and_shared_llvm_links_keep_system_cc (test_rust_linker_macos.RustLinkerTests) ... ok
+test_response_file_contents_are_inspected_but_not_rewritten (test_rust_linker_macos.RustLinkerTests) ... ok
+test_rustc_default_sdk_is_negotiated_but_a_project_pin_is_authoritative (test_rust_linker_macos.RustLinkerTests) ... ok
+test_shell_fast_path_needs_no_python_or_llvm (test_rust_linker_macos.RustLinkerTests) ... ok
+test_shell_inspects_nested_response_files (test_rust_linker_macos.RustLinkerTests) ... ok
+test_shell_inspects_response_filenames_that_begin_with_a_dash (test_rust_linker_macos.RustLinkerTests) ... ok
+test_unbundled_static_library_search_and_shared_preference (test_rust_linker_macos.RustLinkerTests) ... ok
+
+----------------------------------------------------------------------
+Ran 19 tests in 0.336s
+
+OK

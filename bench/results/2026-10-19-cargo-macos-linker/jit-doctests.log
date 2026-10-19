@@ -1,0 +1,42 @@
+    Blocking waiting for file lock on build directory
+   Compiling getrandom v0.2.17
+   Compiling crc32fast v1.5.2
+   Compiling ring v0.17.14
+   Compiling llvm-sys v221.1.0
+   Compiling rustls v0.23.45
+   Compiling once_cell v1.21.4
+   Compiling rustls-webpki v0.103.15
+   Compiling flate2 v1.1.10
+   Compiling dartforge-llvm v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/llvm)
+   Compiling dartforge-types v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/types)
+   Compiling dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+   Compiling tempfile v3.27.0
+   Compiling dartforge-jit v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/jit)
+   Compiling dartforge-world v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/world)
+warning: method `identity` is never used
+   --> crates/emit_native/src/hir.rs:256:19
+    |
+254 | impl FieldDeclaration {
+    | --------------------- method in this implementation
+255 |     /// Semantic identity excludes flags and layout premises, which a proof must reconcile.
+256 |     pub(crate) fn identity(&self) -> (&str, &str, &str) {
+    |                   ^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 02s
+   Doc-tests dartforge_jit
+
+running 6 tests
+test crates/jit/src/lib.rs - (line 30) - compile ... ok
+test crates/jit/src/lib.rs - JitSession::new (line 285) - compile ... ok
+test crates/jit/src/lib.rs - RUNTIME_SYMBOLS (line 89) ... ok
+test crates/jit/src/reload.rs - reload::JitSession::add_reloadable_module (line 322) - compile ... ok
+test crates/jit/src/reload.rs - reload::JitSession::hot_reload (line 415) - compile ... ok
+test crates/jit/src/reload.rs - reload::StableEntry (line 211) - compile ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 63.13s; merged doctests compilation took 62.71s

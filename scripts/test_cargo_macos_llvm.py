@@ -70,6 +70,33 @@ class MacosLinkerTests(unittest.TestCase):
             helper.prepare({'DARTFORGE_LLVM_DIR': str(self.prefix)}, self.fake_run)
         self.assertEqual(self.calls, [])
 
+    def test_path_discovery_skips_wrong_versions_and_uses_reported_prefix(self):
+        def probe(arguments, **kwargs):
+            if arguments == ['llvm-config-22', '--version']:
+                return subprocess.CompletedProcess(arguments, 0, '21.1.8\n', '')
+            if arguments == ['llvm-config', '--version']:
+                return subprocess.CompletedProcess(arguments, 0, '22.1.8\n', '')
+            if arguments == ['llvm-config', '--prefix']:
+                return subprocess.CompletedProcess(arguments, 0, str(self.prefix) + '\n', '')
+            raise FileNotFoundError(arguments[0])
+        self.assertEqual(helper.llvm_prefix({}, probe), self.prefix)
+
+    def test_missing_path_tool_reports_configuration_and_explicit_prefix_wins(self):
+        def missing(arguments, **kwargs):
+            raise FileNotFoundError(arguments[0])
+        with self.assertRaisesRegex(ValueError, 'LLVM 22.1 was not found'):
+            helper.llvm_prefix({}, missing)
+        self.assertEqual(helper.llvm_prefix({'DARTFORGE_LLVM_DIR': str(self.prefix),
+                                            'LLVM_SYS_221_PREFIX': '/unused'}, missing), self.prefix)
+
+    def test_project_sdk_pin_is_shared_with_the_cargo_helper(self):
+        configured = {'DARTFORGE_LLVM_DIR': str(self.prefix),
+                      'DARTFORGE_MACOS_SDK_ROOT': str(self.old_sdk)}
+        self.assertEqual(helper.prepare(configured, self.fake_run)['SDKROOT'], str(self.old_sdk))
+        configured['SDKROOT'] = str(self.new_sdk)
+        with self.assertRaisesRegex(ValueError, 'conflicts with SDKROOT'):
+            helper.prepare(configured, self.fake_run)
+
 
 if __name__ == '__main__':
     unittest.main()

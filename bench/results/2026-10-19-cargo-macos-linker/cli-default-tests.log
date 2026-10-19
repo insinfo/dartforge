@@ -1,0 +1,44 @@
+   Compiling rustix v1.1.5
+   Compiling flate2 v1.1.10
+   Compiling xattr v1.6.1
+   Compiling tar v0.4.46
+   Compiling dartforge-cli v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.58s
+     Running unittests src/main.rs (target/impl-a/debug/deps/dartforge-451b185906f3d991)
+
+running 33 tests
+test jit::argument_tests::explicit_program_options_empty_arguments_and_separator_are_not_cli_options ... ok
+test analyze::tests::machine_format_escape ... ok
+test analyze::tests::relative_only_when_not_longer ... ok
+test pub_get::tests::dart_intervals_and_sdk_compatibility ... ok
+test pub_get::tests::explicit_lower_prerelease_allows_same_release_below_stable_upper ... ok
+test jit::argument_tests::runtime_package_selection_matches_explicit_and_nearest_loader_config ... ok
+test pub_get::tests::archive_files_allowed_links_refused ... ok
+test jit::argument_tests::runtime_package_config_preserves_symlink_selected_relative_uri_base ... ok
+test pub_get::tests::cached_pubspec_must_match_the_resolved_registry_graph ... ok
+test pub_get::tests::irrelevant_unavailable_sdk_historical_versions_do_not_poison_supported_release ... ok
+test pub_get::tests::pub_build_suffixes_are_ordered_and_exact_constraints_remain_exact ... ok
+test pub_get::tests::invalid_first_registry_response_is_not_cached ... ok
+test jit::argument_tests::reload_watches_nearest_package_siblings_instead_of_entry_bin_only ... ok
+test pub_get::tests::hosted_integrity_missing_metadata_and_source_conflict_fail ... ok
+test pub_get::tests::hosted_backtracks_transitive_constraints_and_prefers_existing_lock ... ok
+test pub_get::tests::sdk_source_identity_conflicts_are_errors ... ok
+test pub_get::tests::native_http_checksum_failure_does_not_publish_archive ... ok
+test pub_get::tests::overrides_keep_package_identity_and_root_sdk_checks ... ok
+test pub_get::tests::declared_sdk_packages_resolve_transitively_offline_and_write_sdk_lock_identity ... ok
+test pub_get::tests::root_overrides_replace_transitive_sources_and_include_unused_packages ... ok
+test pub_get::tests::sdk_lookup_requires_selected_version_and_declared_unique_matching_package ... ok
+test pub_get::tests::offline_path_transitive_cycles_and_root_dev ... ok
+test test_runner::tests::ordinary_test_filters_and_unsupported_flags_are_explicit ... ok
+test pub_get::tests::sdk_package_versions_are_constraints_not_hosted_fallbacks_and_selected_mapping_changes ... ok
+test pub_get::tests::sdk_vendor_package_symlink_cannot_resolve_outside_the_selected_sdk ... ok
+test test_runner::tests::relative_import_and_dart_escaping_preserve_literal_path ... ok
+test pub_get::tests::sdk_vendor_packages_refuse_non_sdk_regular_sources_and_source_identity_conflicts ... ok
+test test_runner::tests::discovery_keeps_sorted_unique_suites_and_skips_helper_files ... ok
+test test_runner::metadata_tests::library_annotations_and_project_configuration_are_refused_without_text_guessing ... ok
+test pub_get::tests::overrides_relax_the_overridden_sdk_and_root_back_reference ... ok
+test pub_get::tests::validated_registry_updates_replace_offline_metadata ... ok
+test pub_get::tests::sidecar_replaces_override_map_and_dependencies_ignore_their_sidecars ... ok
+test pub_get::tests::rejected_registry_updates_preserve_offline_metadata ... ok
+
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s

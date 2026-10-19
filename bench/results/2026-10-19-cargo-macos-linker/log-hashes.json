@@ -1,0 +1,68 @@
+{
+  "before.log": {
+    "local_full_log": "/tmp/forge-cargo-linker-before.log",
+    "bytes": 566543,
+    "sha256": "70cd951fc4f863851f329827584b31ae6e97a7908291592d24d049a409c5416a",
+    "exit": 101
+  },
+  "llvm-tests.log": {
+    "local_full_log": "/tmp/forge-cargo-linker-package-verified.log",
+    "bytes": 273158,
+    "sha256": "4dde5262b0937a9c7b0593dc9a969928229ce5a7204399df00ab2737bfa3c370",
+    "exit": 0
+  },
+  "python-tests.log": {
+    "local_full_log": "/tmp/forge-cargo-linker-python-final.log",
+    "bytes": 2083,
+    "sha256": "1692a2f99d62287ab594acd9aa82e9ff42cd3ae5809d7c04ee4b6cb823dc18f7",
+    "exit": 0
+  },
+  "cli-build.log": {
+    "local_full_log": "/tmp/forge-cargo-linker-cli-build.log",
+    "bytes": 162218,
+    "sha256": "b4551cb7ff87ba4718113cb89e02a85974889c077473ec27fca49a28260d0fdb",
+    "exit": 0
+  },
+  "cli-default-tests.log": {
+    "local_full_log": "/tmp/forge-cargo-linker-cli-default.log",
+    "bytes": 3415,
+    "sha256": "4888aba2c03b2ba4a4d07f761ae90a430ad285d25764f94f3edb05bc01822999",
+    "exit": 0
+  },
+  "jit-doctests.log": {
+    "local_full_log": "/tmp/forge-cargo-linker-jit-doctests.log",
+    "bytes": 2163,
+    "sha256": "e59daf523a69fe9a0613552f3abe68cbbfc2ea817a8f481c212babf9d74b905a",
+    "exit": 0
+  },
+  "builder.log": {
+    "local_full_log": "/tmp/forge-cargo-linker-builder.log",
+    "bytes": 1662,
+    "sha256": "40ccb5b7e27759b3e66b823ba12d3fd569baf89ee4f6b3e44a0b2bda2174863e",
+    "exit": 0
+  },
+  "jit.out": {
+    "local_full_log": "/tmp/forge-cargo-linker-jit-final.out",
+    "bytes": 21,
+    "sha256": "c73d8ab034ffdbe385c348ca8ac1317787c5d03d08a21b259d07b69e0419c168",
+    "exit": 0
+  },
+  "jit.err": {
+    "local_full_log": "/tmp/forge-cargo-linker-jit-final.err",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "exit": 0
+  },
+  "oracle.out": {
+    "local_full_log": "/tmp/forge-cargo-linker-oracle.out",
+    "bytes": 21,
+    "sha256": "c73d8ab034ffdbe385c348ca8ac1317787c5d03d08a21b259d07b69e0419c168",
+    "exit": 0
+  },
+  "initial-jit-missing-tool.err": {
+    "local_full_log": "/tmp/forge-cargo-linker-jit.err",
+    "bytes": 105,
+    "sha256": "b31ce42b214529ab67b5088c36619e23e5458c426daf3ce5925b57d221905164",
+    "exit": 1
+  }
+}

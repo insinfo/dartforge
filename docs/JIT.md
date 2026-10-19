@@ -886,6 +886,36 @@ Sem um prefixo válido a build do workspace inteiro falha, porque `crates/jit` �
 membro de `crates/*`. Essa é a consequência de o perfil de desenvolvimento ser
 parte do produto, não um extra.
 
+### Ligação Cargo no macOS
+
+No macOS, `.cargo/config.toml` usa `scripts/rust-linker-macos.sh`. Ligações
+diretas comuns continuam em `cc`, sem iniciar Python nem procurar LLVM. Quando há
+arquivos LLVM, o seletor examina os membros dos arquivos `.rlib`/`.a` e só usa
+`ld64.lld` se encontrar bitcode. Isso cobre tanto bibliotecas LLVM empacotadas
+em `.rlib` quanto os argumentos `-lLLVM*` dos testes do próprio crate. LLVM
+compartilhado ou arquivos só com objetos nativos continuam no linker do sistema.
+A inspeção de arquivos LLVM e de respostas encadeadas requer Python 3.
+
+Para bitcode, o wrapper usa Clang/LLD da instalação LLVM escolhida e faz a prova
+de compatibilidade do SDK. O SDK ativo é tentado primeiro; se seu formato TAPI
+for novo demais, um SDK instalado compatível pode ser escolhido. O `rustc`
+preenche `SDKROOT` mesmo quando o usuário não a definiu: por isso, um `SDKROOT`
+igual ao SDK ativo é tratado como seleção automática. Um caminho diferente é
+preservado. Para fixar inclusive o SDK ativo, use
+`DARTFORGE_MACOS_SDK_ROOT=/caminho/MacOSX.sdk`; um SDK fixado incompatível gera
+erro, sem substituição. Essa variável também é aceita pelo helper
+`scripts/cargo-macos-llvm.py`, que continua disponível para configurar o ambiente
+inteiro do processo Cargo. No helper chamado diretamente, um `SDKROOT` explícito
+continua sendo validado e preservado.
+
+Escolhas explícitas de linker (`CARGO_TARGET_*_LINKER`, `-C linker` ou
+`-fuse-ld=...`) têm precedência. Arquivos de resposta do Clang são inspecionados
+sem alterar seu conteúdo; os argumentos originais e caminhos com espaços são
+preservados. A configuração só se aplica aos destinos Rust macOS; ela não muda
+a seleção de destino Dart de `compile-native --target`.
+
+Validação e limites: `bench/results/2026-10-19-cargo-macos-linker/README.md`.
+
 ### Linux e macOS
 
 Fora do Windows a forma de ligar o LLVM é **política do projeto**, escolhida
