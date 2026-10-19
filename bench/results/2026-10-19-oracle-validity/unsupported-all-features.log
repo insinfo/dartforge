@@ -1,0 +1,18 @@
+   Compiling dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+error: failed to run custom build command for `dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)`
+
+Caused by:
+  process didn't exit successfully: `/Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/build/dartforge-runtime-3b65773b42b64079/build-script-build` (exit status: 101)
+  --- stdout
+  cargo::rerun-if-changed=build.rs
+  cargo::rustc-check-cfg=cfg(dartforge_runtime_dll)
+  cargo::rerun-if-changed=src
+  cargo::rustc-check-cfg=cfg(dartforge_runtime_embedded)
+
+  --- stderr
+
+  thread 'main' (1861765) panicked at crates/runtime/build.rs:134:5:
+  the runtime's aot and dll features are mutually exclusive
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+warning: build failed, waiting for other jobs to finish...

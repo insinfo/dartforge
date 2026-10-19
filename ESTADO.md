@@ -2,6 +2,23 @@
 
 ## Atualização de 19/10/2026
 
+- A suíte global de `81e6762b` terminou com **exit 101**: builders nativos
+  passaram (2410,20 s), assim como os quatro testes Angular (614,15 s), mas o
+  gate do corpus exigia VM para oito casos JS-only que já declaravam referência
+  DDC. A validação agora é compartilhada pelo CLI sem Forge e pelos dois gates:
+  DDC precisa ser válido; a exceção da VM exige declaração e diagnóstico CFE de
+  biblioteca indisponível. Timeout, ferramenta ausente, erro de sintaxe/runtime
+  e rejeição no modo nativo seguem reprovando. Nenhum caso foi excluído e as
+  14 divergências continuam exigidas e visíveis. Passaram 26 testes unitários,
+  dois testes de corpus (241 programas: 233 referências VM válidas, incluindo
+  negativos normalizados, e oito rejeições de plataforma) e um doctest.
+  Probes reais confirmaram CLI anterior=1, corrigido=0, nativo=1 e sem Node=1.
+  Clippy/docs do workspace e Clippy da CLI com JIT passam; fmt segue pendente.
+  A combinação global de todas as features é inválida por contrato (`aot`/`dll`
+  exclusivos), sem alteração desse guard. Não há aprovação global nova; a poda
+  completa dos backends estrangeiros continua aberta. Evidências:
+  `bench/results/2026-10-19-oracle-validity/README.md`.
+
 - **Clippy estrito do workspace passa com todos os alvos**, sem novas supressões,
   na seleção padrão de features do macOS. Foram agrupadas as premissas de escrita
   de campos, opções ARC e evidências da auditoria; operandos/pontos de cópia têm

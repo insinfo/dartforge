@@ -297,6 +297,9 @@ pub fn format_report(results: &[ProgramResult]) -> String {
     let mut constructs: Vec<(&str, Vec<String>)> = Vec::new();
     for r in results {
         let name = &r.program.name;
+        if r.forge.is_none() && let Some(failure) = r.oracle_failure() {
+            let _ = writeln!(out, "ORACLE! {name} ({failure})");
+        }
         if r.dart.code != 0 {
             let _ = writeln!(out, "DART!  {name}  (dart run exited with {}: {})", r.dart.code, truncate(r.dart.first_stderr_line(), 90));
         }

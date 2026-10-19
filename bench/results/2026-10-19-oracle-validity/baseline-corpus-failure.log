@@ -1,0 +1,281 @@
+     Running tests/corpus.rs (target/debug/deps/corpus-44b60290efa2e745)
+
+running 2 tests
+test ddc_matches_dart_run ... ok
+test corpus_runs_under_dart_run ... FAILED
+
+failures:
+
+---- corpus_runs_under_dart_run stdout ----
+ok     01_print
+ok     02_strings_interpolacao
+ok     03_strings_escapes
+ok     04_strings_surrogates
+ok     05_strings_multilinha_raw
+ok     06_strings_metodos
+ok     07_string_buffer
+ok     08_strings_comparacao_igualdade
+ok     09_bool_null_literais
+ok     10_int_basico
+ok     11_int_truncdiv_modulo_negativos
+ok     12_int_bits_32
+ok     12b_int_bits_divergencia_web
+ok     13_double_basico
+ok     13b_double_tostring_divergencia_web
+ok     14_int_grandes_2p53
+ok     15_num_parse
+ok     16_num_metodos_conversao
+ok     17_operadores_compostos_precedencia
+ok     18_math
+ok     19_num_literais_formatos
+ok     20_if_else_encadeado
+ok     21_while_do_while
+ok     22_for_classico_forin
+ok     23_break_continue_rotulos
+ok     24_switch_classico
+ok     25_condicional_ternario
+ok     26_assert
+ok     27_operadores_logicos_curto_circuito
+ok     28_ordem_avaliacao
+ok     29_fluxo_return_em_laco_e_switch
+ok     30_funcoes_parametros
+ok     31_closures_captura_em_laco
+ok     32_tearoffs
+ok     33_funcoes_genericas
+ok     34_funcoes_locais_recursao
+ok     35_funcao_como_valor_typedef
+ok     36_funcoes_arrow_callable_class
+ok     37_closure_estado_contador
+ok     38_funcoes_parametros_funcao_e_nulos
+ok     39_funcoes_recursivas_e_iteradores
+ok     40_classes_basico
+ok     41_classes_ctor_nomeado
+ok     42_classes_ctor_factory_redirect
+ok     43_classes_ctor_const_canonico
+ok     44_classes_campos_inicializadores
+ok     45_classes_estaticos
+ok     46_classes_getters_setters
+ok     47_classes_operadores
+ok     48_classes_equals_hashcode
+ok     49_classes_heranca_super
+ok     50_classes_abstratas_interfaces
+ok     51_mixins
+ok     52_enums_basico
+ok     53_enums_membros
+ok     54_genericas_bounds
+ok     55_is_as_runtimetype
+ok     56_late
+ok     57_nosuchmethod
+ok     58_tostring_override_e_interpolacao
+ok     59_class_modifiers_e_privados
+ok     60_list_basico
+ok     61_list_metodos
+ok     62_iterable_map_where_fold
+ok     63_iterable_expand_reduce_lazy
+ok     64_map_ordem_insercao
+ok     65_set_operacoes
+ok     66_colecoes_literais_spread_if_for
+ok     67_colecoes_tipadas_generics
+ok     68_iterator_manual_e_iterable_custom
+ok     69_list_de_lists_e_matriz
+ok     70_try_catch_basico
+ok     71_try_on_catch_finally
+ok     72_rethrow
+ok     73_excecoes_customizadas
+ok     74_finally_return_break
+ok     75_stacktrace_existencia
+ok     76_erros_do_core_tipos
+ok     77_throw_em_expressoes
+ok     78_excecoes_em_closures_e_lacos
+ok     79_error_objects_toString_proprio
+ok     80_async_await_basico
+ok     81_microtarefas_ordem
+ok     82_future_delayed_ordem
+ok     83_completer
+ok     84_stream_listen
+ok     85_await_for
+ok     86_async_star
+ok     87_sync_star
+ok     88_future_wait_then_catcherror
+ok     89_async_excecoes
+ok     89b_async_em_metodos_e_closures
+ok     90_dynamic_chamadas
+ok     91_dynamic_nosuchmethod_erros
+ok     92_cascatas
+ok     93_null_aware
+ok     94_null_safety_promocao
+ok     95_dynamic_operadores_e_conversoes
+ok     100_records_basico
+ok     101_records_desestruturacao
+ok     102_switch_padroes
+ok     103_if_case
+ok     104_sealed_exaustivo
+ok     105_padroes_lista_map
+ok     106_padroes_objeto_guardas
+ok     107_switch_expressao
+ok     108_records_igualdade_hash
+ok     109_padroes_em_declaracoes_e_foreach
+ok     110_extension_methods
+ok     111_extension_genericas_e_estaticas
+ok     112_typedef
+ok     113_imports_prefixo
+ok     114_export_show_hide
+ok     115_part
+ok     116_bibliotecas_privados
+ok     117_biblioteca_ciclo
+ok     118_top_level_lazy_init
+ok     119_library_com_nome_e_dart_async_import
+ok     119b_import_deferred
+ok     120_convert_json
+ok     121_convert_utf8_base64
+ok     122_collection_queue
+ok     123_collection_linkedhashmap_splaytreemap
+ok     124_typed_data
+ok     125_datetime_utc
+ok     126_duration
+ok     127_regexp
+ok     128_uri
+ok     129_comparable_sort
+ok     130_string_split_trim_pad_avancado
+ok     131_string_codeunits_runes
+ok     132_int_parse_double_parse_erros
+ok     133_iterable_num_sum_media
+ok     134_object_identical_equals
+ok     135_convert_json_classes
+ok     136_string_interpolacao_avancada
+ok     137_math_random_seed
+ok     138_collection_hashmap_ordenado
+ok     139_string_tostring_de_tudo
+ok     140_antigo_annotations
+ok     141_antigo_arithmetic
+ok     142_antigo_boolean
+ok     143_antigo_class_effects
+ok     144_antigo_classes
+ok     145_antigo_colecoes
+ok     146_antigo_colecoes_bits
+ok     147_antigo_collections_closures
+ok     148_antigo_constants
+ok     149_antigo_enhanced_enums_switch
+ok     150_antigo_evaluation_order
+ok     151_antigo_expression_bodies
+ok     152_antigo_extension_dispatch
+ok     153_antigo_extensions
+ok     154_antigo_for_scope
+ok     155_antigo_functions
+ok     156_antigo_generics_constants
+ok     157_antigo_interfaces_enums
+ok     158_antigo_iterable_format
+ok     159_antigo_loop_evaluation
+ok     160_antigo_loops
+ok     161_antigo_merge_bindings
+ok     162_antigo_null_flow
+ok     163_antigo_null_safety
+ok     164_antigo_numeric_edges
+ok     165_antigo_parameter_shadow
+ok     166_antigo_recursion
+ok     167_antigo_scopes
+ok     168_antigo_sealed_patterns
+ok     169_antigo_string_escapes
+ok     170_antigo_strings
+ok     171_antigo_nativo_calls
+ok     172_antigo_nativo_coalesce_promotion
+ok     173_antigo_nativo_control_flow
+ok     174_antigo_nativo_edge_cfg
+ok     175_antigo_nativo_gc_root_slots
+ok     176_antigo_nativo_managed_lifetimes
+ok     177_antigo_nativo_managed_objects
+ok     178_antigo_nativo_mixins
+ok     179_antigo_nativo_null_flow_loops
+ok     180_antigo_nativo_root_slots
+ok     181_antigo_async23
+ok     182_antigo_cascades20
+ok     183_antigo_classes_adv
+ok     184_antigo_closures
+ok     185_antigo_colecoesops
+ok     186_antigo_constructors17
+ok     187_antigo_cycle
+ok     188_antigo_export_cycle
+ok     189_antigo_features13
+ok     190_antigo_fluxo26
+ok     191_antigo_interfaces
+ok     192_antigo_maps21
+ok     194_antigo_modifiers14
+ok     195_antigo_namespaces
+ok     196_antigo_package_exports
+ok     197_antigo_private_inheritance
+ok     198_antigo_records19
+ok     199_antigo_reified18
+ok     200_antigo_strings25
+ok     201_antigo_nativo_managed
+ok     202_antigo_nativo_packages
+ok     203_antigo_unmodifiable_async
+ok     204_super_equals
+ok     205_super_params_tipo
+ok     206_enum_factory_e_classe_so_factory
+ok     207_factory_redirecionada_tearoff
+ok     208_literais_de_tipo_especiais
+DART!  209_js_interop  (dart run exited with 254: main.dart:8:8: Error: Dart library 'dart:js_util' is not available on this platform.)
+ok     209_js_interop
+ok     210_constantes_de_ambiente
+ok     211_membros_nativos_renomeados
+ok     212_rti_de_superclasse_generica
+DART!  213_interop_de_tipos_de_extensao  (dart run exited with 254: 213_interop_de_tipos_de_extensao.dart:9:8: Error: Dart library 'dart:js_interop' is not a…)
+ok     213_interop_de_tipos_de_extensao
+ok     214_tipo_cru_generico
+ok     215_membros_reservados_js
+ok     215_poda_dinamico_por_nome
+ok     216_poda_nosuchmethod
+ok     217_poda_tearoffs
+ok     218_poda_protocolos_do_sdk
+ok     219_poda_tipos_so_em_is
+ok     220_poda_estaticos_preguicosos
+ok     221_poda_mixins_super
+DART!  222_poda_interop  (dart run exited with 254: js/lib/js.dart:5:1: Error: Dart library 'dart:js' is not available on this platform.)
+ok     222_poda_interop
+ok     223_nosuchmethod_argumentos
+ok     224_poda_por_tipo_do_receptor
+ok     225_extensoes_genericas_reificadas
+ok     226_acessores_de_topo_prefixados
+ok     227_campos_por_interface
+ok     228_super_setter_e_tearoff_de_extensao
+ok     229_nome_indefinido_e_local_duplicado_erro
+ok     230_tipos_de_extensao_membros
+ok     231_tipos_de_extensao_escrita_composta
+ok     232_tipos_de_extensao_implements
+ok     233_geradores_tipo_inferido
+ok     234_this_interpolado_e_coalescencia_dinamica
+ok     235_contratos_semanticos
+DART!  236_interop_construtor_nao_external  (dart run exited with 254: 236_interop_construtor_nao_external.dart:10:8: Error: Dart library 'dart:js_interop' is n…)
+ok     236_interop_construtor_nao_external
+DART!  237_interop_funcao_tojs  (dart run exited with 254: 237_interop_funcao_tojs.dart:10:8: Error: Dart library 'dart:js_interop' is not available…)
+ok     237_interop_funcao_tojs
+DART!  238_interop_is_a  (dart run exited with 254: 238_interop_is_a.dart:9:8: Error: Dart library 'dart:js_interop' is not available on this…)
+ok     238_interop_is_a
+DART!  239_interop_extension_members  (dart run exited with 254: 239_interop_extension_members.dart:10:8: Error: Dart library 'dart:js_interop' is not ava…)
+ok     239_interop_extension_members
+DART!  240_interop_extension_type_statics  (dart run exited with 254: 240_interop_extension_type_statics.dart:9:8: Error: Dart library 'dart:js_interop' is not…)
+ok     240_interop_extension_type_statics
+ok     241_class_name_table_front_coding
+
+DartForge development:     241/241 ok
+DDC×VM: 227/241 match (not counting 14 with a declared divergence)
+
+thread 'corpus_runs_under_dart_run' (1841736) panicked at crates/differential/tests/corpus.rs:31:5:
+programs that do not run under dart run:
+209_js_interop (exit code 254): main.dart:8:8: Error: Dart library 'dart:js_util' is not available on this platform.
+213_interop_de_tipos_de_extensao (exit code 254): 213_interop_de_tipos_de_extensao.dart:9:8: Error: Dart library 'dart:js_interop' is not available on this platform.
+222_poda_interop (exit code 254): js/lib/js.dart:5:1: Error: Dart library 'dart:js' is not available on this platform.
+236_interop_construtor_nao_external (exit code 254): 236_interop_construtor_nao_external.dart:10:8: Error: Dart library 'dart:js_interop' is not available on this platform.
+237_interop_funcao_tojs (exit code 254): 237_interop_funcao_tojs.dart:10:8: Error: Dart library 'dart:js_interop' is not available on this platform.
+238_interop_is_a (exit code 254): 238_interop_is_a.dart:9:8: Error: Dart library 'dart:js_interop' is not available on this platform.
+239_interop_extension_members (exit code 254): 239_interop_extension_members.dart:10:8: Error: Dart library 'dart:js_interop' is not available on this platform.
+240_interop_extension_type_statics (exit code 254): 240_interop_extension_type_statics.dart:9:8: Error: Dart library 'dart:js_interop' is not available on this platform.
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    corpus_runs_under_dart_run
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 53.34s
+
+error: test failed, to rerun pass `-p dartforge-differential --test corpus`

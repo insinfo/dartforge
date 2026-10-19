@@ -1,0 +1,13 @@
+{
+  "base": "81281523",
+  "host": "macOS ARM64",
+  "DARTFORGE_LLVM_DIR": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+  "LLVM_SYS_221_PREFIX": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+  "DARTFORGE_DART_SDK": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk",
+  "DARTFORGE_BIN": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+  "optional_forge_sha256": "f3284c9d610665e9325899ec0036ddfeb058adb9bc375ee741905c376b8f30f8",
+  "node_dir": "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin",
+  "doc_flags": "-D warnings",
+  "probe_binary_backups": "target/oracle-validation/{before,after}-differential",
+  "optional_forge_backup": "target/oracle-validation/reference-forge"
+}

@@ -1,0 +1,4 @@
+DART!  209_js_interop  (dart run exited with 254: main.dart:8:8: Error: Dart library 'dart:js_util' is not available on this platform.)
+
+DDC×VM: 0/1 match (not counting 1 with a declared divergence)
+(1 programs in 0.8 s)

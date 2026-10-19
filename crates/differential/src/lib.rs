@@ -8,6 +8,7 @@ pub mod contract;
 pub mod corpus;
 pub mod matrix;
 pub mod oracles;
+mod oracle_validation;
 pub mod process;
 pub mod report;
 

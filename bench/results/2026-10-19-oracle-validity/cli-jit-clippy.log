@@ -1,0 +1,54 @@
+    Checking stable_deref_trait v1.2.1
+   Compiling serde_core v1.0.229
+    Checking litemap v0.8.3
+   Compiling syn v3.0.6
+    Checking writeable v0.6.4
+   Compiling serde v1.0.229
+    Checking smallvec v1.16.1
+   Compiling thiserror v2.0.20
+    Checking memchr v2.8.3
+    Checking hashbrown v0.17.1
+    Checking indexmap v2.14.2
+    Checking dartforge-sass v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/sass)
+   Compiling synstructure v0.14.0
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling serde_derive v1.0.229
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.3
+   Compiling thiserror-impl v2.0.20
+    Checking zerofrom v0.1.8
+    Checking serde_json v1.0.151
+    Checking yoke v0.8.3
+    Checking dartforge-dfexec v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/dfexec)
+    Checking cobs v0.3.0
+    Checking zerovec v0.11.8
+    Checking zerotrie v0.2.5
+    Checking dartforge-intern v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/intern)
+    Checking dartforge-diagnostics v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/diagnostics)
+    Checking postcard v1.1.3
+    Checking dartforge-frontend v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/frontend)
+    Checking tinystr v0.8.4
+    Checking potential_utf v0.1.6
+    Checking icu_collections v2.3.0
+    Checking icu_locale_core v2.3.0
+    Checking icu_provider v2.3.1
+    Checking icu_properties v2.3.0
+    Checking icu_normalizer v2.3.0
+    Checking dartforge-formatter v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/formatter)
+    Checking idna_adapter v1.2.2
+    Checking idna v1.1.0
+    Checking url v2.5.8
+    Checking dartforge-elements v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/elements)
+    Checking dartforge-types v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/types)
+    Checking dartforge-ng-generator v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/ng_generator)
+    Checking dartforge-macros-host v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/macros_host)
+    Checking dartforge-build v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/build)
+    Checking dartforge-analysis v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/analysis)
+    Checking dartforge-emit-js v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js)
+    Checking dartforge-world v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/world)
+    Checking dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Checking dartforge-dev v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/dev)
+    Checking dartforge-parity v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/parity)
+    Checking dartforge-cli v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 16.38s

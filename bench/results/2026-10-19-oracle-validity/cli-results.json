@@ -1,0 +1,75 @@
+[
+  {
+    "name": "before-web",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/dartforge-differential",
+      "--no-forge",
+      "--filter",
+      "209_js_interop",
+      "--no-cache",
+      "--jobs",
+      "2"
+    ],
+    "expected_exit": 1,
+    "exit": 1,
+    "binary_sha256": "c10df17c6a4f392c1e5d17639aab54d415b8dfb959fb4422ebd95692ea0d897f",
+    "missing_node": false,
+    "stdout_sha256": "132750adbfcf0ccc64a25575d75d710e2b47c0a21e4fe7b00bac3b0352f13e0c",
+    "stderr_sha256": "1f29d334cca5d101197e287cc49604476af6be06f85a58e9b04a7dd6dfb87dd3"
+  },
+  {
+    "name": "after-web",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge-differential",
+      "--no-forge",
+      "--filter",
+      "209_js_interop",
+      "--no-cache",
+      "--jobs",
+      "2"
+    ],
+    "expected_exit": 0,
+    "exit": 0,
+    "binary_sha256": "36229ae598414a93bff15abfdceb1fa85226747c45d9e55e778f574ef966b802",
+    "missing_node": false,
+    "stdout_sha256": "cffa44458fbfca1122cf241f834f76fd6292ac780d0be50fa085088e94b5c421",
+    "stderr_sha256": "1f29d334cca5d101197e287cc49604476af6be06f85a58e9b04a7dd6dfb87dd3"
+  },
+  {
+    "name": "after-native",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge-differential",
+      "--no-forge",
+      "--filter",
+      "209_js_interop",
+      "--no-cache",
+      "--jobs",
+      "2",
+      "--native"
+    ],
+    "expected_exit": 1,
+    "exit": 1,
+    "binary_sha256": "36229ae598414a93bff15abfdceb1fa85226747c45d9e55e778f574ef966b802",
+    "missing_node": false,
+    "stdout_sha256": "220ed10c4a2b5029ca8bea7e3801d47e8a275ee74eff02494670e473c8f4f999",
+    "stderr_sha256": "1f29d334cca5d101197e287cc49604476af6be06f85a58e9b04a7dd6dfb87dd3"
+  },
+  {
+    "name": "after-missing-node",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge-differential",
+      "--no-forge",
+      "--filter",
+      "209_js_interop",
+      "--no-cache",
+      "--jobs",
+      "2"
+    ],
+    "expected_exit": 1,
+    "exit": 1,
+    "binary_sha256": "36229ae598414a93bff15abfdceb1fa85226747c45d9e55e778f574ef966b802",
+    "missing_node": true,
+    "stdout_sha256": "c435dc0af3ea233cf510cfa98cd3c8499656d075a779570f75a2593dce61d2f4",
+    "stderr_sha256": "1f29d334cca5d101197e287cc49604476af6be06f85a58e9b04a7dd6dfb87dd3"
+  }
+]

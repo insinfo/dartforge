@@ -1,0 +1,18 @@
+{
+  "run": {
+    "revision": "81e6762b16d755a0f94290eeaca31b83464630f1",
+    "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+    "compiler_sha256": "f3284c9d610665e9325899ec0036ddfeb058adb9bc375ee741905c376b8f30f8",
+    "started_utc": "2026-10-19T16:47:45.344077+00:00",
+    "pid": 73529,
+    "case_filter": null,
+    "build_jobs": 2,
+    "test_threads": 2
+  },
+  "cargo_exit": 101,
+  "full_log_bytes": 782249,
+  "full_log_sha256": "52642f3cf450161754686ff25998d30360ae51275c1f2647690a947696149d4d",
+  "native_builder_test": "passed, 2410.20 s",
+  "ng_transparency_tests": "4 passed, 614.15 s",
+  "failure": "corpus_runs_under_dart_run rejected eight declared web-only VM platform failures"
+}

@@ -1,0 +1,55 @@
+[
+  {
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "dartforge-differential",
+      "--target-dir",
+      "target/impl-a",
+      "--",
+      "--include-ignored",
+      "--nocapture"
+    ],
+    "exit": 0,
+    "unit_tests": 26,
+    "corpus_tests": 2,
+    "doctests": 1,
+    "programs": 241,
+    "vm_valid_oracle_results": 233,
+    "declared_vm_platform_rejections": 8,
+    "declared_divergences": 14
+  },
+  {
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "-p",
+      "dartforge-cli",
+      "--all-targets",
+      "--features",
+      "jit",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 0
+  },
+  {
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--workspace",
+      "--all-targets",
+      "--all-features",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 101,
+    "reason": "runtime aot and dll features are intentionally mutually exclusive"
+  }
+]

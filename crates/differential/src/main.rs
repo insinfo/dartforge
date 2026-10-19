@@ -436,9 +436,9 @@ fn main() {
                 // A pending program (`PENDENTES`) must fail; the others, pass.
                 results.iter().all(|r| r.ok() != r.program.pending)
             } else if op.native {
-                results.iter().all(|r| r.dart.code == 0)
+                results.iter().all(|r| r.oracle_failure().is_none())
             } else {
-                results.iter().all(|r| r.dart.code == 0 && (r.ddc_vs_dart().is_none() != r.program.diverge_ddc.is_some()))
+                results.iter().all(|r| r.oracle_failure().is_none() && (r.ddc_vs_dart().is_none() != r.program.diverge_ddc.is_some()))
             };
             if !all_ok {
                 std::process::exit(1);

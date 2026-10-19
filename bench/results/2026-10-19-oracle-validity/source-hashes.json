@@ -1,0 +1,7 @@
+{
+  "crates/differential/src/lib.rs": "633f3514a7b19533a1d141dd566a0a1609714a67516782020f869e9f131b36b6",
+  "crates/differential/src/main.rs": "f0be9c1a5d8f611f2abb6211599ce9351a5ec2a3a8665505509141a34768caca",
+  "crates/differential/src/report.rs": "d4c63628188222462082cf79b97c10590f9b6cb2ab90b54e43938752072bcdc5",
+  "crates/differential/tests/corpus.rs": "73fe21bc5dfff46c0f5c1ee598ae2ce1300d28ebffbc318932d9fb0f466a7415",
+  "crates/differential/src/oracle_validation.rs": "2bd0604d85066a381d7455a72aabd750b4b9e364776ed761d7b536932511b692"
+}

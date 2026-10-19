@@ -1,0 +1,32 @@
+{
+  "differential-tests.log": {
+    "raw_sha256": "a33263babc24aa45d32bd91299f57849d6875b0083955f14cc4b3de387f28dd3",
+    "raw_bytes": 12906,
+    "stored_sha256": "a33263babc24aa45d32bd91299f57849d6875b0083955f14cc4b3de387f28dd3",
+    "stored_bytes": 12906
+  },
+  "workspace-clippy.log": {
+    "raw_sha256": "a08858c459234e3900637395347e53f8ae35f2caa9ae7f188ac6b0b207d4ac19",
+    "raw_bytes": 180,
+    "stored_sha256": "a08858c459234e3900637395347e53f8ae35f2caa9ae7f188ac6b0b207d4ac19",
+    "stored_bytes": 180
+  },
+  "workspace-doc.log": {
+    "raw_sha256": "8a6fc449c6b893611751abf138c4aeb99af19d278c3d0bf495c3bbd401842a8b",
+    "raw_bytes": 291,
+    "stored_sha256": "8a6fc449c6b893611751abf138c4aeb99af19d278c3d0bf495c3bbd401842a8b",
+    "stored_bytes": 291
+  },
+  "cli-jit-clippy.log": {
+    "raw_sha256": "52a60cf2f090c651c8c4f3abcb6868811c84d7803ac831c706a1709249400b66",
+    "raw_bytes": 2930,
+    "stored_sha256": "52a60cf2f090c651c8c4f3abcb6868811c84d7803ac831c706a1709249400b66",
+    "stored_bytes": 2930
+  },
+  "unsupported-all-features.log": {
+    "raw_sha256": "7526ae42db7795c388a6797c4d9a6d5b9fc43d8af296d3ee04b30945dc39eef0",
+    "raw_bytes": 992,
+    "stored_sha256": "7526ae42db7795c388a6797c4d9a6d5b9fc43d8af296d3ee04b30945dc39eef0",
+    "stored_bytes": 992
+  }
+}
