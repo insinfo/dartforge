@@ -1,0 +1,12 @@
+   Compiling dartforge-build v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/build)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.41s
+     Running tests/detection.rs (target/impl-a/debug/deps/detection-8ab3ce4f4c88fb1c)
+
+running 5 tests
+test resolved_build_runner_preserves_the_explicit_engine_trigger ... ok
+test only_absence_is_ignored_while_unreadable_configuration_requires_validation ... ok
+test malformed_yaml_and_invalid_definition_shapes_require_validation ... ok
+test empty_sections_nested_options_and_other_documents_do_not_create_an_engine ... ok
+test builder_definitions_in_resolved_dependencies_accept_equivalent_yaml_forms ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s

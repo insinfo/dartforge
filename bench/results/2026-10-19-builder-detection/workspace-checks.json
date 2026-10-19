@@ -1,0 +1,22 @@
+{
+  "fmt": {
+    "exit": 1,
+    "bytes": 15734343,
+    "sha256": "7e2ea7e218715aef1a4513dd71f44653dc9bfcd3e79e210d4081f71043b38158"
+  },
+  "clippy": {
+    "exit": 101,
+    "bytes": 40289,
+    "sha256": "abeb9fbc120c5dee1bbf9259e33d36c16c732b07ed9fbf9db6bae3e115a74641"
+  },
+  "test": {
+    "exit": 101,
+    "bytes": 2754963,
+    "sha256": "ef11936b00029fb337109da7df7630d366fc762b306b6607e90fb6f7a81ae06d"
+  },
+  "doc": {
+    "exit": 0,
+    "bytes": 11801,
+    "sha256": "d8c5cf71e02988f2f249855bd8d9a2a0e221277c07e243b77a21ee56eb8579eb"
+  }
+}

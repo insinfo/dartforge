@@ -1,0 +1,25 @@
+   Compiling dartforge-build v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/build)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.94s
+   Doc-tests dartforge_build
+
+running 16 tests
+test crates/build/src/command_line.rs - command_line::BuildFilter::from_arg (line 344) ... ok
+test crates/build/src/config.rs - config::BuildConfig::from_text_with_profile (line 402) ... ok
+test crates/build/src/executor_deps.rs - executor_deps::satisfies (line 88) ... ok
+test crates/build/src/command_line.rs - command_line::json (line 83) ... ok
+test crates/build/src/command_line.rs - command_line::Defines::parse (line 29) ... ok
+test crates/build/src/executor_deps.rs - executor_deps::Version::parse (line 42) ... ok
+test crates/build/src/config.rs - config::BuildConfig::from_text (line 380) ... ok
+test crates/build/src/native_executor.rs - native_executor::NativeConfig::for_project (line 64) ... ok
+test crates/build/src/packages.rs - packages::scc (line 164) ... ok
+test crates/build/src/lib.rs - detect (line 69) ... ok
+test crates/build/src/profile.rs - profile::Profile::from_versions (line 77) ... ok
+test crates/build/src/vm.rs - vm::bootstrap (line 143) ... ok
+test crates/build/src/vm.rs - vm::VmConfig::for_project (line 106) ... ok
+test crates/build/src/triggers.rs - triggers::parse (line 219) ... ok
+test crates/build/src/profile.rs - profile::Version::read (line 31) ... ok
+test crates/build/src/triggers.rs - triggers::Triggers::from_configs (line 126) ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+all doctests ran in 1.04s; merged doctests compilation took 0.63s

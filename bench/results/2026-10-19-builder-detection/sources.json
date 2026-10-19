@@ -1,0 +1,7 @@
+{
+  "crates/build/src/lib.rs": "26417626638938c3333e7db327ef875c1d6996a85a133526f35fa716355c6c7b",
+  "crates/build/src/detection.rs": "2fe318be4776e5632a12054818c72c5ca36d424fb84b70c167d08ee95232b7e9",
+  "crates/build/tests/detection.rs": "641294af2d21081ff30d4155d0bcc6e218bd2764fd40d3f91c34f5318634d38b",
+  "crates/cli/tests/generated_ir.rs": "fc69f9cb2e1a8a452543de815c2b80a5c101d9eb8840331d7ed83adab77d8d69",
+  "crates/dev/tests/zero_cost.rs": "662b90618321e36fcec1204b7de81286502d3e010b3fab9df52fc99d4fcab118"
+}

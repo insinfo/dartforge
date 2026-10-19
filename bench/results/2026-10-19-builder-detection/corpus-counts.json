@@ -1,0 +1,84 @@
+{
+  "rows": [
+    {
+      "case": "built_value",
+      "plan": "equal (5)",
+      "equal": 0,
+      "pending": 2,
+      "different": 0
+    },
+    {
+      "case": "cadeia_configuracao",
+      "plan": "equal (10)",
+      "equal": 0,
+      "pending": 22,
+      "different": 0
+    },
+    {
+      "case": "drift",
+      "plan": "equal (10)",
+      "equal": 0,
+      "pending": 12,
+      "different": 0
+    },
+    {
+      "case": "freezed",
+      "plan": "equal (6)",
+      "equal": 0,
+      "pending": 3,
+      "different": 0
+    },
+    {
+      "case": "i18n",
+      "plan": "equal (3)",
+      "equal": 3,
+      "pending": 0,
+      "different": 0
+    },
+    {
+      "case": "json_serializable",
+      "plan": "equal (5)",
+      "equal": 0,
+      "pending": 2,
+      "different": 0
+    },
+    {
+      "case": "mockito",
+      "plan": "equal (5)",
+      "equal": 0,
+      "pending": 2,
+      "different": 0
+    },
+    {
+      "case": "riverpod_generator",
+      "plan": "equal (5)",
+      "equal": 0,
+      "pending": 2,
+      "different": 0
+    },
+    {
+      "case": "sass_builder",
+      "plan": "equal (4)",
+      "equal": 6,
+      "pending": 0,
+      "different": 0
+    },
+    {
+      "case": "sass_builder_compressed",
+      "plan": "equal (4)",
+      "equal": 6,
+      "pending": 0,
+      "different": 0
+    },
+    {
+      "case": "sem_builders",
+      "plan": "no builders (engine not built)",
+      "equal": 0,
+      "pending": 0,
+      "different": 0
+    }
+  ],
+  "builder_projects": 10,
+  "no_builder_controls": 1,
+  "project_count": 11
+}

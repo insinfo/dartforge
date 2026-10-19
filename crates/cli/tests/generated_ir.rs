@@ -206,3 +206,77 @@ fn invalid_builder_configuration_cannot_use_stale_sources_or_replace_artifacts()
         assert_eq!(std::fs::read(&manifest).unwrap(), b"previous manifest");
     }
 }
+
+#[test]
+fn quoted_and_flow_builder_definitions_generate_sources() {
+    for flow in [false, true] {
+        let project = Project::new();
+        let path = project.0.join("vendor/i18n/build.yaml");
+        let configuration = if flow {
+            serde_json::json!({"builders":{"yamlBasedBuilder":{
+                "import":"package:i18n/builder.dart", "builder_factories":["yamlBasedBuilder"],
+                "build_extensions":{".i18n.yaml":[".i18n.dart"]},
+                "build_to":"source", "auto_apply":"root_package"
+            }}})
+            .to_string()
+        } else {
+            std::fs::read_to_string(&path)
+                .unwrap()
+                .replacen("builders:", "'builders':", 1)
+        };
+        std::fs::write(path, configuration).unwrap();
+        let ir = project.0.join("program.ll");
+        digest(
+            project
+                .command()
+                .args(["--digest", "--emit-ir", "-o"])
+                .arg(&ir)
+                .output()
+                .unwrap(),
+        );
+        assert!(
+            std::fs::read_to_string(ir)
+                .unwrap()
+                .contains("engine first")
+        );
+        assert!(!project.0.join("lib/messages.i18n.dart").exists());
+    }
+}
+
+#[test]
+fn invalid_non_block_configuration_cannot_be_bypassed_with_stale_sources() {
+    for (configuration, diagnostic) in [
+        (&b"'builders': [\n"[..], "invalid YAML"),
+        (&b"{builders: []}\n"[..], "expected a map"),
+        (&b"\xff\xfe"[..], "could not read"),
+    ] {
+        let project = Project::new();
+        std::fs::write(project.0.join("vendor/i18n/build.yaml"), configuration).unwrap();
+        project.write(
+            "lib/messages.i18n.dart",
+            "class Messages { String get value => 'stale fallback'; }\n",
+        );
+        let ir = project.0.join("program.ll");
+        let manifest = project.0.join("program.ll.contracts.json");
+        std::fs::write(&ir, b"previous IR").unwrap();
+        std::fs::write(&manifest, b"previous manifest").unwrap();
+        let output = project
+            .command()
+            .args(["--digest", "--emit-ir", "-o"])
+            .arg(&ir)
+            .output()
+            .unwrap();
+        assert!(
+            !output.status.success(),
+            "invalid configuration bypassed generation"
+        );
+        let text = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            text.contains("build.yaml") && text.contains(diagnostic),
+            "{text}"
+        );
+        assert!(output.stdout.is_empty());
+        assert_eq!(std::fs::read(&ir).unwrap(), b"previous IR");
+        assert_eq!(std::fs::read(&manifest).unwrap(), b"previous manifest");
+    }
+}

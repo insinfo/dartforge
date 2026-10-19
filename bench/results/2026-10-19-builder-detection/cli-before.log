@@ -1,0 +1,35 @@
+Cargo LLVM linker: /Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/ld64.lld; SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
+[Repeated build/link warning preamble omitted; see log-hashes.json.]
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.34s
+     Running tests/generated_ir.rs (target/impl-a/debug/deps/generated_ir-51208305c2faffb9)
+
+running 4 tests
+generated IR test compiler: /Volumes/ssd_dock/MyRustProjects/dartforge/target/detection-cli-before/dartforge
+generated IR test compiler: /Volumes/ssd_dock/MyRustProjects/dartforge/target/detection-cli-before/dartforge
+generated IR test compiler: /Volumes/ssd_dock/MyRustProjects/dartforge/target/detection-cli-before/dartforge
+generated IR test compiler: /Volumes/ssd_dock/MyRustProjects/dartforge/target/detection-cli-before/dartforge
+
+thread 'quoted_and_flow_builder_definitions_generate_sources' (1535204) panicked at crates/cli/tests/generated_ir.rs:104:5:
+error: error loading the program: could not read /private/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-generated-ir-56550-1792421869820482000-3/lib/messages.i18n.dart: No such file or directory (os error 2) at bytes 0..0
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+generated IR test compiler: /Volumes/ssd_dock/MyRustProjects/dartforge/target/detection-cli-before/dartforge
+test quoted_and_flow_builder_definitions_generate_sources ... FAILED
+test invalid_builder_configuration_cannot_use_stale_sources_or_replace_artifacts ... ok
+
+thread 'invalid_non_block_configuration_cannot_be_bypassed_with_stale_sources' (1535202) panicked at crates/cli/tests/generated_ir.rs:269:9:
+invalid configuration bypassed generation
+test invalid_non_block_configuration_cannot_be_bypassed_with_stale_sources ... FAILED
+generated IR test compiler: /Volumes/ssd_dock/MyRustProjects/dartforge/target/detection-cli-before/dartforge
+generated IR test compiler: /Volumes/ssd_dock/MyRustProjects/dartforge/target/detection-cli-before/dartforge
+test ir_and_digest_generate_fresh_sources_without_materializing_them ... ok
+
+failures:
+
+failures:
+    invalid_non_block_configuration_cannot_be_bypassed_with_stale_sources
+    quoted_and_flow_builder_definitions_generate_sources
+
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.00s
+
+error: test failed, to rerun pass `-p dartforge-cli --test generated_ir`

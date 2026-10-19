@@ -37,6 +37,19 @@ transação única. Evidências e limites da correção:
 
 ## 2. Configuração e plano (`config/`, `pacotes.rs`, `plano.rs`)
 
+A detecção anterior ao motor usa o mesmo leitor YAML da configuração, inclusive
+a escolha do primeiro documento. Chaves entre aspas, mapas em uma linha e
+indentação não podem ocultar definições. Seções de definições vazias ou nulas,
+opções aninhadas de targets e documentos posteriores não definem builders.
+Arquivos ausentes não são analisados; arquivos ilegíveis, YAML malformado e
+seções com tipo incorreto exigem validação pelo motor, sem usar uma fonte
+gerada antiga como substituta. A presença explícita de `build_runner` resolvido
+continua acionando o motor. A detecção não substitui a validação completa do
+schema. O teste estrutural de custo zero verifica ausência de motor e igualdade
+de alocações nas edições, não tempo ou alocações nulas na inicialização com um
+`build.yaml` existente. Evidências:
+`bench/results/2026-10-19-builder-detection/README.md`.
+
 * **Grafo de pacotes** — `PackageGraph.forPath`
   (`PC/build_runner_core-8.0.0/lib/src/package_graph/package_graph.dart:60-148`):
   pacotes do `package_config.json` em ordem de nome; tipo de dependência

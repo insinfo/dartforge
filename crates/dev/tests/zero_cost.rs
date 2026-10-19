@@ -56,6 +56,9 @@ fn project(dir: &Path) -> (PathBuf, PathBuf, PathBuf) {
     std::fs::create_dir_all(proj.join("lib")).unwrap();
     std::fs::create_dir_all(proj.join(".dart_tool")).unwrap();
     std::fs::write(proj.join("pubspec.yaml"), "name: proj\nenvironment:\n  sdk: ^3.6.0\n").unwrap();
+    // Empty definition sections are valid configuration, not a generation
+    // stage. No lockfile or engine is needed for this project.
+    std::fs::write(proj.join("build.yaml"), "builders:\npost_process_builders:\n").unwrap();
     let cfg = proj.join(".dart_tool/package_config.json");
     std::fs::write(
         &cfg,

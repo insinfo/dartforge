@@ -2,6 +2,19 @@
 
 ## Atualização de 19/10/2026
 
+- A detecção de builders agora usa o leitor YAML da configuração, reconhece
+  chaves entre aspas/mapas em uma linha e não aciona o motor para definições
+  vazias ou documentos posteriores ignorados pelo leitor. Arquivos ilegíveis,
+  sintaxe inválida e seções de tipo incorreto seguem para validação em vez de
+  permitir fontes geradas antigas. Quatro testes de detecção e dois novos
+  testes de CLI falhavam antes; passaram os 60 testes regulares do motor (18
+  ignorados nessa rodada), 16 doctests, quatro integrações da CLI e o gate de
+  custo zero com seções vazias. O corpus adicional cobriu 11 projetos (10 planos
+  iguais e um controle sem motor): 15 saídas iguais, 45 pendentes por falta de
+  executor/fallback e nenhuma diferente; não é execução de todos os builders do ecossistema.
+  Clippy estrito do motor e da CLI passou com `--no-deps`; checks globais
+  mantêm pendências de fmt/Clippy/link, com avisos na documentação. Evidências:
+  `bench/results/2026-10-19-builder-detection/README.md`.
 - `compile-native --emit-ir` e `--digest` agora usam o motor de geração de
   fontes, como o AOT e o JIT. Duas regressões reproduzidas no compilador anterior
   cobrem fonte ausente e configuração inválida ignorada diante de fonte antiga.

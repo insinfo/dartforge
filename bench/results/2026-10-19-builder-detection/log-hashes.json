@@ -1,0 +1,62 @@
+{
+  "detection-before.log": {
+    "local_full_log": "/tmp/forge-detection-before.log",
+    "bytes": 2608,
+    "sha256": "a585cc3e975bac4267c0975fe3dfd50165a9c02088d01f4e1a79ba6bfa992d4c",
+    "exit": 101
+  },
+  "detection-after.log": {
+    "local_full_log": "/tmp/forge-detection-after.log",
+    "bytes": 773,
+    "sha256": "4784470e58e946e3f7359fa00915dfb19f17c7f87bff34e8aeb5f0dc0a8aa616",
+    "exit": 0
+  },
+  "cli-before.log": {
+    "local_full_log": "/tmp/forge-detection-cli-before.log",
+    "bytes": 158653,
+    "sha256": "e8c2a0525a66cf0d931a7f7538d04702b7e573537135c27869e306e6396dde55",
+    "exit": 101
+  },
+  "cli-after.log": {
+    "local_full_log": "/tmp/forge-detection-cli-after.log",
+    "bytes": 158225,
+    "sha256": "6d0a3245ef4b98539e2cf16dfefa5fc5ba250dc17092b44472d56e1a1fbcf1ea",
+    "exit": 0
+  },
+  "build-tests.log": {
+    "local_full_log": "/tmp/forge-detection-build-tests.log",
+    "bytes": 7830,
+    "sha256": "5a06b316717edf3b89796eabe113ab60c45db0abd211db3e70686d44a55500f7",
+    "exit": 0
+  },
+  "build-clippy.log": {
+    "local_full_log": "/tmp/forge-detection-build-clippy.log",
+    "bytes": 864,
+    "sha256": "cfe410f7a9a775242dc9bf2175eb6bc0b0e907e0bfa8614ca6433eee1dacd229",
+    "exit": 0
+  },
+  "cli-clippy.log": {
+    "local_full_log": "/tmp/forge-detection-cli-clippy.log",
+    "bytes": 2486,
+    "sha256": "419809b0890e9e576624fbb1c4511ef74340fea961713d98b4ad1c71892e2c05",
+    "exit": 0
+  },
+  "zero-cost.log": {
+    "local_full_log": "/tmp/forge-detection-zero-cost.log",
+    "bytes": 915,
+    "sha256": "c1c9bdf0c536dd014c79edfba7f37fe33c3639c3973b3934ad030ce25247d398",
+    "exit": 0
+  },
+  "doctests.log": {
+    "local_full_log": "/tmp/forge-detection-doc-final.log",
+    "bytes": 1661,
+    "sha256": "5d2610ea432806ab0d513b00ac7de7a4582ed6dc48a10fae49d690125157955a",
+    "exit": 0
+  },
+  "corpus.log": {
+    "local_full_log": "/tmp/forge-detection-corpus.log",
+    "bytes": 2967,
+    "sha256": "9ace33f3654419f4f4624e62aee6fb01bb511e536c6f721f7dc615d2df7f04ef",
+    "exit": 0
+  }
+}

@@ -1,0 +1,24 @@
+    Blocking waiting for file lock on build directory
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.38s
+     Running tests/corpus.rs (target/impl-a/debug/deps/corpus-8a25f1ec9f5b636e)
+
+running 1 test
+cadeia_configuracao: corpus_cadeia_configuracao|lib/entrada/notas.rascunho.resumo (post-processor: output only with the Dart executor)
+### corpus/builders — plan and scoreboard (equal/pending/different)
+
+| case | plan | equal | pending | different | reasons |
+|---|---|---|---|---|---|
+| built_value | equal (5) | 0 | 2 | 0 | 2× no fallback: Dart builder executor disabled (the self-hosted one does not exist yet, BUILD-RUST.md Phase 4; through the VM: `dartforge build --dart <exe>` or DARTFORGE_BUILD_DART) (there is no .dart_tool/build; run 'dart run build_runner build') |
+| cadeia_configuracao | equal (10) | 0 | 22 | 0 | 21× no fallback: Dart builder executor disabled (the self-hosted one does not exist yet, BUILD-RUST.md Phase 4; through the VM: `dartforge build --dart <exe>` or DARTFORGE_BUILD_DART) (there is no .dart_tool/build; run 'dart run build_runner build'); 1× post-processor: output only with the Dart executor |
+| drift | equal (10) | 0 | 12 | 0 | 12× no fallback: Dart builder executor disabled (the self-hosted one does not exist yet, BUILD-RUST.md Phase 4; through the VM: `dartforge build --dart <exe>` or DARTFORGE_BUILD_DART) (there is no .dart_tool/build; run 'dart run build_runner build') |
+| freezed | equal (6) | 0 | 3 | 0 | 3× no fallback: Dart builder executor disabled (the self-hosted one does not exist yet, BUILD-RUST.md Phase 4; through the VM: `dartforge build --dart <exe>` or DARTFORGE_BUILD_DART) (there is no .dart_tool/build; run 'dart run build_runner build') |
+| i18n | equal (3) | 3 | 0 | 0 |  |
+| json_serializable | equal (5) | 0 | 2 | 0 | 2× no fallback: Dart builder executor disabled (the self-hosted one does not exist yet, BUILD-RUST.md Phase 4; through the VM: `dartforge build --dart <exe>` or DARTFORGE_BUILD_DART) (there is no .dart_tool/build; run 'dart run build_runner build') |
+| mockito | equal (5) | 0 | 2 | 0 | 2× no fallback: Dart builder executor disabled (the self-hosted one does not exist yet, BUILD-RUST.md Phase 4; through the VM: `dartforge build --dart <exe>` or DARTFORGE_BUILD_DART) (there is no .dart_tool/build; run 'dart run build_runner build') |
+| riverpod_generator | equal (5) | 0 | 2 | 0 | 2× no fallback: Dart builder executor disabled (the self-hosted one does not exist yet, BUILD-RUST.md Phase 4; through the VM: `dartforge build --dart <exe>` or DARTFORGE_BUILD_DART) (there is no .dart_tool/build; run 'dart run build_runner build') |
+| sass_builder | equal (4) | 6 | 0 | 0 |  |
+| sass_builder_compressed | equal (4) | 6 | 0 | 0 |  |
+| sem_builders | no builders (engine not built) | 0 | 0 | 0 | |
+test corpus_builders_plan_and_scoreboard ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.53s

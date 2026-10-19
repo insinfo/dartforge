@@ -7,10 +7,11 @@
 //! in-memory `Generation` (`dartforge_elements::generated`).
 //!
 //! **Zero cost for those who do not use it** (PLANO.md, governing rule):
-//! nothing in this crate is built if no resolved package defines builders
+//! valid projects without definitions or a runner trigger construct no engine
 //! ([`detect`]); [`instance_count`] counts the engines created, for the gate.
 pub mod client;
 pub mod config;
+mod detection;
 pub mod query;
 pub mod executor_deps;
 pub mod descriptor;
@@ -54,31 +55,28 @@ pub(crate) fn count_instance() {
     INSTANCES.fetch_add(1, Ordering::Relaxed);
 }
 
-/// Does the project use builders? Some resolved package defines builders in
-/// its `build.yaml` (`builders:`/`post_process_builders:`), or `build_runner`
-/// is resolved. The name of the official orchestrator is not proof of
-/// absence (DF-BUILD-001): a local builder using `package:build`, without
-/// `build_runner`, also generates. It costs one `stat` per package plus
-/// reading the few `build.yaml` files that exist; with none, nothing is
-/// created.
+/// Whether the resolved project requires the generation engine.
+/// A nonempty builder section or resolved `build_runner` enables the engine.
+/// Unreadable files, invalid YAML or invalid definition-section shapes also
+/// require validation; they cannot establish that builders are absent. Other
+/// schema rules are checked by [`Engine::new`], not by this predicate.
+///
+/// No engine is constructed here. Only existing files are parsed, using the
+/// same first-document semantics as [`config::load_yaml`]. Quoted keys, flow
+/// mappings and indentation do not change detection; empty sections and nested
+/// target options do not define builders.
+///
+/// ```
+/// use dartforge_build::detect;
+/// use dartforge_elements::config::PackageConfig;
+/// assert!(!detect(&PackageConfig::default()));
+/// ```
 pub fn detect(cfg: &PackageConfig) -> bool {
     cfg.packages.contains_key("build_runner")
         || cfg
             .root_dirs
             .iter()
-            .any(|(_, dir)| defines_builders(&dir.join("build.yaml")))
-}
-
-/// Does the `build.yaml` declare builders? Checked through the YAML top-level
-/// keys (no indentation), without building the whole configuration.
-fn defines_builders(build_yaml: &Path) -> bool {
-    let Ok(text) = std::fs::read_to_string(build_yaml) else {
-        return false;
-    };
-    text.lines().any(|l| {
-        let key = l.split('#').next().unwrap_or_default().trim_end();
-        matches!(key, "builders:" | "post_process_builders:")
-    })
+            .any(|(_, dir)| detection::requires_engine(&dir.join("build.yaml")))
 }
 
 /// Directory of the root package: the one of the nearest `pubspec.yaml` above

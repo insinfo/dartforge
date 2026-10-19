@@ -1,0 +1,6 @@
+{
+  "baseline_cli": "target/detection-cli-before/dartforge",
+  "baseline_cli_sha256": "6fb8aa06092b880c5fa59bf944acd1a190a24590baf5572accd24dfa174c97b0",
+  "current_cli": "target/impl-a/debug/dartforge",
+  "current_cli_sha256": "6c37c59e4b13e814d59f5c3e05033bb682c283cdda15cde3c2ade13d40c5c597"
+}

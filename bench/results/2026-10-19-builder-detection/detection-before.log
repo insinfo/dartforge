@@ -1,0 +1,50 @@
+   Compiling libc v0.2.189
+   Compiling getrandom v0.2.17
+   Compiling errno v0.3.14
+   Compiling getrandom v0.4.3
+   Compiling rustix v1.1.5
+   Compiling rand_core v0.6.4
+   Compiling rand_chacha v0.3.1
+   Compiling rand v0.8.8
+   Compiling tempfile v3.27.0
+   Compiling dartforge-sass v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/sass)
+   Compiling dartforge-ng-generator v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/ng_generator)
+   Compiling dartforge-build v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/build)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.90s
+     Running tests/detection.rs (target/impl-a/debug/deps/detection-8ab3ce4f4c88fb1c)
+
+running 5 tests
+
+thread 'malformed_yaml_and_invalid_definition_shapes_require_validation' (1534318) panicked at crates/build/tests/detection.rs:102:9:
+invalid configuration was treated as absent: [
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'builder_definitions_in_resolved_dependencies_accept_equivalent_yaml_forms' (1534316) panicked at crates/build/tests/detection.rs:54:9:
+valid definitions were missed: builders: {make: {import: 'make.dart', builder_factories: [make], build_extensions: {'.txt': ['.dart']}}}
+
+
+thread 'only_absence_is_ignored_while_unreadable_configuration_requires_validation' (1534319) panicked at crates/build/tests/detection.rs:114:5:
+non-UTF-8 configuration must not bypass validation
+test malformed_yaml_and_invalid_definition_shapes_require_validation ... FAILED
+test builder_definitions_in_resolved_dependencies_accept_equivalent_yaml_forms ... FAILED
+test resolved_build_runner_preserves_the_explicit_engine_trigger ... ok
+test only_absence_is_ignored_while_unreadable_configuration_requires_validation ... FAILED
+
+thread 'empty_sections_nested_options_and_other_documents_do_not_create_an_engine' (1534317) panicked at crates/build/tests/detection.rs:75:9:
+no definitions in the selected document: builders:
+post_process_builders:
+
+test empty_sections_nested_options_and_other_documents_do_not_create_an_engine ... FAILED
+
+failures:
+
+failures:
+    builder_definitions_in_resolved_dependencies_accept_equivalent_yaml_forms
+    empty_sections_nested_options_and_other_documents_do_not_create_an_engine
+    malformed_yaml_and_invalid_definition_shapes_require_validation
+    only_absence_is_ignored_while_unreadable_configuration_requires_validation
+
+test result: FAILED. 1 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p dartforge-build --test detection`
