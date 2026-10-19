@@ -4,6 +4,8 @@ use super::{Reach, Summary};
 use crate::hir::*;
 use std::collections::{HashMap, HashSet};
 
+mod closures;
+
 pub(super) fn narrow(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
     module.closed_class_tables = None;
     if std::env::var("DARTFORGE_CLOSED_CLASS_REACHABILITY").as_deref() != Ok("1") {
@@ -170,11 +172,14 @@ fn narrow_enabled(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
         })
         .collect();
     let mut covered = true;
+    let closure_targets = closures::targets(module);
     for function in &module.functions {
         if !live(&function.symbol) {
             continue;
         }
         let shape = super::receiver_provenance::Shape::new(function).ok()?;
+        let closure_receivers =
+            closures::receivers(function, &functions, &closure_targets, &shape)?;
         let stack_slots: HashMap<_, _> = function
             .blocks
             .iter()
@@ -186,7 +191,7 @@ fn narrow_enabled(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
                 _ => None,
             })
             .collect();
-        for (_, instruction, result) in function.blocks.iter().flat_map(|b| &b.instructions) {
+        for (value, instruction, result) in function.blocks.iter().flat_map(|b| &b.instructions) {
             let mut address_exposed = false;
             crate::optimize::operands::operands(instruction, &mut |operand| {
                 address_exposed |= matches!(operand, Operand::Constant(Constant::Function(_)));
@@ -195,6 +200,12 @@ fn narrow_enabled(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
                 && match instruction {
                     Instruction::AllocObject { class_id, fields } => {
                         *result == Type::Ref && valid_allocation(*class_id, fields.len())
+                    }
+                    Instruction::AllocClosure { .. } | Instruction::TearOff { .. } => {
+                        closure_receivers.contains(value)
+                    }
+                    Instruction::CallClosure { closure, .. } => {
+                        matches!(closure, Operand::Val(id) if closure_receivers.contains(id))
                     }
                     Instruction::CallRuntime { name, args, ret_ty }
                         if name == "dartforge_object_new" =>
@@ -303,12 +314,9 @@ fn narrow_enabled(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
                     | Instruction::CompositeNativeCall { .. }
                     | Instruction::CallInterface { .. }
                     | Instruction::CallDynamic { .. }
-                    | Instruction::CallClosure { .. }
                     | Instruction::CallClosureForward { .. }
                     | Instruction::TypedCall { .. }
-                    | Instruction::AllocClosure { .. }
                     | Instruction::AllocClosureTyped { .. }
-                    | Instruction::TearOff { .. }
                     | Instruction::AllocList { .. }
                     | Instruction::AllocRecord { .. }
                     | Instruction::AllocCell { .. }

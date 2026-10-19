@@ -188,7 +188,7 @@ fn unknown_creation_exposure_and_entry_inputs_keep_original_wide_behavior() {
             2 => module.functions[0].blocks[0].instructions.push((
                 ValueId(1),
                 Instruction::TearOff {
-                    code_symbol: "df.Unused.method".into(),
+                    code_symbol: "df.missing.closure".into(),
                 },
                 Type::Ref,
             )),
@@ -225,6 +225,208 @@ fn unknown_creation_exposure_and_entry_inputs_keep_original_wide_behavior() {
             .position(|s| s == "df.Unused.toString")
             .unwrap() as u32;
         assert!(reach.live(node), "original unconditional roots remain");
+    }
+}
+
+/// The closure body allocates a second class; its table must survive even when
+/// the only path to that allocation is an indirect uniform closure invocation.
+fn closure_fixture(tearoff: bool) -> Module {
+    let mut module = fixture();
+    let target = "df.test.create";
+    let mut body = function(
+        target,
+        vec![(
+            ValueId(3),
+            Instruction::AllocObject {
+                class_id: 302,
+                fields: vec![],
+            },
+            Type::Ref,
+        )],
+    );
+    body.params = vec![
+        (ValueId(0), "closure".into(), Type::Ref),
+        (ValueId(1), "args".into(), Type::Ptr),
+        (ValueId(2), "descriptor".into(), Type::Ptr),
+    ];
+    body.return_ty = Type::Ref;
+    body.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(3))));
+    module.functions.push(body);
+    module.functions[0].blocks[0].instructions.extend([
+        (
+            ValueId(1),
+            if tearoff {
+                Instruction::TearOff {
+                    code_symbol: target.into(),
+                }
+            } else {
+                Instruction::AllocClosure {
+                    code_symbol: target.into(),
+                    env: Operand::Constant(Constant::Null),
+                }
+            },
+            Type::Ref,
+        ),
+        (
+            ValueId(2),
+            Instruction::CallClosure {
+                closure: Operand::Val(ValueId(1)),
+                args: vec![],
+                names: vec![],
+                ret_ty: Type::Ref,
+                tuple_types: Operand::Constant(Constant::Null),
+            },
+            Type::Ref,
+        ),
+    ]);
+    module
+}
+
+#[test]
+fn bounded_uniform_closures_keep_transitive_allocations_and_drop_unrelated_tables() {
+    for tearoff in [false, true] {
+        let mut module = closure_fixture(tearoff);
+        assert!(apply(&mut module), "tearoff={tearoff}");
+        assert_eq!(
+            module.closed_class_tables.as_ref().unwrap(),
+            &HashSet::from([300, 302])
+        );
+        let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
+        assert!(ir.contains("define ptr @df.mt.Nested("));
+        assert!(!ir.contains("define ptr @df.mt.Unused("));
+    }
+}
+
+#[test]
+fn escaped_mutated_unresolved_or_mismatched_closures_keep_wide_registration() {
+    for variant in 0..16 {
+        let mut module = closure_fixture(variant % 2 == 0);
+        let body = module.functions.last_mut().unwrap();
+        match variant {
+            0 => body.params[1].2 = Type::I64,
+            1 => body.return_ty = Type::I64,
+            // The closure's implicit receiver aliases its code-bearing object.
+            2 => body.blocks[0].instructions.push((
+                ValueId(4),
+                Instruction::SetField {
+                    object: Operand::Val(ValueId(0)),
+                    index: 0,
+                    value: Operand::Constant(Constant::Int(0)),
+                },
+                Type::Void,
+            )),
+            3 => {
+                module.globals.push((7, Type::Ref, "dfg.closure".into()));
+                module.functions[0].blocks[0].instructions.push((
+                    ValueId(4),
+                    Instruction::StoreGlobal {
+                        symbol: "dfg.closure".into(),
+                        val: Operand::Val(ValueId(1)),
+                        ty: Type::Ref,
+                        root: Some(7),
+                    },
+                    Type::Void,
+                ));
+            }
+            4 => module.functions[0].blocks[0].instructions.push((
+                ValueId(4),
+                Instruction::SetField {
+                    object: Operand::Val(ValueId(1)),
+                    index: 0,
+                    value: Operand::Constant(Constant::Int(0)),
+                },
+                Type::Void,
+            )),
+            5 => {
+                if let Instruction::AllocClosure { code_symbol, .. } =
+                    &mut module.functions[0].blocks[0].instructions[1].1
+                {
+                    *code_symbol = "sdk.unknown".into();
+                }
+            }
+            6 => {
+                if let Instruction::CallClosure { closure, .. } =
+                    &mut module.functions[0].blocks[0].instructions[2].1
+                {
+                    *closure = Operand::Val(ValueId(0));
+                }
+            }
+            7 => {
+                if let Instruction::CallClosure { args, .. } =
+                    &mut module.functions[0].blocks[0].instructions[2].1
+                {
+                    args.push(Operand::Val(ValueId(1)));
+                }
+            }
+            8 => {
+                if let Instruction::CallClosure { names, .. } =
+                    &mut module.functions[0].blocks[0].instructions[2].1
+                {
+                    names.push("unexpected".into());
+                }
+            }
+            9 => {
+                if let Instruction::AllocClosure { env, .. } =
+                    &mut module.functions[0].blocks[0].instructions[1].1
+                {
+                    *env = Operand::Constant(Constant::Int(1));
+                }
+            }
+            10 => body.blocks[0].instructions.push((
+                ValueId(4),
+                Instruction::CallClosure {
+                    closure: Operand::Val(ValueId(0)),
+                    args: vec![],
+                    names: vec![],
+                    ret_ty: Type::Ref,
+                    tuple_types: Operand::Constant(Constant::Null),
+                },
+                Type::Ref,
+            )),
+            11 => body.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(0)))),
+            12 => body.blocks[0].instructions.push((
+                ValueId(4),
+                Instruction::GetField {
+                    object: Operand::Val(ValueId(0)),
+                    index: 0,
+                },
+                Type::Ref,
+            )),
+            13 => module.functions[0].blocks[0].instructions.extend([
+                (ValueId(4), Instruction::Alloca(Type::I64), Type::Ptr),
+                (
+                    ValueId(5),
+                    Instruction::CallStatic {
+                        symbol: "df.test.create".into(),
+                        args: vec![
+                            Operand::Val(ValueId(1)),
+                            Operand::Val(ValueId(4)),
+                            Operand::Val(ValueId(4)),
+                        ],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                ),
+            ]),
+            14 => {
+                if let Instruction::CallClosure { names, args, .. } =
+                    &mut module.functions[0].blocks[0].instructions[2].1
+                {
+                    *names = vec!["duplicate".into(), "duplicate".into()];
+                    *args = vec![Operand::Constant(Constant::Null); 2];
+                }
+            }
+            _ => {
+                module.functions[0].blocks[0].instructions[2].2 = Type::I64;
+                if let Instruction::CallClosure { ret_ty, .. } =
+                    &mut module.functions[0].blocks[0].instructions[2].1
+                {
+                    *ret_ty = Type::I64;
+                }
+            }
+        }
+        assert!(!apply(&mut module), "closure variant {variant}");
+        assert!(module.closed_class_tables.is_none());
     }
 }
 #[test]
@@ -650,6 +852,66 @@ fn compiled_closed_selector_matches_eager_registration() {
         .unwrap()
         .join()
         .unwrap();
+}
+
+#[test]
+#[ignore = "requires Clang and the native runtime"]
+fn compiled_uniform_closures_match_eager_registration_with_stress_gc() {
+    std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+        let directory = tempfile::tempdir().unwrap();
+        for (tearoff, captured) in [(false, false), (true, false), (false, true)] {
+            let mut source = closure_fixture(tearoff);
+            source.runtime_cids = dartforge_runtime::layout::cid::SDK_CLASSES.iter()
+                .map(|(cid, _, _)| i64::from(*cid)).collect();
+            if captured {
+                if let Instruction::AllocClosure { env, .. } = &mut source.functions[0].blocks[0].instructions[1].1 {
+                    *env = Operand::Val(ValueId(0));
+                }
+                source.functions.last_mut().unwrap().blocks[0].instructions[0].1 = Instruction::GetField {
+                    object: Operand::Val(ValueId(0)), index: 1,
+                };
+            }
+            source.functions[0].blocks[0].instructions.extend([
+                (ValueId(3), Instruction::CallSelector {
+                    selector: "c:used".into(), recv: Operand::Val(ValueId(2)),
+                    args: vec![], names: vec![], tuple_types: Operand::Constant(Constant::Null),
+                }, Type::Ref),
+                (ValueId(4), Instruction::ICmp(ICmpOp::Eq, Operand::Val(ValueId(3)),
+                    Operand::Constant(Constant::Null)), Type::I1),
+            ]);
+            source.functions[0].blocks[0].terminator = Terminator::CondBranch {
+                cond: Operand::Val(ValueId(4)), then_block: BlockId(1), else_block: BlockId(2),
+            };
+            source.functions[0].blocks.extend([
+                BasicBlock { id: BlockId(1), instructions: vec![], terminator: Terminator::Return(None) },
+                BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Throw(Operand::Constant(Constant::Null)) },
+            ]);
+            for closed in [false, true] {
+                let mut module = source.clone();
+                if closed { assert!(apply(&mut module)); }
+                let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
+                assert_eq!(ir.contains("define ptr @df.mt.Unused("), !closed);
+                assert_eq!(ir.contains("define ptr @df.mt.Nested("), !closed || !captured);
+                // Use the runtime-owned main for this SDK-free ABI fixture.
+                let wrapper = "define i32 @main() {\n  %r = call i32 @dartforge_init(ptr @dartforge_entry, ptr @dartforge_dispatch_toString)\n  ret i32 %r\n}\n";
+                assert_eq!(ir.matches(wrapper).count(), 1);
+                let ir = ir.replacen(wrapper, "", 1);
+                let executable = directory.path().join(crate::target::executable_name(
+                    &format!("closure-{tearoff}-{captured}-{closed}")));
+                crate::driver::compile_and_link(&ir, &executable,
+                    &crate::driver::NativeDriverOptions::default()).unwrap();
+                for stressed in [false, true] {
+                    let mut command = std::process::Command::new(&executable);
+                    if stressed { command.env("DARTFORGE_GC_STRESS", "1"); }
+                    let output = command.output().unwrap();
+                    assert!(output.status.success(),
+                        "tearoff={tearoff}, captured={captured}, closed={closed}, stress={stressed}: {}",
+                        String::from_utf8_lossy(&output.stderr));
+                    assert!(output.stdout.is_empty() && output.stderr.is_empty());
+                }
+            }
+        }
+    }).unwrap().join().unwrap();
 }
 
 #[test]

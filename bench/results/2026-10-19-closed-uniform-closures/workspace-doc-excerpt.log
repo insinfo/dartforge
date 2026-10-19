@@ -1,0 +1,50 @@
+    |                   ^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib) generated 1 warning
+ Documenting dartforge-differential v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/differential)
+warning: public documentation for `with_body_without_outside` links to private item `Self::direct_body`
+   --> crates/emit_native/src/llvm/mod.rs:460:36
+    |
+460 |     /// directly from the block ([`Self::direct_body`]).
+    |                                    ^^^^^^^^^^^^^^^^^ this item is private
+    |
+    = note: this link resolves only because you passed `--document-private-items`, but will break without
+    = note: `#[warn(rustdoc::private_intra_doc_links)]` on by default
+
+warning: public documentation for `with_tables_registered_at_startup` links to private item `Self::emit_inline_allocation`
+   --> crates/emit_native/src/llvm/mod.rs:512:51
+    |
+512 |     /// allocation skips the registration test ([`Self::emit_inline_allocation`]).
+    |                                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this item is private
+    |
+    = note: this link resolves only because you passed `--document-private-items`, but will break without
+
+warning: public documentation for `call_member` links to private item `DEVIRTUALIZATION_FAN_OUT`
+    --> crates/emit_native/src/lower/members.rs:1434:45
+     |
+1434 |     /// chooses the implementation (up to [`DEVIRTUALIZATION_FAN_OUT`]
+     |                                             ^^^^^^^^^^^^^^^^^^^^^^^^ this item is private
+     |
+     = note: this link resolves only because you passed `--document-private-items`, but will break without
+
+warning: unresolved link to `crate::sdk_modulo::SOURCE_LIBRARIES`
+  --> crates/emit_native/src/natives.rs:30:27
+   |
+30 | //! [`SOURCE_LIBRARIES`]: crate::sdk_modulo::SOURCE_LIBRARIES
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no item named `sdk_modulo` in module `dartforge_emit_native`
+   |
+   = note: `#[warn(rustdoc::broken_intra_doc_links)]` on by default
+
+warning: public documentation for `with_context_in_tls` links to private item `context_in_tsd`
+    --> crates/emit_native/src/sdk_module.rs:1080:53
+     |
+1080 | /// publishes before any Dart code of the thread ([`context_in_tsd`]). The
+     |                                                     ^^^^^^^^^^^^^^ this item is private
+     |
+     = note: this link resolves only because you passed `--document-private-items`, but will break without
+
+warning: `dartforge-emit-native` (lib doc) generated 5 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.44s
+   Generated /Volumes/ssd_dock/MyRustProjects/dartforge/target/doc/dartforge_abi/index.html and 29 other files

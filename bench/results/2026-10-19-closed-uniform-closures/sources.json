@@ -1,0 +1,7 @@
+{
+  "crates/emit_native/src/pruning/class_reachability.rs": "0b28774704bc64cd5990033af27d527c0d4a7298e045bfd5037cef6b54d72dd3",
+  "crates/emit_native/src/pruning/class_reachability/closures.rs": "ea06cceafd94f99aed815336a776152e8fd521737d09fec5bce57ac4797f9a8f",
+  "crates/emit_native/src/pruning/class_reachability/tests.rs": "747c4fa296341345c1535178075576d6cc7256d9df8b7cfbf4096191d88fb44a",
+  "crates/runtime/src/layout.rs": "f4bbe03570d1c0ca0f93093a08aa896c754eb205395cb588cb1ea1ff86a60ccf",
+  "crates/emit_native/tests/production_profile.rs": "1c0888533a83da24d881d6ee6e340f7ed054eb38e3f763a0c7ff0fc48596b82b"
+}

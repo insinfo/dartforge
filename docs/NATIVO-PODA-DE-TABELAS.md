@@ -357,6 +357,17 @@ na própria função e globais declaradas no módulo, com representação compat
 loads de `Ref` por ponteiro continuam fora da prova. A reanálise que falha descarta
 o conjunto anterior e o conjunto temporário de tabelas.
 
+Closures uniformes locais e tear-offs agora têm uma prova limitada de identidade
+do endereço de código. O destino precisa ter corpo no módulo e assinatura
+`Ref(Ref, Ptr, Ptr)`; seu handle só pode servir à invocação direta da mesma
+definição SSA ou à leitura do contexto capturado. Escapes por argumentos,
+globais, retornos, aliases ou escritas mantêm o registro amplo. O receptor
+implícito da entrada também fica protegido: a assinatura uniforme, sozinha, não
+autoriza invocá-lo, pois o mesmo corpo pode ser alcançado por seletor ou chamada
+estática. Closures tipadas, encaminhadas e vindas do SDK continuam fora dessa
+prova. As alocações transitivas do corpo local ativam suas tabelas no mesmo
+grafo. O suporte não elimina as fronteiras ainda abertas da inicialização do SDK.
+
 Tabelas das classes canônicas do runtime são protegidas independentemente do vetor
 opcional de registro do módulo: boxing, strings e exceções podem criar esses
 valores sem uma instrução `AllocObject`. Com cobertura completa, a emissão omite
@@ -368,6 +379,13 @@ fechado, exercitando despacho por seletor nos dois modos com e sem `GC_STRESS`.
 Essa fixture não importa SDK e usa o `main` do runtime no lugar do wrapper do
 emissor, que normalmente faz parte da ligação com o SDK. Ela não certifica a
 poda de um aplicativo completo com SDK.
+
+Uma segunda fixture executa closure uniforme, tear-off e contexto capturado com
+registro amplo/reduzido e GC normal/forçado: seis binários e 12 execuções. O
+despacho por seletor sobre o resultado verifica que a tabela necessária permanece;
+as tabelas sem uso saem do IR. Dezesseis variantes de ABI, escape, mutação e
+receptor desconhecido recusam o fechamento. Evidências:
+`bench/results/2026-10-19-closed-uniform-closures/README.md`.
 
 O teste `production_profile::platform_constant_prunes_the_other_backends` continua
 como exigência de remoção completa dos outros backends. O suporte às importações

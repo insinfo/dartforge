@@ -2,6 +2,19 @@
 
 ## Atualização de 19/10/2026
 
+- A prova experimental de alcance de classes aceita closures uniformes locais e
+  tear-offs com ABI conferida, sem escape ou escrita do handle. O receptor
+  implícito também é protegido, sem presumir sua identidade só pela assinatura.
+  As alocações transitivas do corpo mantêm suas tabelas; tabelas alheias saem.
+  Três testes novos incluem 16 recusas e seis binários comparando registro
+  amplo/reduzido sob GC normal/forçado (12 execuções). O teste positivo falhava
+  antes; passaram 818 testes unitários nativos com `--include-ignored` (incluindo
+  os 21 de alcance) e 121 doctests. A opção continua
+  experimental: closures tipadas/encaminhadas/importadas e a inicialização
+  completa do SDK permanecem fora da prova. O teste real de remoção dos
+  backends estrangeiros ainda falha, sem relaxamento. Checks globais seguem
+  com pendências de fmt/Clippy/link; docs geram avisos. Evidências:
+  `bench/results/2026-10-19-closed-uniform-closures/README.md`.
 - `pub get` só publica metadados hospedados depois de validar os candidatos;
   respostas rejeitadas deixam utilizável o cache offline anterior. Duas
   regressões falhavam antes; três testes novos cobrem rejeição, primeira
