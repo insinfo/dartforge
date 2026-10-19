@@ -1043,19 +1043,11 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
     let mut seen_set = std::collections::HashSet::new();
     module.globals.retain(|g| seen_set.insert(g.2.clone()));
 
-    // P6: the event loop (for users of `dart:async`): the frame class of the
-    // `async` functions and the function the runtime uses to call a closure
-    // (the only point where the runtime calls Dart, `events.rs`).
+    // P6: the event loop (for users of `dart:async`) needs the callback the
+    // runtime uses to invoke a closure (`events.rs`).
     if ctx.uses_dart_async
         && let Some(u) = ctx.entry_lib.and_then(|l| ctx.program.library(l).units.first().copied())
     {
-        module.classes.push(ClassDef {
-            id: async_sm::ASYNC_FRAME_ID,
-            name: "_AsyncFrame".to_string(),
-            field_count: 0,
-            vtable: Vec::new(),
-            to_string_symbol: None,
-        });
         let symbol = "dartforge_call_dart0".to_string();
         let mut b = fn_builder::FnBuilder::new(ctx, u, symbol.clone(), "chamar".to_string(), Type::Ref);
         let clo = Operand::Val(b.add_param("closure".to_string(), Type::Ref));
@@ -1075,6 +1067,21 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
     // reaches stays (`source.rs`).
     if !ctx.from_source.is_empty() {
         crate::source::prune(&mut module);
+    }
+    // Frame metadata follows local allocations, independently of the event-loop
+    // callback. Source pruning may have removed every allocating body.
+    if module.functions.iter().any(|function| {
+        function.blocks.iter().flat_map(|block| &block.instructions).any(|(_, instruction, _)| {
+            matches!(instruction, Instruction::AllocObject { class_id, .. } if *class_id == async_sm::ASYNC_FRAME_ID)
+        })
+    }) {
+        module.classes.push(ClassDef {
+            id: async_sm::ASYNC_FRAME_ID,
+            name: "_AsyncFrame".to_string(),
+            field_count: 0,
+            vtable: Vec::new(),
+            to_string_symbol: None,
+        });
     }
     // RTI: the type universe of the remaining recipes (`rti.rs`).
     rti::register_universe(ctx, &mut module);

@@ -1,0 +1,224 @@
+[
+  {
+    "file": "before.log",
+    "source": "/tmp/forge-frame-metadata-before.log",
+    "raw_sha256": "d644f740915f1ed7a2cd9fea06f352479d348f2e987f1f28676210e50f0c0ceb",
+    "stored_sha256": "d644f740915f1ed7a2cd9fea06f352479d348f2e987f1f28676210e50f0c0ceb"
+  },
+  {
+    "file": "directed.log",
+    "source": "/tmp/forge-frame-metadata-directed-final.log",
+    "raw_sha256": "c1b29c7a6604d9b2e60102fcdcb43daff0d7d1121b403ebe44a59ad387791bb5",
+    "stored_sha256": "a950401b31894ac89bc227bc2cfda7496fb60a945e4d09104a95bf253607dcfa"
+  },
+  {
+    "file": "native.log",
+    "source": "/tmp/forge-frame-metadata-native.log",
+    "raw_sha256": "48f6bd48a3337ef0002b1b4a9995ff0d7ae44cc9ba82e401e7dc50df10979196",
+    "stored_sha256": "57aae22dd922268ac5994d8c5a7d7965585798fc3de065fde75416ade91e432f"
+  },
+  {
+    "file": "production.log",
+    "source": "/tmp/forge-frame-metadata-production-final.log",
+    "raw_sha256": "e4b096f13df6fddb5a60da2ee82979c6be68a32e4db1707dfc1cb7a03bf1461e",
+    "stored_sha256": "e4b096f13df6fddb5a60da2ee82979c6be68a32e4db1707dfc1cb7a03bf1461e"
+  },
+  {
+    "file": "build.log",
+    "source": "/tmp/forge-frame-metadata-build.log",
+    "raw_sha256": "0e6e39c8ae888b41b22d4ba4c55cb7481cf1f4180372e1994db02eabd3120acf",
+    "stored_sha256": "0e6e39c8ae888b41b22d4ba4c55cb7481cf1f4180372e1994db02eabd3120acf"
+  },
+  {
+    "file": "clippy.log",
+    "source": "/tmp/forge-frame-metadata-checks/clippy.log",
+    "raw_sha256": "dc4c832146c89923db5e051b82b172ef68ac8172d8fc510d282eb107be12d120",
+    "stored_sha256": "dc4c832146c89923db5e051b82b172ef68ac8172d8fc510d282eb107be12d120"
+  },
+  {
+    "file": "doc.log",
+    "source": "/tmp/forge-frame-metadata-checks/doc.log",
+    "raw_sha256": "2b99896ecf7ece973d3d2f77f08ced3217e69d3c76d2c448b57c7906fbd08d32",
+    "stored_sha256": "2b99896ecf7ece973d3d2f77f08ced3217e69d3c76d2c448b57c7906fbd08d32"
+  },
+  {
+    "file": "checks.json",
+    "source": "/tmp/forge-frame-metadata-checks/results.json",
+    "raw_sha256": "217fa0744fdc069b8ea20f1191cb2a29c8c4344dec6d40caada3cc7c74bac696",
+    "stored_sha256": "217fa0744fdc069b8ea20f1191cb2a29c8c4344dec6d40caada3cc7c74bac696"
+  },
+  {
+    "file": "frames-dart.stdout",
+    "source": "/tmp/forge-frame-live-smoke/frames-dart.stdout",
+    "raw_sha256": "1373c01d990ff8f3dca60603746b699ead9d9a63c64da1e54d933a0ae15b753c",
+    "stored_sha256": "1373c01d990ff8f3dca60603746b699ead9d9a63c64da1e54d933a0ae15b753c"
+  },
+  {
+    "file": "frames-jit.stderr",
+    "source": "/tmp/forge-frame-live-smoke/frames-jit.stderr",
+    "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "frames-jit-stress.stderr",
+    "source": "/tmp/forge-frame-live-smoke/frames-jit-stress.stderr",
+    "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "callbacks-jit.stdout",
+    "source": "/tmp/forge-frame-live-smoke/callbacks-jit.stdout",
+    "raw_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a",
+    "stored_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a"
+  },
+  {
+    "file": "callbacks-aot-stress.stderr",
+    "source": "/tmp/forge-frame-live-smoke/callbacks-aot-stress.stderr",
+    "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "callbacks.dart",
+    "source": "/tmp/forge-frame-live-smoke/callbacks.dart",
+    "raw_sha256": "738af3716a09cbac9a7ff0ef778251b062175d7e23f6c4144757567654b05f14",
+    "stored_sha256": "738af3716a09cbac9a7ff0ef778251b062175d7e23f6c4144757567654b05f14"
+  },
+  {
+    "file": "frames.dart",
+    "source": "/tmp/forge-frame-live-smoke/frames.dart",
+    "raw_sha256": "f98a369da5b0ce4c37d48341bf30a8713a366432ea87d6a604a471dab6505cc6",
+    "stored_sha256": "f98a369da5b0ce4c37d48341bf30a8713a366432ea87d6a604a471dab6505cc6"
+  },
+  {
+    "file": "callbacks-jit.stderr",
+    "source": "/tmp/forge-frame-live-smoke/callbacks-jit.stderr",
+    "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "callbacks-aot-stress.stdout",
+    "source": "/tmp/forge-frame-live-smoke/callbacks-aot-stress.stdout",
+    "raw_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a",
+    "stored_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a"
+  },
+  {
+    "file": "results.json",
+    "source": "/tmp/forge-frame-live-smoke/results.json",
+    "raw_sha256": "9aa3a39fb7905f2dfee060fc4e42b927e5f56c2974cd912713725e76fe7c3473",
+    "stored_sha256": "9aa3a39fb7905f2dfee060fc4e42b927e5f56c2974cd912713725e76fe7c3473"
+  },
+  {
+    "file": "frames-dart.stderr",
+    "source": "/tmp/forge-frame-live-smoke/frames-dart.stderr",
+    "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "frames-jit.stdout",
+    "source": "/tmp/forge-frame-live-smoke/frames-jit.stdout",
+    "raw_sha256": "1373c01d990ff8f3dca60603746b699ead9d9a63c64da1e54d933a0ae15b753c",
+    "stored_sha256": "1373c01d990ff8f3dca60603746b699ead9d9a63c64da1e54d933a0ae15b753c"
+  },
+  {
+    "file": "frames-jit-stress.stdout",
+    "source": "/tmp/forge-frame-live-smoke/frames-jit-stress.stdout",
+    "raw_sha256": "1373c01d990ff8f3dca60603746b699ead9d9a63c64da1e54d933a0ae15b753c",
+    "stored_sha256": "1373c01d990ff8f3dca60603746b699ead9d9a63c64da1e54d933a0ae15b753c"
+  },
+  {
+    "file": "callbacks-jit-stress.stderr",
+    "source": "/tmp/forge-frame-live-smoke/callbacks-jit-stress.stderr",
+    "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "callbacks.contracts.json",
+    "source": "/tmp/forge-frame-live-smoke/callbacks.contracts.json",
+    "raw_sha256": "6292eff6d826c8bbb3004ad5abce1373fb768e4f65f7bb8127626df0e1266b4c",
+    "stored_sha256": "ac983276ccbf84f101f8d5fb291b33a2bd16330831a59615e7b23c9c777f35fe"
+  },
+  {
+    "file": "callbacks-aot.stdout",
+    "source": "/tmp/forge-frame-live-smoke/callbacks-aot.stdout",
+    "raw_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a",
+    "stored_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a"
+  },
+  {
+    "file": "frames-aot-build.stderr",
+    "source": "/tmp/forge-frame-live-smoke/frames-aot-build.stderr",
+    "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "callbacks-aot-build.stderr",
+    "source": "/tmp/forge-frame-live-smoke/callbacks-aot-build.stderr",
+    "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "frames-aot-stress.stderr",
+    "source": "/tmp/forge-frame-live-smoke/frames-aot-stress.stderr",
+    "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "callbacks-dart.stderr",
+    "source": "/tmp/forge-frame-live-smoke/callbacks-dart.stderr",
+    "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "frames-aot.stderr",
+    "source": "/tmp/forge-frame-live-smoke/frames-aot.stderr",
+    "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "frames.contracts.json",
+    "source": "/tmp/forge-frame-live-smoke/frames.contracts.json",
+    "raw_sha256": "7186c5c40a70940749564828ff54ac204fba95a0abe0548a1da914b75cfa8fd2",
+    "stored_sha256": "d70fa3ffd48a598c725a0575ea94350e984c22034b4131986be26198f5a0fa3b"
+  },
+  {
+    "file": "callbacks-dart.stdout",
+    "source": "/tmp/forge-frame-live-smoke/callbacks-dart.stdout",
+    "raw_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a",
+    "stored_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a"
+  },
+  {
+    "file": "frames-aot.stdout",
+    "source": "/tmp/forge-frame-live-smoke/frames-aot.stdout",
+    "raw_sha256": "1373c01d990ff8f3dca60603746b699ead9d9a63c64da1e54d933a0ae15b753c",
+    "stored_sha256": "1373c01d990ff8f3dca60603746b699ead9d9a63c64da1e54d933a0ae15b753c"
+  },
+  {
+    "file": "callbacks-aot-build.stdout",
+    "source": "/tmp/forge-frame-live-smoke/callbacks-aot-build.stdout",
+    "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "frames-aot-stress.stdout",
+    "source": "/tmp/forge-frame-live-smoke/frames-aot-stress.stdout",
+    "raw_sha256": "1373c01d990ff8f3dca60603746b699ead9d9a63c64da1e54d933a0ae15b753c",
+    "stored_sha256": "1373c01d990ff8f3dca60603746b699ead9d9a63c64da1e54d933a0ae15b753c"
+  },
+  {
+    "file": "frames-aot-build.stdout",
+    "source": "/tmp/forge-frame-live-smoke/frames-aot-build.stdout",
+    "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "callbacks-aot.stderr",
+    "source": "/tmp/forge-frame-live-smoke/callbacks-aot.stderr",
+    "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "callbacks-jit-stress.stdout",
+    "source": "/tmp/forge-frame-live-smoke/callbacks-jit-stress.stdout",
+    "raw_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a",
+    "stored_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a"
+  }
+]

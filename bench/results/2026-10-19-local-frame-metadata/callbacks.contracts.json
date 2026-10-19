@@ -1,0 +1,23 @@
+{
+  "artifact": {
+    "blake3": "c63fc1c9b084a80401db02b5a3b2a72459c114d48c5a0c57e6fc1e5c67bae288",
+    "cpu": "None",
+    "debug": false,
+    "ir_blake3": "0f926c897328b46a0c3343596101215752e2eb3132cf44f590d2c204c86e2fe7",
+    "optimized": true,
+    "path": "/tmp/forge-frame-live-smoke/callbacks"
+  },
+  "certified": false,
+  "diagnostics": [],
+  "manifest_schema": 1,
+  "mode": "verify",
+  "package": null,
+  "requests": [],
+  "sources": [
+    {
+      "blake3": "af6e6281dfb8957e145df21badafc9dd5222530e893faa96f287c3c8263e98af",
+      "uri": "file:///private/tmp/forge-frame-live-smoke/callbacks.dart"
+    }
+  ],
+  "verification_implemented": false
+}

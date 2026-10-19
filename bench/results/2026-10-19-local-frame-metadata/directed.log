@@ -1,0 +1,9 @@
+    Blocking waiting for file lock on build directory
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.33s
+     Running unittests src/lib.rs (target/impl-a/debug/deps/dartforge_emit_native-58f242ef6e261ae4)
+
+running 2 tests
+test lower::async_sm::frame_abi_tests::actual_async_and_generator_allocators_publish_per_resume_body_layouts ... ok
+test lower::async_sm::frame_abi_tests::event_loop_without_local_frames_keeps_callback_without_frame_metadata ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 828 filtered out; finished in 1.01s

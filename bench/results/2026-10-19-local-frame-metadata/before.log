@@ -1,0 +1,32 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.73s
+     Running unittests src/lib.rs (target/impl-a/debug/deps/dartforge_emit_native-58f242ef6e261ae4)
+
+running 2 tests
+
+thread '<unnamed>' (1966161) panicked at crates/emit_native/src/lower/async_sm.rs:1814:13:
+assertion `left == right` failed
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'lower::async_sm::frame_abi_tests::actual_async_and_generator_allocators_publish_per_resume_body_layouts' (1966159) panicked at crates/emit_native/src/lower/async_sm.rs:1828:28:
+called `Result::unwrap()` on an `Err` value: Any { .. }
+test lower::async_sm::frame_abi_tests::actual_async_and_generator_allocators_publish_per_resume_body_layouts ... FAILED
+
+thread '<unnamed>' (1966162) panicked at crates/emit_native/src/lower/async_sm.rs:1796:17:
+assertion failed: !module.classes.iter().any(|class| class.id == ASYNC_FRAME_ID)
+
+thread 'lower::async_sm::frame_abi_tests::event_loop_without_local_frames_keeps_callback_without_frame_metadata' (1966160) panicked at crates/emit_native/src/lower/async_sm.rs:1801:28:
+called `Result::unwrap()` on an `Err` value: Any { .. }
+test lower::async_sm::frame_abi_tests::event_loop_without_local_frames_keeps_callback_without_frame_metadata ... FAILED
+
+failures:
+
+failures:
+    lower::async_sm::frame_abi_tests::actual_async_and_generator_allocators_publish_per_resume_body_layouts
+    lower::async_sm::frame_abi_tests::event_loop_without_local_frames_keeps_callback_without_frame_metadata
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 828 filtered out; finished in 0.84s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

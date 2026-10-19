@@ -1,0 +1,23 @@
+{
+  "artifact": {
+    "blake3": "0e95bd90d1fdbb972bda11a1ea33860b3b28377bb713ce0a771d49e542dc2e7a",
+    "cpu": "None",
+    "debug": false,
+    "ir_blake3": "fddef956d1988fa3c1eb31da108dcbaff680474b0b29588b540732c30885a4a9",
+    "optimized": true,
+    "path": "/tmp/forge-frame-live-smoke/frames"
+  },
+  "certified": false,
+  "diagnostics": [],
+  "manifest_schema": 1,
+  "mode": "verify",
+  "package": null,
+  "requests": [],
+  "sources": [
+    {
+      "blake3": "18c790b5837a60230dfa250e41bf63f9ac31d3b4e75e9649663ee0abc2fc3aa8",
+      "uri": "file:///private/tmp/forge-frame-live-smoke/frames.dart"
+    }
+  ],
+  "verification_implemented": false
+}

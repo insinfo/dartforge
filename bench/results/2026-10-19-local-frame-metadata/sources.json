@@ -1,0 +1,4 @@
+{
+  "crates/emit_native/src/lower/mod.rs": "c8d639d1eac8508aa9b573ec491fd03caf7738e4f02b51daba6165f8f77c2df4",
+  "crates/emit_native/src/lower/async_sm.rs": "e1d7c6b0252acc55b2377294916455c78086860edd2df610bb634b01b831390d"
+}

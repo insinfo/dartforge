@@ -1767,30 +1767,83 @@ fn save_live(
 mod frame_abi_tests {
     use super::*;
 
+    fn lower_source(source: &str, event_loop: bool) -> Module {
+        let directory = tempfile::tempdir().unwrap();
+        let entry = directory.path().join("main.dart");
+        std::fs::write(&entry, source).unwrap();
+        let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
+        let mut interner = dartforge_intern::Interner::new();
+        let (program, diagnostics) =
+            dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let mut table = dartforge_types::TypeTable::new();
+        let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
+        let (mut outline, _) =
+            dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+        let libraries: Vec<_> = program
+            .libraries
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| !l.is_sdk)
+            .map(|(i, _)| dartforge_elements::model::LibraryId(i as u32))
+            .collect();
+        let (bodies, _) = dartforge_types::infer_library_bodies_with_locals(
+            &program,
+            &interner,
+            &mut table,
+            &core,
+            &mut outline,
+            &libraries,
+        );
+        let mut context =
+            crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies)
+                .with_source_sdk();
+        context.uses_dart_async = event_loop;
+        crate::lower::lower_program(&context)
+    }
+
+    #[test]
+    fn event_loop_without_local_frames_keeps_callback_without_frame_metadata() {
+        std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(|| {
+                for event_loop in [false, true] {
+                    let module = lower_source(
+                        "import 'dart:async'; void main() { print('ready'); }",
+                        event_loop,
+                    );
+                    assert!(module.errors.is_empty(), "{:?}", module.errors);
+                    assert!(module.async_frame_layouts.is_empty());
+                    assert!(
+                        !module
+                            .classes
+                            .iter()
+                            .any(|class| class.id == ASYNC_FRAME_ID)
+                    );
+                    assert_eq!(module.call_dart.is_some(), event_loop);
+                    let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
+                    assert_eq!(
+                        ir.contains("call void @dartforge_event_loop(ptr @dartforge_call_dart0)"),
+                        event_loop
+                    );
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
     #[test]
     fn actual_async_and_generator_allocators_publish_per_resume_body_layouts() {
         std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
-            let directory = tempfile::tempdir().unwrap();
-            let entry = directory.path().join("main.dart");
-            std::fs::write(&entry, r#"
+            let module = lower_source(r#"
 import 'dart:async';
 Future<int> one(int x) async { final saved = x + 1; await Future<void>.value(); return saved; }
 Iterable<int> two(int x) sync* { yield x; yield x + 1; }
 Stream<int> three(int x) async* { yield x; await Future<void>.value(); yield x + 1; }
 void main() { one(1); two(2).toList(); three(3).listen(print); }
-"#).unwrap();
-            let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
-            let mut interner = dartforge_intern::Interner::new();
-            let (program, diagnostics) = dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
-            assert!(diagnostics.is_empty(), "{diagnostics:?}");
-            let mut table = dartforge_types::TypeTable::new();
-            let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
-            let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
-            let libraries: Vec<_> = program.libraries.iter().enumerate().filter(|(_, l)| !l.is_sdk)
-                .map(|(i, _)| dartforge_elements::model::LibraryId(i as u32)).collect();
-            let (bodies, _) = dartforge_types::infer_library_bodies_with_locals(&program, &interner, &mut table, &core, &mut outline, &libraries);
-            let context = crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies).with_source_sdk();
-            let module = crate::lower::lower_program(&context);
+"#, false);
+            assert_eq!(module.classes.iter().filter(|class| class.id == ASYNC_FRAME_ID).count(), 1);
             assert!(module.errors.is_empty(), "{:?}", module.errors);
             assert_eq!(module.async_frame_layouts.len(), 4, "async, async*, sync* template and iterator clone");
             for (owner, site, body, count) in &module.async_frame_layouts {

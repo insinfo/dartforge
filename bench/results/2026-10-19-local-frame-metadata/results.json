@@ -1,0 +1,166 @@
+{
+  "base_revision": "1725436b88b09f1fa165d7bb42c501fbe62b393b",
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+  "compiler_sha256": "a4251bcabb8cddf1df87f626461a368f207139fecd7a4f721e4b2f272f7c9e7e",
+  "source_sha256": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/src/lower/mod.rs": "c8d639d1eac8508aa9b573ec491fd03caf7738e4f02b51daba6165f8f77c2df4",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/src/lower/async_sm.rs": "e1d7c6b0252acc55b2377294916455c78086860edd2df610bb634b01b831390d"
+  },
+  "cases": [
+    {
+      "name": "callbacks-dart",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "run",
+        "/tmp/forge-frame-live-smoke/callbacks.dart"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "stdout_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "callbacks-aot-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "compile-native",
+        "/tmp/forge-frame-live-smoke/callbacks.dart",
+        "-o",
+        "/tmp/forge-frame-live-smoke/callbacks",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "callbacks-aot",
+      "command": [
+        "/tmp/forge-frame-live-smoke/callbacks"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "stdout_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "callbacks-aot-stress",
+      "command": [
+        "/tmp/forge-frame-live-smoke/callbacks"
+      ],
+      "gc_stress": true,
+      "exit": 0,
+      "stdout_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "callbacks-jit",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "/tmp/forge-frame-live-smoke/callbacks.dart"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "stdout_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "callbacks-jit-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "/tmp/forge-frame-live-smoke/callbacks.dart"
+      ],
+      "gc_stress": true,
+      "exit": 0,
+      "stdout_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "frames-dart",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "run",
+        "/tmp/forge-frame-live-smoke/frames.dart"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "stdout_sha256": "1373c01d990ff8f3dca60603746b699ead9d9a63c64da1e54d933a0ae15b753c",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "frames-aot-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "compile-native",
+        "/tmp/forge-frame-live-smoke/frames.dart",
+        "-o",
+        "/tmp/forge-frame-live-smoke/frames",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "frames-aot",
+      "command": [
+        "/tmp/forge-frame-live-smoke/frames"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "stdout_sha256": "1373c01d990ff8f3dca60603746b699ead9d9a63c64da1e54d933a0ae15b753c",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "frames-aot-stress",
+      "command": [
+        "/tmp/forge-frame-live-smoke/frames"
+      ],
+      "gc_stress": true,
+      "exit": 0,
+      "stdout_sha256": "1373c01d990ff8f3dca60603746b699ead9d9a63c64da1e54d933a0ae15b753c",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "frames-jit",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "/tmp/forge-frame-live-smoke/frames.dart"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "stdout_sha256": "1373c01d990ff8f3dca60603746b699ead9d9a63c64da1e54d933a0ae15b753c",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "frames-jit-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "/tmp/forge-frame-live-smoke/frames.dart"
+      ],
+      "gc_stress": true,
+      "exit": 0,
+      "stdout_sha256": "1373c01d990ff8f3dca60603746b699ead9d9a63c64da1e54d933a0ae15b753c",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "all_match": true
+}

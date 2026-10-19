@@ -2,6 +2,21 @@
 
 ## Atualização de 19/10/2026
 
+- A declaração de `_AsyncFrame` acompanha alocações locais após poda de fontes,
+  independentemente da flag do loop. O callback e o loop permanecem ativos quando
+  necessários. Duas regressões falhavam antes: classe fictícia em módulo sem
+  frames e metadados ausentes em geradores baixados sem a flag. Passaram os 830
+  testes unitários nativos, os dois dirigidos, Clippy estrito e docs do workspace.
+  O compilador native/JIT foi remontado: dois programas reais (microtask/timer e
+  async/sync*/async*) passaram em AOT/JIT normal e sob estresse de GC, com saídas
+  iguais à VM Dart, em 12 comandos. Fmt global continua pendente; a montagem
+  mantém avisos de deployment target macOS. A poda de plataforma ainda falha,
+  agora primeiro em `_Type` (CID 1073741569) com ancestralidade não provada.
+  Frames reais não foram tratados como metadados nominais e continuam exigindo
+  prova própria. Sem redução comprovada do explorador ou nova aprovação global
+  e Windows/Linux. Evidências:
+  `bench/results/2026-10-19-local-frame-metadata/README.md`.
+
 - O lowering distingue ancestrais puramente nominais de classes alocáveis:
   marca abstratas/mixins e a raiz sintética inserida por `lower_program`,
   preservando a premissa ao juntar chunks. A prova exige ancestralidade,

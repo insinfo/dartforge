@@ -455,3 +455,17 @@ como exigência de remoção completa dos outros backends. O suporte às importa
 e suas exposições ainda precisa ser completado; a configuração padrão mantém as
 tabelas desse caso. Evidências da rodada:
 `bench/results/2026-10-19-class-coverage/README.md`.
+
+
+### Metadados de frames locais
+
+A declaração de `_AsyncFrame` acompanha agora as alocações locais que restaram
+após a poda de fontes. A flag do loop de eventos continua controlando seu callback
+e a chamada do loop; importar facilidades assíncronas sem criar frames locais
+não registra uma classe fictícia no programa. Geradores baixados diretamente
+sem a flag também recebem os metadados dos frames que realmente criam.
+O ABI variável dos frames e os registros por corpo de retomada permanecem.
+Isso não prova a ancestralidade nem fecha a exposição dos frames alocados.
+No caso original de poda de plataforma, a primeira rejeição passa a `_Type`,
+com ancestralidade ainda não provada. A remoção dos backends continua pendente.
+Evidências: `bench/results/2026-10-19-local-frame-metadata/README.md`.
