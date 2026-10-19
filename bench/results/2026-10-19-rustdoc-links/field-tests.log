@@ -16,4 +16,3 @@ test hir::declared_field_tests::llvm_keeps_exact_checked_field_emission ... ok
 test pruning::declared_field_summary_tests::actual_sdk_base64_declarations_survive_summary_roundtrip ... ok
 
 test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 813 filtered out; finished in 2.88s
-

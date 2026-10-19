@@ -15,6 +15,9 @@
   "exit": 0,
   "passed": 9,
   "filtered_out": 813,
-  "bytes": 1479,
-  "sha256": "29742d8bf747f44e886dae6ebecf54cbd818df73e6a4d8e9362cddc4c2211b3d"
+  "bytes": 1478,
+  "sha256": "4d01aed582ab583e60ac4e573e6a7a6388fdfa9ea4cc4f31b50e2fc649c4b9fe",
+  "raw_log_sha256": "29742d8bf747f44e886dae6ebecf54cbd818df73e6a4d8e9362cddc4c2211b3d",
+  "raw_log_bytes": 1479,
+  "normalization": "Trim blank lines at end of stored log"
 }
