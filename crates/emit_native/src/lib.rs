@@ -62,6 +62,49 @@ pub struct CompileOptions<'a> {
     pub cpu: Option<generator::Cpu>,
 }
 
+/// What the compiled Dart assumes about asserts and `dart.vm.product`,
+/// independently of `optimize` (which decides the shape of the code) — the
+/// two profiles of Dart itself:
+///
+/// * [`DartFlags::DEVELOPMENT`]: asserts on, `dart.vm.product` false — the
+///   `dart run --enable-asserts` oracle of the differential harness, the JIT
+///   and `run`; also what the API entry points without flags assume;
+/// * [`DartFlags::PRODUCTION`]: asserts off, `dart.vm.product` true — what
+///   `dart compile exe` produces; `aot --optimize` and `compile-native
+///   --optimize` use it (`--enable-asserts` turns the asserts back on).
+///
+/// With the asserts off, `assert(c, m)` emits nothing: neither `c` nor `m` is
+/// evaluated (`lower/statements.rs`). `bool.hasEnvironment("dart.vm.product")`
+/// is true in both profiles, as in the VM. The flags are part of the key of
+/// the compiled SDK (`sdk_module::sdk_key`): a program links only with an SDK
+/// compiled with the same ones.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DartFlags {
+    /// The `assert` statements and initializers are compiled and run.
+    pub enable_asserts: bool,
+    /// `const bool.fromEnvironment("dart.vm.product")`.
+    pub product: bool,
+}
+
+impl DartFlags {
+    /// Asserts on, `dart.vm.product` false (`dart run --enable-asserts`).
+    pub const DEVELOPMENT: DartFlags = DartFlags { enable_asserts: true, product: false };
+    /// Asserts off, `dart.vm.product` true (`dart compile exe`).
+    pub const PRODUCTION: DartFlags = DartFlags { enable_asserts: false, product: true };
+
+    /// The tag of the flags in the key of the compiled SDK.
+    pub fn cache_tag(self) -> String {
+        let on = |b: bool| if b { "on" } else { "off" };
+        format!("asserts={};product={}", on(self.enable_asserts), on(self.product))
+    }
+}
+
+impl Default for DartFlags {
+    fn default() -> Self {
+        Self::DEVELOPMENT
+    }
+}
+
 /// Veja [`CompileOptions::generator`].
 pub type Generator<'a> = &'a (dyn Fn(
     &dartforge_elements::model::Program,
@@ -115,15 +158,15 @@ pub const UNSUPPORTED_PREFIX: &str = "not supported by the native backend: ";
 /// [`pruning::prune_hir`] with the summaries of the SDK libraries of the profile (the
 /// SDK comes out of the cache, or is compiled now, as the link would do right
 /// after). `None` when the module does not use the source SDK.
-fn prune_program_hir(module: &mut hir::Module, production: bool, sdk_lib: &Path) -> Result<Option<pruning::HirPruning>, String> {
+fn prune_program_hir(module: &mut hir::Module, production: bool, sdk_lib: &Path, flags: DartFlags) -> Result<Option<pruning::HirPruning>, String> {
     if module.sdk_library || module.sdk_records.is_empty() {
         return Ok(None);
     }
     let profile = if production { sdk_module::SdkProfile::Production } else { sdk_module::SdkProfile::Development };
     let clang = driver::NativeDriverOptions::default().clang;
-    // The same directory and the same Clang as the link (`driver::compile_and_link`):
-    // the same cache key.
-    let sdk = sdk_module::compiled_sdk_in_profile(sdk_lib, &clang, profile)?;
+    // The same directory, the same Clang and the same flags as the link
+    // (`driver::compile_and_link`): the same cache key.
+    let sdk = sdk_module::compiled_sdk_for(sdk_lib, &clang, profile, flags)?;
     if !sdk.summaries.iter().all(|r| r.is_file()) {
         return Ok(None);
     }
@@ -251,7 +294,14 @@ pub fn dart_sdk() -> Result<PathBuf, String> {
 /// literal of the program is interned in the heap and canonicalized against the
 /// statics of the DLL, as in the JIT.
 pub fn emit_ir_with(entry: &Path, options: &CompileOptions) -> Result<EmittedIr, String> {
-    emit_ir_internal(entry, options, None, None, options.optimize, true)
+    emit_ir_with_flags(entry, options, DartFlags::DEVELOPMENT)
+}
+
+/// [`emit_ir_with`] with explicit [`DartFlags`] (asserts, `dart.vm.product`):
+/// the CLI passes [`DartFlags::PRODUCTION`] with `--optimize`; the
+/// differential harness keeps [`DartFlags::DEVELOPMENT`], the oracle's.
+pub fn emit_ir_with_flags(entry: &Path, options: &CompileOptions, flags: DartFlags) -> Result<EmittedIr, String> {
+    emit_ir_internal(entry, options, None, None, options.optimize, true, flags)
 }
 
 /// [`emit_ir`] of a new generation of a running program (the JIT hot
@@ -263,7 +313,7 @@ pub fn emit_reloadable_ir(entry: &Path, options: &CompileOptions, previous_ir: O
     let ids = previous_ir.map(context::ir_ids);
     // The JIT frees the memory of a generation (J02): no static objects in the
     // program modules (docs/NATIVO-ESPACO-UNIFICADO.md §2.11).
-    emit_ir_internal(entry, options, area, ids, false, false)
+    emit_ir_internal(entry, options, area, ids, false, false, DartFlags::DEVELOPMENT)
 }
 
 /// The names (hashes) of the slots of the global area of the program in IR `ir`:
@@ -286,6 +336,7 @@ fn emit_ir_internal(
     previous_ids: Option<std::collections::HashMap<(String, String), u32>>,
     static_objects: bool,
     prune: bool,
+    flags: DartFlags,
 ) -> Result<EmittedIr, String> {
     // The exception model (`target::table_exceptions`). The JIT (the only one
     // that emits without pruning) does not have the tables: its code does not register
@@ -418,6 +469,11 @@ fn emit_ir_internal(
     let te = erasure::compute(&program, &outline, &mut table);
     let mut ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);
     ctx.arc_memory = arc_memory;
+    ctx.enable_asserts = flags.enable_asserts;
+    ctx.product = flags.product;
+    // Production (`--optimize`): the platform constants of the target fold
+    // (`lower/platform.rs`); development and the JIT read them at run time.
+    ctx.production = options.optimize;
     ctx.te = te;
     if options.debug {
         ctx.link_debug();
@@ -481,7 +537,7 @@ fn emit_ir_internal(
     if prune && !std::env::var("DARTFORGE_NO_HIR_PRUNING").is_ok_and(|v| v == "1") {
         let t_prune = Instant::now();
         optimize::prepare_for_pruning(&mut hir_module);
-        if let Some(e) = prune_program_hir(&mut hir_module, options.optimize, &sdk_dir)?
+        if let Some(e) = prune_program_hir(&mut hir_module, options.optimize, &sdk_dir, flags)?
             && options.timings
         {
             eprintln!(
@@ -497,7 +553,7 @@ fn emit_ir_internal(
         if optimize::specialize_constants(&mut hir_module, table_exceptions) > 0 {
             // New bodies and folded branches change reachability. Reuse the
             // same SDK summaries before computing effect or escape facts.
-            prune_program_hir(&mut hir_module, options.optimize, &sdk_dir)?;
+            prune_program_hir(&mut hir_module, options.optimize, &sdk_dir, flags)?;
         }
     }
     // 2b. HIR optimization (inlining, scalar replacement: `optimize/`).
@@ -569,6 +625,9 @@ fn emit_ir_internal(
         // `DARTFORGE_OPTSIZE_PROGRAM=0` turns it off.
         .with_optimize_size(large && !std::env::var("DARTFORGE_OPTSIZE_PROGRAM").is_ok_and(|v| v == "0"))
         .with_production(options.optimize)
+        // Production: the SDK tables assembled at link time are registered when
+        // the isolate is prepared; the inline allocation has no registration test.
+        .with_tables_registered_at_startup(options.optimize && prune)
         .with_arc_ports_at_link(options.optimize && prune && !hir_module.sdk_records.is_empty())
         // Without optimization there is no inlining: one roots frame per native
         // frame, and the runtime checks the order (the dead frame).
@@ -596,12 +655,17 @@ fn emit_ir_internal(
     // Only on Itanium targets: on x64 COFF every function has an unwind
     // table anyway, and Windows was not measured.
     let llvm_ir = if cfg!(unix) && !table_exceptions && !roots_by_maps { sdk_module::with_nounwind(&llvm_ir) } else { llvm_ir };
-    // The thread context in a `thread_local` variable of the module, in the default
-    // AOT (`sdk_module::with_context_in_tls`): inline in a small
-    // program, a call in a large one.
-    let llvm_ir = if cfg!(unix) && prune && !table_exceptions && !roots_by_maps && !arc_memory {
+    // The thread context read inline (`sdk_module::with_context_in_tls`) in
+    // every Unix AOT profile — exceptions by check or by tables, tracing or ARC
+    // memory —: inline in a small program, a call in a large one. Only roots by
+    // maps keep the runtime call: there the helper (and its `asm`) would have to
+    // be a declared leaf of `rewrite-statepoints-for-gc` (`"gc-leaf-function"`),
+    // which runs inside the linker's LTO on Mach-O and could not be validated
+    // on this host. `options.optimize` links the runtime statically (a single
+    // image): the slot of the context is then `dso_local`.
+    let llvm_ir = if cfg!(unix) && prune && !roots_by_maps {
         let mode = if large { sdk_module::ContextInTls::PerCall } else { sdk_module::ContextInTls::Inline };
-        sdk_module::with_context_in_tls(&llvm_ir, mode, "df.ctx.tls.program")
+        sdk_module::with_context_in_tls(&llvm_ir, mode, "df.ctx.tls.program", options.optimize)
     } else {
         llvm_ir
     };
@@ -665,9 +729,20 @@ pub fn compile_with(
     exit: &Path,
     options: &CompileOptions,
 ) -> Result<PathBuf, String> {
+    compile_with_flags(entry, exit, options, DartFlags::DEVELOPMENT)
+}
+
+/// [`compile`] with explicit [`DartFlags`] (asserts, `dart.vm.product`): the
+/// production profile of the CLI, or the oracle's for the harness.
+pub fn compile_with_flags(
+    entry: &Path,
+    exit: &Path,
+    options: &CompileOptions,
+    flags: DartFlags,
+) -> Result<PathBuf, String> {
     let t_total = Instant::now();
 
-    let ir = emit_ir_with(entry, options)?;
+    let ir = emit_ir_with_flags(entry, options, flags)?;
 
     // 4. Clang and linking
     let driver_opts = driver::NativeDriverOptions {
@@ -677,6 +752,7 @@ pub fn compile_with(
         debug_info: options.debug,
         cpu: options.cpu,
         sdk_lib: Some(ir.sdk_lib.clone()),
+        flags,
     };
 
     let linkage = driver::compile_and_link(&ir.text, exit, &driver_opts)?;

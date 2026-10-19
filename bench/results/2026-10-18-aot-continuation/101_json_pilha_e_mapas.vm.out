@@ -1,0 +1,67 @@
+  int 0 false
+  int 0 false
+  int 1 false
+  int -1 false
+  int 9007199254740993 false
+  int 9223372036854775807 false
+  int -9223372036854775808 false
+  double 9223372036854776000.0 false
+  double -9223372036854776000.0 true
+  double 1e+308 false
+  double Infinity false
+  double -Infinity true
+  double 5e-324 false
+  double 0.0 false
+  double 0.1 false
+  double 1.7976931348623157e+308 false
+  double 1.2345678901234568e+29 false
+  double 100.0 false
+  double 1e-7 false
+  double -0.0 true
+  double 0.30000000000000004 false
+  double 2.2250738585072014e-308 false
+  double 5e-324 false
+  double 1e+22 false
+  double 1e+23 false
+  double 1.23456 false
+reencode: [0,0,1,-1,9007199254740993,9223372036854775807,-9223372036854775808,9223372036854776000.0,-9223372036854776000.0,1e+308,5e-324,0.0,0.1,1.7976931348623157e+308,1.2345678901234568e+29,100.0,1e-7,-0.0,0.30000000000000004,2.2250738585072014e-308,5e-324,1e+22,1e+23,1.23456]
+  7 [115, 105, 109, 112, 108, 101, 115] "simples"
+  0 [] ""
+  40 [97, 115, 112, 97, 115, 32, 34, 32, 98, 97, 114, 114] "aspas \" barra \\ barra / / controle \b\f\n\r\t"
+  30 [117, 110, 105, 99, 111, 100, 101, 32, 233, 231, 32, 20013] "unicode éç 中文 😀 solto \ud800 fim \udc00"
+  21 [108, 97, 116, 105, 110, 49, 32, 231, 227, 111, 32, 223] "latin1 ção ß ÿ direto"
+  24 [67, 74, 75, 32, 20013, 25991, 32, 101, 32, 101, 109, 111] "CJK 中文 e emoji 😀 direto"
+  15 [101, 115, 99, 97, 112, 101, 32, 110, 111, 32, 102, 105] "escape no fim A"
+  6 [0, 32, 110, 117, 108, 111] "\u0000 nulo"
+longa: true 1 305
+iguais: true true true true
+profundidade: 400 0
+repetidas: {a: 3, b: [], c: {}, : null} [a, b, c, ] Map<true> List<true> Map<true>
+grande: 300 [299, 299, false, null, 74.75] true List<true>
+mutaveis: [1, a, {x: 1}, 2, 3] {y: [1]} 5
+vazios: [] {} [[], {}, [{}]] 42
+reviver: {a: [10, 20, {b: X}], c: 3.5, d: [[]]}
+chamadas: [0:int, 1:int, b:String, 2:_Map<String, dynamic>, a:List<dynamic>, c:double, 0:List<dynamic>, d:List<dynamic>, null:_Map<String, dynamic>]
+bytes: 92 {nome: ação 中文 😀, lista: [1, -2.5, true, null, x], aninhado: {a: {b: {c: []}}}}
+  pedacos de 1: true
+  pedacos de 2: true
+  pedacos de 3: true
+  pedacos de 7: true
+bom: {x: [1]}
+texto em pedacos: {a: [1, 2, {b: cé}], d: -125.0}
+  Unexpected end of input @5
+  Unexpected character @5
+  Unexpected character @8
+  Unexpected character @3
+  Unterminated string @8
+  Unexpected character @7
+  Unexpected end of input @3
+  Unexpected character @2
+  Missing expected digit @2
+  Unexpected character @1
+  Unexpected character @4
+  Control character in string @1
+  Unexpected character @3
+  Unexpected end of input @0
+  utf8: Unexpected end of input @3
+depois: [{ok: [true]}]

@@ -950,11 +950,27 @@ mixin _JsonPrettyPrintMixin implements _JsonStringifier {
 
 /// A specialization of [_JsonStringifier] that writes its JSON to a string.
 class _JsonStringStringifier extends _JsonStringifier {
-  final StringSink _sink;
+  /// The sink of [printOn]; null when the stringifier owns its output.
+  final StringSink? _sink;
+
+  /// DartForge: the runtime text accumulator — the storage of `StringBuffer`,
+  /// through the same natives — when the stringifier owns its output
+  /// ([stringify], the path of `jsonEncode`): each piece is one direct call
+  /// into the runtime, instead of `_sink.write` through the selector, the
+  /// uniform entry of `StringBuffer.write` and then the native (`StringBuffer`
+  /// is not a closed class, so the lowering cannot call it directly). Null
+  /// when writing to a caller's sink.
+  final Object? _accumulator;
 
   _JsonStringStringifier(
       this._sink, dynamic Function(dynamic object)? _toEncodable)
-      : super(_toEncodable);
+      : _accumulator = null,
+        super(_toEncodable);
+
+  _JsonStringStringifier._owned(dynamic Function(dynamic object)? _toEncodable)
+      : _sink = null,
+        _accumulator = _newAccumulator(),
+        super(_toEncodable);
 
   /// Convert object to a string.
   ///
@@ -967,9 +983,13 @@ class _JsonStringStringifier extends _JsonStringifier {
   /// characters (space, tab, carriage return or line feed).
   static String stringify(
       Object? object, dynamic toEncodable(dynamic object)?, String? indent) {
-    var output = StringBuffer();
-    printOn(object, output, toEncodable, indent);
-    return output.toString();
+    // DartForge: the output is the stringifier's own accumulator (the text a
+    // `StringBuffer` would hold), read once at the end.
+    final _JsonStringStringifier stringifier = indent == null
+        ? _JsonStringStringifier._owned(toEncodable)
+        : _JsonStringStringifierPretty._owned(toEncodable, indent);
+    stringifier.writeObject(object);
+    return _accumulatorText(stringifier._accumulator!);
   }
 
   /// Convert object to a string, and write the result to the [output] sink.
@@ -986,23 +1006,57 @@ class _JsonStringStringifier extends _JsonStringifier {
     stringifier.writeObject(object);
   }
 
-  String? get _partialResult => _sink is StringBuffer ? _sink.toString() : null;
+  String? get _partialResult {
+    final accumulator = _accumulator;
+    if (accumulator != null) return _accumulatorText(accumulator);
+    final sink = _sink;
+    return sink is StringBuffer ? sink.toString() : null;
+  }
 
   void writeNumber(num number) {
-    _sink.write(number.toString());
+    writeString(number.toString());
   }
 
   void writeString(String string) {
-    _sink.write(string);
+    final accumulator = _accumulator;
+    if (accumulator != null) {
+      _writeToAccumulator(accumulator, string);
+    } else {
+      _sink!.write(string);
+    }
   }
 
   void writeStringSlice(String string, int start, int end) {
-    _sink.write(string.substring(start, end));
+    writeString(string.substring(start, end));
   }
 
   void writeCharCode(int charCode) {
-    _sink.writeCharCode(charCode);
+    final accumulator = _accumulator;
+    if (accumulator != null) {
+      // Only the JSON escapes reach here (ASCII), within the range the native
+      // expects; `StringBuffer.writeCharCode` checks it for arbitrary callers.
+      assert(charCode >= 0 && charCode <= 0x10FFFF);
+      _writeCharCodeToAccumulator(accumulator, charCode);
+    } else {
+      _sink!.writeCharCode(charCode);
+    }
   }
+
+  // The natives of `StringBuffer` (`string_buffer_patch.dart`,
+  // `natives_strings.rs`): a fresh accumulator, the units of a string, a code
+  // point, and the text accumulated so far (the accumulator keeps growing).
+  @pragma("vm:external-name", "DartForge_sb_new")
+  external static Object _newAccumulator();
+
+  @pragma("vm:external-name", "DartForge_sb_write")
+  external static void _writeToAccumulator(Object accumulator, String text);
+
+  @pragma("vm:external-name", "DartForge_sb_write_char_code")
+  external static void _writeCharCodeToAccumulator(
+      Object accumulator, int code);
+
+  @pragma("vm:external-name", "DartForge_sb_to_string")
+  external static String _accumulatorText(Object accumulator);
 }
 
 class _JsonStringStringifierPretty extends _JsonStringStringifier
@@ -1012,6 +1066,10 @@ class _JsonStringStringifierPretty extends _JsonStringStringifier
   _JsonStringStringifierPretty(
       StringSink sink, dynamic toEncodable(dynamic o)?, this._indent)
       : super(sink, toEncodable);
+
+  _JsonStringStringifierPretty._owned(
+      dynamic toEncodable(dynamic o)?, this._indent)
+      : super._owned(toEncodable);
 
   void writeIndentation(int count) {
     for (var i = 0; i < count; i++) writeString(_indent);

@@ -108,6 +108,18 @@ pub fn subclass_of(ctx: &Context, sub: ClassId, sup: ClassId) -> bool {
         .is_some_and(|d| d.supertypes.contains_key(&sup))
 }
 
+/// How many distinct implementations the dispatch by class of a program
+/// member (`call_member`) accepts as a `switch` of direct calls; above that,
+/// the selector — the VM's polymorphic inline cache holds four.
+const DEVIRTUALIZATION_FAN_OUT: usize = 4;
+
+/// `DARTFORGE_NO_DEVIRTUALIZATION_CAP=1`: the `switch` whatever the fan-out
+/// (ablation for measurement).
+fn devirtualization_cap_off() -> bool {
+    static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *OFF.get_or_init(|| std::env::var_os("DARTFORGE_NO_DEVIRTUALIZATION_CAP").is_some_and(|v| !v.is_empty() && v != "0"))
+}
+
 /// Does the function have a body that the lowering compiles?
 pub fn has_body(ctx: &Context, fid: usize) -> bool {
     let f = &ctx.program.functions[fid];
@@ -1371,13 +1383,59 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         exit
     }
 
+    /// `recv.<member>(evaluated)` through the selector of the declared member
+    /// `decl_fid` (the method table of the dynamic class, with the receiver's
+    /// `noSuchMethod` on a miss, as in the VM), with the result in `ret`.
+    fn call_member_by_selector(&mut self, recv: Operand, decl_fid: usize, evaluated: &[Evaluated], ret: Type) -> Operand {
+        use super::sdk_source::AccessKind;
+        let f = &self.ctx.program.functions[decl_fid];
+        let ty = match f.kind {
+            FunctionKind::Getter => AccessKind::Read,
+            FunctionKind::Setter => AccessKind::Write,
+            FunctionKind::ImplicitAccessor if evaluated.len() == 1 => AccessKind::Write,
+            FunctionKind::ImplicitAccessor => AccessKind::Read,
+            _ => AccessKind::Call,
+        };
+        let name_str = self.ctx.symbol_name(f.name).to_string();
+        let s = super::sdk_source::selector_string(self.ctx, ty, &name_str, f.library);
+        // Guaranteed arguments: the entry that only checks the covariant ones
+        // (`typed_entry.rs`), as the SDK dispatch of `call_source_member` does.
+        let s = if matches!(ty, AccessKind::Call | AccessKind::Write) && self.all_checked(evaluated) {
+            super::typed_entry::typed_selector(&s)
+        } else {
+            s
+        };
+        let tuple = if self.generic_function(decl_fid) {
+            self.armed_tuple.clone().unwrap_or(Operand::Constant(Constant::Int(0)))
+        } else {
+            Operand::Constant(Constant::Int(0))
+        };
+        // The VM's forwarder passes all the parameters of the member,
+        // with the defaults of the omitted optional ones.
+        let complete_set: Vec<Evaluated> = if matches!(ty, AccessKind::Call) {
+            let values = self.match_args(decl_fid, evaluated);
+            self.ctx.outline.functions[decl_fid]
+                .parameters
+                .iter()
+                .zip(values)
+                .map(|(p, v)| (if p.kind == ParameterKind::Named { p.external_name } else { None }, v))
+                .collect()
+        } else {
+            evaluated.to_vec()
+        };
+        let r = self.call_by_selector_with_tuple(recv, s, &complete_set, tuple);
+        if ret == Type::Void { Operand::Constant(Constant::Null) } else { self.coerce(r, ret) }
+    }
+
     /// Call of an instance method/getter/setter with dispatch by the dynamic class
     /// of the receiver when some subclass overrides the member.
     ///
     /// There is no vtable yet: a `switch` over `dartforge_value_class`
-    /// chooses the implementation. Each target matches the arguments with ITS
-    /// parameters (defaults and representation may differ between overrides) and
-    /// the result is coerced to the representation of the declared member.
+    /// chooses the implementation (up to [`DEVIRTUALIZATION_FAN_OUT`]
+    /// implementations; above that, the selector). Each target matches the
+    /// arguments with ITS parameters (defaults and representation may differ
+    /// between overrides) and the result is coerced to the representation of
+    /// the declared member.
     pub fn call_member(
         &mut self,
         recv: Operand,
@@ -1420,38 +1478,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // (a class with `noSuchMethod` that does not declare it). Through the
                 // selector, the miss in the table reaches the `noSuchMethod` of the
                 // receiver with the `Invocation`, as in the VM.
-                use super::sdk_source::AccessKind;
-                let f = &self.ctx.program.functions[decl_fid];
-                let ty = match f.kind {
-                    FunctionKind::Getter => AccessKind::Read,
-                    FunctionKind::Setter => AccessKind::Write,
-                    FunctionKind::ImplicitAccessor if evaluated.len() == 1 => AccessKind::Write,
-                    FunctionKind::ImplicitAccessor => AccessKind::Read,
-                    _ => AccessKind::Call,
-                };
-                let name_str = self.ctx.symbol_name(f.name).to_string();
-                let s = super::sdk_source::selector_string(self.ctx, ty, &name_str, f.library);
-                let tuple = if self.generic_function(decl_fid) {
-                    self.armed_tuple.clone().unwrap_or(Operand::Constant(Constant::Int(0)))
-                } else {
-                    Operand::Constant(Constant::Int(0))
-                };
-                // The VM's forwarder passes all the parameters of the member,
-                // with the defaults of the omitted optional ones.
-                let complete_set: Vec<Evaluated> = if matches!(ty, AccessKind::Call) {
-                    let values = self.match_args(decl_fid, evaluated);
-                    self.ctx.outline.functions[decl_fid]
-                        .parameters
-                        .iter()
-                        .zip(values)
-                        .map(|(p, v)| (if p.kind == ParameterKind::Named { p.external_name } else { None }, v))
-                        .collect()
-                } else {
-                    evaluated.to_vec()
-                };
-                let r = self.call_by_selector_with_tuple(recv, s, &complete_set, tuple);
-                return if ret == Type::Void { Operand::Constant(Constant::Null) } else { self.coerce(r, ret) };
+                return self.call_member_by_selector(recv, decl_fid, evaluated, ret);
             }
+        }
+        // A megamorphic member (more implementations than the VM's polymorphic
+        // inline cache holds) stays on the selector: the `switch` below with
+        // one direct call per implementation, each one a candidate of the
+        // inliner, made `RenderObjectElement.performRebuild` (137
+        // `updateRenderObject`s) 22 KB for a one-line body
+        // (docs/PLANO-NATIVO-TAMANHO-PERFORMANCE.md). The selector call costs
+        // the inline cache, like the `switch` costs its jump table.
+        // `DARTFORGE_NO_DEVIRTUALIZATION_CAP=1` keeps the switch (measurement).
+        if distinct.len() > DEVIRTUALIZATION_FAN_OUT && !devirtualization_cap_off() {
+            return self.call_member_by_selector(recv, decl_fid, evaluated, ret);
         }
         if distinct.len() == 1 {
             let target = distinct[0];
@@ -2213,18 +2252,71 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return self.unsupported(&format!("SDK global ({name_str})"), span);
         }
         let repr = self.repr(variable_type(self.ctx, vid));
-        let v = self.emit_call_with_check(
-            Instruction::CallStatic {
-                symbol: super::global_symbol(self.ctx, vid),
-                args: Vec::new(),
-                ret_ty: repr,
-            },
-            repr,
-        );
+        let getter = Instruction::CallStatic {
+            symbol: super::global_symbol(self.ctx, vid),
+            args: Vec::new(),
+            ret_ty: repr,
+        };
+        let v = if self.inline_global_read(vid) {
+            // The fast path of the getter at the use site: the flag says the
+            // value is ready (1; 0 is not started, 2 is being evaluated) and
+            // the global holds it. The getter — which creates the value, marks
+            // the constant (`dartforge_mark_constant`, the key of the copy
+            // between isolates) or throws the `StackOverflowError` of a
+            // reentrant read and the `LateInitializationError` — only runs in
+            // the cold block. The flag and the slot are those the getter reads
+            // itself (per isolate, in the area of the module): the read is the
+            // same. Before, every use of an enum value was a call with a full
+            // prologue; `convertFormatValue` of the dart_ui color kernel
+            // made 15 per iteration.
+            let value = super::global_value_symbol(self.ctx, vid);
+            let ok = self.emit(Instruction::LoadGlobal { symbol: format!("{value}$ok"), ty: Type::I8 }, Type::I8);
+            let ready = self.emit(Instruction::ICmp(ICmpOp::Eq, ok, Operand::Constant(Constant::Int(1))), Type::I1);
+            let b_ready = self.new_block();
+            let b_cold = self.new_block();
+            let b_end = self.new_block();
+            self.terminate(Terminator::CondBranch { cond: ready, then_block: b_ready, else_block: b_cold });
+            self.set_block(b_ready);
+            let cached = self.emit(Instruction::LoadGlobal { symbol: value, ty: repr }, repr);
+            self.terminate(Terminator::Branch(b_end));
+            self.set_block(b_cold);
+            let first = self.emit_call_with_check(getter, repr);
+            let mut incoming = vec![(b_ready, cached)];
+            if !self.is_terminated() {
+                incoming.push((self.current_block, first));
+                self.terminate(Terminator::Branch(b_end));
+            }
+            self.set_block(b_end);
+            self.emit(Instruction::Phi { incoming, ty: repr }, repr)
+        } else {
+            self.emit_call_with_check(getter, repr)
+        };
         if let Operand::Val(id) = &v {
             self.read_from_global.insert(*id);
         }
         v
+    }
+
+    /// The read of the global `vid` can test the `$ok` flag and load the slot
+    /// at the use site ([`Self::read_global`]): the global lives in this
+    /// module (an SDK global of another module only has its getter), its
+    /// getter keeps the flag protocol — an enum value, a variable with an
+    /// initializer, or a `late` one, whose getter throws when the flag is
+    /// down — and the memory is tracing (under ARC a `Ref` leaving a slot
+    /// needs the borrow rules of the getter). `DARTFORGE_NO_INLINE_GLOBALS=1`
+    /// keeps the call (measurement).
+    fn inline_global_read(&self, vid: VariableId) -> bool {
+        static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *OFF.get_or_init(|| std::env::var_os("DARTFORGE_NO_INLINE_GLOBALS").is_some_and(|v| !v.is_empty() && v != "0")) {
+            return false;
+        }
+        let var = &self.ctx.program.variables[vid.0 as usize];
+        if self.ctx.arc_memory || !self.ctx.library_in_module(var.library) {
+            return false;
+        }
+        matches!(var.node, dartforge_elements::model::VariableRef::EnumConstant { .. })
+            || var.late
+            || self.variable_initializer_in(vid).is_some()
     }
 
     /// Stores a global (and marks it initialized).

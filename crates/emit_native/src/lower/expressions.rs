@@ -676,6 +676,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                     return r;
                 }
+                // An enum on the left: `==` is identity (`enums.rs`), without the
+                // `Object.==$c` dispatch and its boxed `bool`.
+                if matches!(op, BinaryOp::Eq | BinaryOp::NotEq)
+                    && let Some(r) =
+                        self.enum_identity_equality(l_ty, &lop, &rop, matches!(op, BinaryOp::NotEq))
+                {
+                    return r;
+                }
                 if matches!(op, BinaryOp::Eq | BinaryOp::NotEq)
                     && let Some(r) =
                         self.closed_class_equality(l_ty, &lop, &rop, matches!(op, BinaryOp::NotEq))
@@ -1188,7 +1196,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if !elements.iter().all(|e| matches!(e, ast::CollectionElement::Expression(_)))
                     || self.large_literal_is_constant(ast, elements) =>
             {
-                let l = self.lower_collection_literal(ast, super::literals::Collection::List, elements, expr.span);
+                let expected = self.literal_element_types(expr_id);
+                let l = self.lower_collection_literal(ast, super::literals::Collection::List, elements, expr.span, &expected);
                 self.literal_rti(l, expr_id)
             }
             // Maps and sets are the `_Map`/`_Set` of the SDK source.
@@ -1198,14 +1207,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 } else {
                     super::literals::Collection::Map
                 };
-                let collection = self.lower_collection_literal(ast, typ, elements, expr.span);
+                let expected = self.literal_element_types(expr_id);
+                let collection = self.lower_collection_literal(ast, typ, elements, expr.span, &expected);
                 self.literal_rti(collection, expr_id)
             }
             ExprKind::List { elements, .. } => {
+                let expected = self.literal_element_types(expr_id);
                 let mut elem_ops = Vec::new();
                 for el in elements.iter() {
                     if let ast::CollectionElement::Expression(e) = el {
-                        let op = self.lower_expr(ast, *e);
+                        let op = self.lower_literal_element(ast, *e, expected.first().copied());
                         let tag = self.operand_tag(&op);
                         elem_ops.push((op, tag));
                     }

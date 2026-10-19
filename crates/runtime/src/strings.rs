@@ -127,9 +127,31 @@ const DECIMAL_PAIRS: &[u8; 200] = b"\
 6061626364656667686970717273747576777879\
 8081828384858687888990919293949596979899";
 
+/// The powers of ten that fit in a `u64`.
+const POWERS_OF_TEN: [u64; 20] = {
+    let mut p = [1u64; 20];
+    let mut i = 1;
+    while i < 20 {
+        p[i] = p[i - 1] * 10;
+        i += 1;
+    }
+    p
+};
+
+/// How many characters `v.toString()` has (the sign included): what
+/// [`write_decimal`] writes, without writing it.
+pub(crate) fn decimal_len(v: i64) -> usize {
+    let n = v.unsigned_abs();
+    let mut digits = 1;
+    while digits < POWERS_OF_TEN.len() && n >= POWERS_OF_TEN[digits] {
+        digits += 1;
+    }
+    digits + usize::from(v < 0)
+}
+
 /// The decimal digits of `v` (with the sign) at the end of `buf`: the VM's
 /// `int.toString()`, without the intermediate string. Returns the first byte's index.
-fn write_decimal(buf: &mut [u8; 20], v: i64) -> usize {
+pub(crate) fn write_decimal(buf: &mut [u8; 20], v: i64) -> usize {
     let mut i = buf.len();
     let mut n = v.unsigned_abs();
     while n >= 100 {
@@ -215,29 +237,34 @@ unsafe fn join_typed(part_list: *const i64, n: i64, owned: bool) -> i64 {
             for (k, &t) in text.iter().enumerate() { heap.set_root(frame, k, t); }
             frame
         });
-        let mut buf = [0u8; 20];
         let (mut total, mut one) = (0usize, true);
         for p in part_list.chunks_exact(2) {
             if p[0] == 1 {
-                total += buf.len() - write_decimal(&mut buf, p[1]);
+                total += decimal_len(p[1]);
             } else {
                 let t = heap.text(p[1]).expect("compiler bug: string expected in the interpolation");
                 total += t.len();
                 one &= t.fits_in_one_byte();
             }
         }
-        let r = heap.new_string(total, !one);
+        let two = !one;
+        let (r, units) = heap.new_string_units(total, two);
+        let mut buf = [0u8; 20];
         let mut pos = 0;
         for p in part_list.chunks_exact(2) {
-            if p[0] == 1 {
+            let t = if p[0] == 1 {
                 let i = write_decimal(&mut buf, p[1]);
-                heap.write_string(r, pos, crate::text::TextRef::OneByte(&buf[i..]));
-                pos += buf.len() - i;
+                crate::text::TextRef::OneByte(&buf[i..])
             } else {
-                let k = heap.text(p[1]).map_or(0, crate::text::TextRef::len);
-                heap.copy_string(r, pos, p[1], 0, k);
-                pos += k;
-            }
+                // Rooted by the emitter (or by `frame`): read again after the
+                // allocation, which may have collected.
+                heap.text(p[1]).expect("compiler bug: string expected in the interpolation")
+            };
+            // SAFETY: `pos + t.len() ≤ total` units of room from `units`, in the
+            // form chosen for all the parts; the result is another block than any
+            // part, and `buf` is on the stack.
+            unsafe { crate::text::write_units(units.add(pos * crate::text::unit_size(two)), two, t) };
+            pos += t.len();
         }
         if let Some(frame) = frame {
             heap.retain_code_owner(r);
@@ -420,9 +447,15 @@ pub extern "C" fn dartforge_string_repeat(handle: i64, times: i64) -> i64 {
         let mut heap = heap.borrow_mut();
         let (n, one) = heap.text(handle).map_or((0, true), |t| (t.len(), t.fits_in_one_byte()));
         let total = n.checked_mul(times).expect("string too large");
-        let r = heap.new_string(total, !one);
-        for k in 0..times {
-            heap.copy_string(r, k * n, handle, 0, n);
+        let (r, units) = heap.new_string_units(total, !one);
+        if n > 0 {
+            // Rooted by the emitter: read again after the allocation.
+            let t = heap.text(handle).expect("compiler bug: string expected");
+            for k in 0..times {
+                // SAFETY: `k·n + n ≤ total` units of room from `units`, in the
+                // source's form; `r` is another block than `handle`.
+                unsafe { crate::text::write_units(units.add(k * n * crate::text::unit_size(!one)), !one, t) };
+            }
         }
         r
     })
@@ -515,6 +548,37 @@ mod tests_owned_join {
             assert_eq!(dartforge_arc_observe_heap_v1(empty), 3);
             dartforge_arc_release(empty);
             HEAP.with(|h| { h.replace(previous); });
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests_decimal_text {
+    use super::*;
+
+    /// `int.toString` (and the interpolation's digits) through the pairs table:
+    /// the text of every magnitude, `i64::MIN` included, and its length.
+    #[test]
+    fn to_string_i64_writes_the_decimal_text_of_every_magnitude() {
+        let mut values = vec![0, 1, -1, 9, 10, 99, 100, 101, i64::MAX, i64::MIN, i64::MIN + 1, i64::MAX - 1];
+        let mut p = 1i64;
+        for _ in 0..18 {
+            p *= 10;
+            values.extend([p - 1, p, p + 1, -(p - 1), -p, -(p + 1)]);
+        }
+        for v in values {
+            let expected = v.to_string();
+            assert_eq!(decimal_len(v), expected.len(), "{v}");
+            let mut buf = [0u8; 20];
+            let i = write_decimal(&mut buf, v);
+            assert_eq!(std::str::from_utf8(&buf[i..]).unwrap(), expected, "{v}");
+            let h = dartforge_to_string_i64(v);
+            HEAP.with(|heap| assert_eq!(heap.borrow().text(h).unwrap(), expected.as_str(), "{v}"));
+            let part_list = [1, v, 0, h, 1, v.wrapping_neg()];
+            // SAFETY: three readable pairs; `h` is a live string.
+            let joined = unsafe { dartforge_string_join_typed(part_list.as_ptr(), 3) };
+            let expected = format!("{expected}{expected}{}", v.wrapping_neg());
+            HEAP.with(|heap| assert_eq!(heap.borrow().text(joined).unwrap(), expected.as_str(), "{v}"));
         }
     }
 }

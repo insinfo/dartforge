@@ -35,6 +35,15 @@ pub enum Linkage {
     Assign,
 }
 
+/// A `switch` statement driven by the index of an enum value
+/// (`FnBuilder::enum_switch_plan`): the `(index, case)` pairs, the position of
+/// the `default` clause, and whether the value may be null.
+struct EnumSwitchPlan {
+    cases: Vec<(i64, usize)>,
+    default_case: Option<usize>,
+    nullable: bool,
+}
+
 impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Continues ahead if `cond` (an `i1`), otherwise branches to `failure`.
     fn require(&mut self, cond: Operand, failure: BlockId) {
@@ -540,32 +549,55 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // Tests, in order; the variables of each case live in its scope.
         let mut case_scopes = Vec::with_capacity(cases.len());
         let mut successes = Vec::with_capacity(cases.len());
-        for c in cases.iter() {
-            let next_item = self.new_block();
-            self.open_scope();
-            let mut linked = HashSet::new();
-            if let Some(p) = c.pattern {
-                let saved = std::mem::replace(&mut self.refutable_pattern, true);
-                self.match_pattern(ast, p, v.clone(), next_item, Linkage::Declare, &mut linked, value);
-                self.refutable_pattern = saved;
+        if let Some(plan) = self.enum_switch_plan(ast, value, cases) {
+            // The `switch` over an enum with constant cases: the index of the
+            // value selects the body (`Terminator::Switch`), instead of one
+            // identity test per case, each one reading the constant.
+            let v = self.coerce(v, Type::Ref);
+            let default_target = plan.default_case.map_or(exit, |i| bodies[i]);
+            if plan.nullable {
+                // `null` matches no constant: the `default`, or the exit.
+                let is_null = self.emit(Instruction::ICmp(ICmpOp::Eq, v.clone(), Operand::Constant(Constant::Int(0))), Type::I1);
+                let b_value = self.new_block();
+                self.terminate(Terminator::CondBranch { cond: is_null, then_block: default_target, else_block: b_value });
+                self.set_block(b_value);
             }
-            if let Some(g) = c.guard {
-                let ok = self.lower_expr(ast, g);
-                self.require(ok, next_item);
+            let index = self.emit(Instruction::GetField { object: v, index: 0 }, Type::I64);
+            let switch_cases = plan.cases.iter().map(|&(k, i)| (k, bodies[i])).collect();
+            self.terminate(Terminator::Switch { val: index, default: default_target, cases: switch_cases });
+            for _ in cases {
+                self.open_scope();
+                successes.push(None);
+                case_scopes.push(self.scopes.pop().expect("case scope"));
             }
-            let body_i = bodies[case_scopes.len()];
-            let passing = if c.body.is_empty() && case_scopes.len() + 1 < cases.len() {
-                Some(self.new_block())
-            } else {
-                None
-            };
-            self.terminate(Terminator::Branch(passing.unwrap_or(body_i)));
-            successes.push(passing);
-            case_scopes.push(self.scopes.pop().expect("case scope"));
-            self.set_block(next_item);
+        } else {
+            for c in cases.iter() {
+                let next_item = self.new_block();
+                self.open_scope();
+                let mut linked = HashSet::new();
+                if let Some(p) = c.pattern {
+                    let saved = std::mem::replace(&mut self.refutable_pattern, true);
+                    self.match_pattern(ast, p, v.clone(), next_item, Linkage::Declare, &mut linked, value);
+                    self.refutable_pattern = saved;
+                }
+                if let Some(g) = c.guard {
+                    let ok = self.lower_expr(ast, g);
+                    self.require(ok, next_item);
+                }
+                let body_i = bodies[case_scopes.len()];
+                let passing = if c.body.is_empty() && case_scopes.len() + 1 < cases.len() {
+                    Some(self.new_block())
+                } else {
+                    None
+                };
+                self.terminate(Terminator::Branch(passing.unwrap_or(body_i)));
+                successes.push(passing);
+                case_scopes.push(self.scopes.pop().expect("case scope"));
+                self.set_block(next_item);
+            }
+            // Nenhum caso casou: sai.
+            self.terminate(Terminator::Branch(exit));
         }
-        // Nenhum caso casou: sai.
-        self.terminate(Terminator::Branch(exit));
         // `case A(:final x): case B(:final x): body` has a single `x`
         // observable in the body. Each test above created its own local; before
         // jumping to the body, the previous case copies its values into the
@@ -632,6 +664,57 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.labeled_break_targets.remove(&l);
         }
         self.set_block(exit);
+    }
+
+    /// The shape of a `switch` statement that the index of an enum value can
+    /// drive ([`EnumSwitchPlan`]): the value is statically a certified enum
+    /// (`enums::enum_identity_operator`: its `==` is identity) and every case
+    /// is a direct constant of that same enum, without a guard — except a
+    /// `default`, which must be the last clause so that its position in the
+    /// sequential matching does not matter. A repeated constant keeps its
+    /// first case, as the sequential tests would. Under ARC, and with
+    /// `DARTFORGE_NO_ENUM_PATTERN_IDENTITY=1`, the general path.
+    fn enum_switch_plan(&mut self, ast: &ast::Ast, value: ExprId, cases: &[ast::SwitchCase]) -> Option<EnumSwitchPlan> {
+        if cases.is_empty() || self.ctx.arc_memory || !self.ctx.enum_pattern_identity_enabled {
+            return None;
+        }
+        let dartforge_types::table::Type::Interface { class, nullable, .. } =
+            self.ctx.table.get(self.ctx.get_type(self.unit_id, value)?)
+        else {
+            return None;
+        };
+        let (class, nullable) = (*class, *nullable);
+        if !super::enums::enum_identity_operator(self.ctx, class) {
+            return None;
+        }
+        let mut plan = EnumSwitchPlan { cases: Vec::with_capacity(cases.len()), default_case: None, nullable };
+        for (i, c) in cases.iter().enumerate() {
+            if c.guard.is_some() {
+                return None;
+            }
+            let Some(p) = c.pattern else {
+                if i + 1 != cases.len() {
+                    return None;
+                }
+                plan.default_case = Some(i);
+                continue;
+            };
+            let PatternKind::Constant(e) = &ast.pattern(p).kind else { return None };
+            // The parenthesized constant (`const (e)`) is read as a record by
+            // the parser: the general path knows that spelling.
+            if matches!(ast.expr(*e).kind, ExprKind::Record { .. }) {
+                return None;
+            }
+            let (constant_class, index) = super::enums::certified_enum_constant(self.ctx, self.unit_id, *e)?;
+            if constant_class != class {
+                return None;
+            }
+            let index = i64::try_from(index).ok()?;
+            if !plan.cases.iter().any(|(k, _)| *k == index) {
+                plan.cases.push((index, i));
+            }
+        }
+        Some(plan)
     }
 
     /// `switch` as an expression: the first case that matches gives the value; none

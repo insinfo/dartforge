@@ -1191,3 +1191,164 @@ fn maps_rti_evaluation_keeps_the_source_operation_effects() {
     assert!(!body.contains("@dartforge_rti_eval_cache("), "{body}");
     assert!(!body.contains("%ra1.fim"), "Phi predecessor must name an emitted block: {body}");
 }
+
+/// The stack check compares the stack pointer of the entry
+/// (`llvm.read_register`) with `Context::stack_limit`: no marker `alloca` in
+/// the frame.
+#[test]
+fn stack_check_reads_the_stack_pointer_register() {
+    let v0 = ValueId(0);
+    let f = function("pilha", vec![(v0, "s".to_string(), Type::Ref)], Type::Ref,
+        vec![BasicBlock { id: BlockId(0), instructions: vec![(ValueId(1), concat(v0, v0), Type::Ref)],
+            terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }]);
+    let ir = emit(f);
+    let body = body_of(&ir, "pilha");
+    let register = if cfg!(target_arch = "x86_64") { "rsp" } else { "sp" };
+    assert!(body.contains(&format!("%pilhasp = call i64 @llvm.read_register.i64(metadata !{{!\"{register}\"}})")), "{body}");
+    assert!(body.contains("%pilhal = load i64, ptr %pilhalp") && body.contains("%pilhab = icmp ult i64 %pilhasp, %pilhal"), "{body}");
+    assert!(!body.contains("%pilhaq") && !body.contains("alloca i8, align 1"), "{body}");
+    assert!(ir.contains("declare i64 @llvm.read_register.i64(metadata)"), "{ir}");
+    assert!(ir.lines().any(|line| line.starts_with("define ") && line.contains("@pilha(") && line.contains("\"disable-tail-calls\"=\"true\"")), "{ir}");
+}
+
+/// A module with class 32001 (`df.mt.C`; two fields: a `Ref` and an `int`,
+/// declared when `declared`) and a function that allocates it inline and writes
+/// field 0 with a `Ref`, field 1 with an `int` and then field 1 with a `Ref`.
+fn allocation_module(declared: bool) -> Module {
+    let mut m = Module::new();
+    m.table_functions.insert(32001, "df.mt.C".into());
+    if declared {
+        let field = |name: &str, index: usize, storage_type: Type| Some(FieldDeclaration {
+            library_uri: "package:x/x.dart".into(), owner: "C".into(), name: name.into(),
+            is_final: false, is_late: false, layout_index: index, storage_type,
+        });
+        m.declared_field_layouts.insert(32001, vec![field("r", 0, Type::Ref), field("n", 1, Type::I64)]);
+    }
+    let (p, v0) = (ValueId(0), ValueId(1));
+    m.functions.push(function("alocar", vec![(p, "s".into(), Type::Ref)], Type::Ref,
+        vec![BasicBlock { id: BlockId(0), instructions: vec![
+            (v0, Instruction::CallRuntime { name: "dartforge_object_new".into(),
+                args: vec![(Operand::Constant(Constant::Int(32001)), Type::I64), (Operand::Constant(Constant::Int(2)), Type::I64)],
+                ret_ty: Type::Ref }, Type::Ref),
+            (ValueId(2), Instruction::SetField { object: Operand::Val(v0), index: 0, value: Operand::Val(p) }, Type::Void),
+            (ValueId(3), Instruction::SetField { object: Operand::Val(v0), index: 1, value: Operand::Constant(Constant::Int(7)) }, Type::Void),
+            (ValueId(4), Instruction::SetField { object: Operand::Val(v0), index: 1, value: Operand::Val(p) }, Type::Void),
+            (ValueId(5), Instruction::SetField { object: Operand::Val(v0), index: 0, value: Operand::Constant(Constant::Null) }, Type::Void),
+        ], terminator: Terminator::Return(Some(Operand::Val(v0))) }]));
+    m
+}
+
+/// Production registers every assembled table at startup
+/// (`with_tables_registered_at_startup`): the inline allocation keeps only the
+/// TLAB test and the slow path still cites the table (the pruning edge). In
+/// both profiles the dead `store i64 0` of the first field is gone.
+#[test]
+fn inline_allocation_without_registration_test_when_tables_registered_at_startup() {
+    let m = allocation_module(false);
+    let lazy = LlvmEmitter::new(&m).emit_all();
+    let body = body_of(&lazy, "alocar");
+    assert!(body.contains("ao1.reg:") && body.contains("%trv1 = load i8"), "{body}");
+    assert!(!body.contains("store i64 0, ptr %tpp1"), "{body}");
+    let eager = LlvmEmitter::new(&m).with_tables_registered_at_startup(true).emit_all();
+    let body = body_of(&eager, "alocar");
+    assert!(!body.contains("ao1.reg:") && !body.contains("%trv1") && !body.contains("%tn1 = load i64"), "{body}");
+    assert!(body.contains("br i1 %tx1, label %ao1.lento, label %ao1.rapido"), "{body}");
+    assert!(body.contains("%tl1 = call i64 @dartforge_object_new_t(i64 32001, i64 2, ptr @df.mt.C)"), "{body}");
+    assert!(!body.contains("store i64 0, ptr %tpp1"), "{body}");
+}
+
+/// Level A of the static reference map, in production: the allocation of a
+/// class with a declared layout writes the map of its fields (fast path: a
+/// store in the header; slow path: `dartforge_object_new_mt`), the stores into
+/// the fresh object whose `is_ref` agrees with the map do not touch it, and a
+/// store that disagrees still corrects the bit. Without the layout, or outside
+/// production, the map stays by store.
+#[test]
+fn static_reference_map_at_allocation_and_fresh_stores_without_rmw() {
+    let m = allocation_module(true);
+    let ir = LlvmEmitter::new(&m).with_production(true).with_tables_registered_at_startup(true).emit_all();
+    let body = body_of(&ir, "alocar");
+    assert!(body.contains("%tmp1 = getelementptr inbounds i8, ptr %tb1, i64 8\n  store i32 1, ptr %tmp1, align 4"), "{body}");
+    assert!(body.contains("call i64 @dartforge_object_new_mt(i64 32001, i64 2, i64 1, ptr @df.mt.C)"), "{body}");
+    assert!(body.contains("store i64 %v0, ptr %fg2") && body.contains("store i64 7, ptr %fg3"), "{body}");
+    assert!(!body.contains("%fm2 = load i32") && !body.contains("%fm3 = load i32"), "{body}");
+    assert!(body.contains("%fms4 = or i32 %fm4, 2"), "a store that disagrees with the map corrects the bit: {body}");
+    // Null into a fresh field: the zero of the handout, nothing to store; the
+    // bit agrees with the map, nothing to update.
+    assert!(!body.contains("%fg5") && !body.contains("%fm5"), "{body}");
+    assert!(ir.contains("declare i64 @dartforge_object_new_mt(i64, i64, i64, ptr)"), "{ir}");
+    // Without the declared layout: map 0 and the read-modify-write by store.
+    let unknown = LlvmEmitter::new(&allocation_module(false)).with_production(true).emit_all();
+    let body = body_of(&unknown, "alocar");
+    assert!(!body.contains("%tmp1") && body.contains("%fms2 = or i32 %fm2, 1") && body.contains("%fmc3 = and i32 %fm3, -3"), "{body}");
+    // The null store into the fresh object is still not emitted, its bit is.
+    assert!(!body.contains("%fg5") && body.contains("%fms5 = or i32 %fm5, 1"), "{body}");
+    assert!(body.contains("call i64 @dartforge_object_new_t(i64 32001, i64 2, ptr @df.mt.C)"), "{body}");
+    // Development: the same, even with the layout.
+    let development = LlvmEmitter::new(&m).emit_all();
+    let body = body_of(&development, "alocar");
+    assert!(!body.contains("%tmp1") && body.contains("%fms2 = or i32 %fm2, 1"), "{body}");
+    assert!(!body.contains("dartforge_object_new_m"), "{body}");
+}
+
+/// `AllocObject` in production: the map of the written fields in one word
+/// (`dartforge_object_new_m`), no read-modify-write per field.
+#[test]
+fn alloc_object_writes_the_map_once_in_production() {
+    let p = ValueId(0);
+    let mut m = Module::new();
+    m.functions.push(function("quadro", vec![(p, "s".into(), Type::Ref)], Type::Ref,
+        vec![BasicBlock { id: BlockId(0), instructions: vec![
+            (ValueId(1), Instruction::AllocObject { class_id: 32001,
+                fields: vec![Operand::Val(p), Operand::Constant(Constant::Int(7)), Operand::Val(p)] }, Type::Ref),
+        ], terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }]));
+    let production = LlvmEmitter::new(&m).with_production(true).emit_all();
+    let body = body_of(&production, "quadro");
+    assert!(body.contains("call i64 @dartforge_object_new_m(i64 32001, i64 3, i64 5)"), "{body}");
+    assert!(!body.contains("load i32"), "{body}");
+    let development = LlvmEmitter::new(&m).emit_all();
+    let body = body_of(&development, "quadro");
+    assert!(body.contains("call i64 @dartforge_object_new(i64 32001, i64 3)") && body.contains("%fms1.0 = or i32 %fm1.0, 1"), "{body}");
+}
+
+/// Without outside bodies (AOT, the production SDK) the address of a field keeps
+/// the null/`Smi` select and drops the test of the `OUT_OF_LINE` flag.
+#[test]
+fn field_address_without_outside_body() {
+    let p = ValueId(0);
+    let mut m = Module::new();
+    m.functions.push(function("ler", vec![(p, "o".into(), Type::Ref)], Type::Ref,
+        vec![BasicBlock { id: BlockId(0), instructions: vec![
+            (ValueId(1), Instruction::GetField { object: Operand::Val(p), index: 0 }, Type::Ref),
+        ], terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }]));
+    let with_outside = LlvmEmitter::new(&m).emit_all();
+    let body = body_of(&with_outside, "ler");
+    assert!(body.contains("%fxh1 = select i1 %fxo1, ptr %fxq1, ptr %fxv1") && body.contains("%fcb1 = select i1 %fxfo1, ptr %fxc1, ptr %fxh1"), "{body}");
+    let without = LlvmEmitter::new(&m).with_body_without_outside(true).emit_all();
+    let body = body_of(&without, "ler");
+    assert!(body.contains("%fcb1 = select i1 %fxo1, ptr %fxq1, ptr %fxv1"), "{body}");
+    assert!(!body.contains("%fxf1") && !body.contains("%fxc1") && !body.contains("%fxh1"), "{body}");
+    assert!(body.contains("%fp1 = getelementptr inbounds i8, ptr %fcb1, i64 16"), "{body}");
+}
+
+/// The call of a function value reads the entry of a `_Closure` inline (class
+/// `CLOSURE`, field 0) and only goes to `dartforge_closure_entry` for any
+/// other value; a null entry still falls to `@df_clo_invalido`.
+#[test]
+fn closure_call_reads_the_entry_inline() {
+    let p = ValueId(0);
+    let f = function("chamar", vec![(p, "f".into(), Type::Ref)], Type::Ref,
+        vec![BasicBlock { id: BlockId(0), instructions: vec![
+            (ValueId(1), Instruction::CallClosure { closure: Operand::Val(p), args: vec![], names: vec![],
+                ret_ty: Type::Ref, tuple_types: Operand::Constant(Constant::Int(0)) }, Type::Ref),
+        ], terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }]);
+    let ir = emit(f);
+    let body = body_of(&ir, "chamar");
+    let closure = dartforge_runtime::layout::cid::CLOSURE;
+    assert!(body.contains("%cek1 = and i64 %v0, -9223372036854775801") && body.contains("br i1 %ceo1, label %ce1.obj, label %ce1.lento"), "{body}");
+    assert!(body.contains("%ceca1 = add i64 %v0, 2") && body.contains(&format!("%ceq1 = icmp eq i32 %cec1, {closure}")), "{body}");
+    assert!(body.contains("%cefa1 = add i64 %v0, 14\n  %cefp1 = inttoptr i64 %cefa1 to ptr\n  %cer1 = load i64, ptr %cefp1, align 8"), "{body}");
+    assert!(body.contains("ce1.lento:\n  %cel1 = call i64 @dartforge_closure_entry(i64 %v0)"), "{body}");
+    assert!(body.contains("ce1.fim:\n  %cc1 = phi i64 [ %cer1, %ce1.rapido ], [ %cel1, %ce1.lento ]"), "{body}");
+    assert!(body.contains("@df_clo_invalido") && body.contains("call i64 %cf1(i64 %v0, ptr %cargs1, ptr @"), "{body}");
+}

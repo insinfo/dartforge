@@ -385,10 +385,17 @@ pub extern "C" fn dartforge_native_StringBase_joinReplaceAllResult(base: i64, pa
             total += t.len();
             one &= t.fits_in_one_byte();
         }
-        let r = heap.new_string(total, !one);
+        let two = !one;
+        let (r, units) = heap.new_string_units(total, two);
         let mut pos = 0;
         for &(f, a, b) in &chunks {
-            heap.copy_string(r, pos, f, a, b);
+            // Rooted by the emitter (elements of the list): read again after the
+            // allocation, which may have collected.
+            let t = heap.text(f).expect("compiler bug: string expected").piece(a, b);
+            // SAFETY: `pos + (b - a) ≤ total` units of room from `units`, in the
+            // form chosen for all the pieces; `r` is another block than `f`.
+            #[allow(unsafe_code)]
+            unsafe { crate::text::write_units(units.add(pos * crate::text::unit_size(two)), two, t) };
             pos += b - a;
         }
         r
@@ -631,9 +638,8 @@ fn latin1_core_list(heap: &mut Heap, list: i64, start: i64, end: i64) -> Option<
         latin1_unit(elements.get(index))?;
     }
     Some(heap.list_with_roots(&[list], |heap| {
-        let string = heap.new_string(end - start, false);
         // Allocation may collect, so reacquire the source only after it completes.
-        let destination = heap.one_units_mut(string).as_mut_ptr();
+        let (string, destination) = heap.new_string_units(end - start, false);
         let elements = heap.list_elements(list);
         for index in start..end {
             let unit = latin1_unit(elements.get(index))

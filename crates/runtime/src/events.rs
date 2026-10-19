@@ -441,11 +441,16 @@ pub extern "C" fn dartforge_event_loop(call: extern "C" fn(i64) -> i64) {
         EVENTS.with(|e| e.borrow_mut().queue.remove(&(deadline, seq)));
         let firing = EVENTS.with(|e| {
             let mut e = e.borrow_mut();
-            let current_time = e.current_time();
-            let t = e.active.get_mut(&id)?;
-            let (closure, periodic) = (t.closure, t.periodic);
+            let (closure, periodic, ms) = {
+                let t = e.active.get(&id)?;
+                (t.closure, t.periodic, t.ms)
+            };
             if periodic {
-                let (adjusted_deadline, delta) = periodic_firing(deadline, current_time, t.ms);
+                // The clock only matters to the catch-up of a periodic timer:
+                // a one-shot one fires without reading it.
+                let current_time = e.current_time();
+                let (adjusted_deadline, delta) = periodic_firing(deadline, current_time, ms);
+                let t = e.active.get_mut(&id).expect("active timer");
                 t.tick = t.tick.saturating_add(delta);
                 return Some((closure, true, None, adjusted_deadline));
             }

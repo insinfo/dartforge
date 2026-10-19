@@ -817,29 +817,34 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// [`Self::cast_rti`] with the context that gives the end of the VM's message.
+    ///
+    /// The check goes first through `is` (`dartforge_rti_e`, which the emitter
+    /// turns into the use-site cache, `emit_rti_test_cached`: three loads and
+    /// two compares on a hit) in every context; only the failure path calls
+    /// `dartforge_rti_as_with_context`, which decides with the same test
+    /// (`test_without_value` + `value_key`, the same memo) and builds the
+    /// `TypeError` with the VM's text — so `null` still fails a non-nullable
+    /// `as` there, with the same message. Before, only the parameter context
+    /// tested first; `v as Map<String, dynamic>` was an unconditional call to
+    /// the runtime (661 instructions) per element of a JSON loop. The name
+    /// of the parameter is also only built on the failure path (before, every
+    /// covariant or dynamic entry — the `[]=` of `_List`, the adapters of the
+    /// method table — paid a `dartforge_string_new` per parameter on each call).
     pub fn cast_rti_in(&mut self, op: Operand, ty: Operand, context: CastContext) {
         let v = self.coerce(op, Type::Ref);
-        // The name of the parameter only enters the message of the `TypeError`: the
-        // check goes first through `is` (`dartforge_rti_e`, the same test
-        // as `cast_rti_in`), and the text of the name is only built on the
-        // failure path. Before, every covariant or dynamic entry (the `[]=` of
-        // `_List`, the adapters of the method table) paid a
-        // `dartforge_string_new` per parameter on each call.
-        let (code, name_str, end) = match context {
-            CastContext::How => (0, Operand::Constant(Constant::Null), None),
-            CastContext::Implicit => (1, Operand::Constant(Constant::Null), None),
-            CastContext::Parameter(n) => {
-                let ok = self.test_rti(v.clone(), ty.clone());
-                let b_fail = self.new_block();
-                let b_end = self.new_block();
-                self.terminate(Terminator::CondBranch {
-                    cond: ok,
-                    then_block: b_end,
-                    else_block: b_fail,
-                });
-                self.set_block(b_fail);
-                (2, self.emit(Instruction::Const(Constant::String(n)), Type::Ref), Some(b_end))
-            }
+        let ok = self.test_rti(v.clone(), ty.clone());
+        let b_fail = self.new_block();
+        let b_end = self.new_block();
+        self.terminate(Terminator::CondBranch {
+            cond: ok,
+            then_block: b_end,
+            else_block: b_fail,
+        });
+        self.set_block(b_fail);
+        let (code, name_str) = match context {
+            CastContext::How => (0, Operand::Constant(Constant::Null)),
+            CastContext::Implicit => (1, Operand::Constant(Constant::Null)),
+            CastContext::Parameter(n) => (2, self.emit(Instruction::Const(Constant::String(n)), Type::Ref)),
         };
         self.emit_call_with_check(
             Instruction::CallRuntime {
@@ -849,12 +854,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::Void,
         );
-        if let Some(b_end) = end {
-            if !self.is_terminated() {
-                self.terminate(Terminator::Branch(b_end));
-            }
-            self.set_block(b_end);
+        if !self.is_terminated() {
+            self.terminate(Terminator::Branch(b_end));
         }
+        self.set_block(b_end);
     }
 
     /// At the entry of a dynamic call (tear-off, adapter of the method

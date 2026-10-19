@@ -1,0 +1,62 @@
+{
+  "base_revision": "9fcaa9a07a372e9046bab255fefc44f4f0e66ae9",
+  "working_tree": "uncommitted wave 1 plus continuation fixes",
+  "dart": "3.6.2 macos_arm64",
+  "clang": "22.1.8 arm64",
+  "native_unit": {
+    "passed": 760,
+    "failed": 4,
+    "ignored": 9,
+    "note": "before final local-promotion fix; five constant-argument tests rerun afterward"
+  },
+  "targeted_corpus": {
+    "programs": 16,
+    "builds": 32,
+    "matched_runs": 64,
+    "modes": [
+      "check",
+      "tables"
+    ],
+    "stress": [
+      false,
+      true
+    ]
+  },
+  "platform_pruning": "other constructors removed; getters and tables remain; complete-pruning gate still fails",
+  "performance": {
+    "fib": {
+      "a0": 5,
+      "a1": 4,
+      "dart": 9
+    },
+    "trees": {
+      "a0": 19,
+      "a1": 19,
+      "dart": 11
+    },
+    "numeric": {
+      "a0": 95,
+      "a1": 95,
+      "dart": 95
+    },
+    "strings": {
+      "a0": 44,
+      "a1": 44,
+      "dart": 44
+    },
+    "json": {
+      "a0": 71,
+      "a1": 71,
+      "dart": 70
+    },
+    "color_us": {
+      "a0": 29246,
+      "dart": 5287
+    },
+    "bytes": {
+      "a0": 3162704,
+      "a1": 3261872,
+      "dart": 5379152
+    }
+  }
+}

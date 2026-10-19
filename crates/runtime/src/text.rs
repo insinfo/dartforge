@@ -658,6 +658,79 @@ const fn string_cid(two: bool) -> i32 {
     if two { cid::TWO_BYTE_STRING } else { cid::ONE_BYTE_STRING }
 }
 
+/// The bytes of one unit of a string of the form `two`.
+#[inline(always)]
+pub(crate) const fn unit_size(two: bool) -> usize {
+    if two { 2 } else { 1 }
+}
+
+/// Writes the units of `t` at `p`, the units of a string under construction of
+/// the form `two` (`true`: a `_TwoByteString`): one byte per unit, or two. Into a
+/// `_OneByteString` each unit of `t` must fit in one byte (the destination's form
+/// was chosen by whoever allocated it).
+///
+/// # Safety
+/// `p` has room for `t.len()` units of the form `two` and does not overlap `t`.
+#[inline]
+pub(crate) unsafe fn write_units(p: *mut u8, two: bool, t: TextRef<'_>) {
+    // SAFETY: the function contract.
+    unsafe {
+        match (two, t) {
+            (false, TextRef::OneByte(b)) => copy_small(p, b.as_ptr(), b.len()),
+            (false, TextRef::TwoByte(u)) => {
+                for (i, &y) in u.iter().enumerate() {
+                    debug_assert!(y <= 0xFF, "unit {y:#x} in a _OneByteString");
+                    p.add(i).write(y as u8);
+                }
+            }
+            (true, TextRef::OneByte(b)) => {
+                let d = p.cast::<u16>();
+                for (i, &y) in b.iter().enumerate() {
+                    d.add(i).write_unaligned(u16::from(y));
+                }
+            }
+            (true, TextRef::TwoByte(u)) => copy_small(p, u.as_ptr().cast::<u8>(), 2 * u.len()),
+        }
+    }
+}
+
+/// `copy_nonoverlapping` for the few bytes of a string piece (a key, a number, a
+/// word): up to 32 bytes by two to four unaligned word moves — no `memmove`
+/// call, which dominated the profiles of `int.toString` and the interpolation.
+///
+/// # Safety
+/// `src` has `n` readable bytes and `dst` `n` writable ones; they do not overlap.
+#[inline(always)]
+unsafe fn copy_small(dst: *mut u8, src: *const u8, n: usize) {
+    // SAFETY: the function contract; the (possibly overlapping) moves cover
+    // exactly the `n` bytes.
+    unsafe {
+        match n {
+            0 => {}
+            1 => dst.write(src.read()),
+            2..=3 => {
+                dst.cast::<u16>().write_unaligned(src.cast::<u16>().read_unaligned());
+                dst.add(n - 2).cast::<u16>().write_unaligned(src.add(n - 2).cast::<u16>().read_unaligned());
+            }
+            4..=7 => {
+                dst.cast::<u32>().write_unaligned(src.cast::<u32>().read_unaligned());
+                dst.add(n - 4).cast::<u32>().write_unaligned(src.add(n - 4).cast::<u32>().read_unaligned());
+            }
+            8..=16 => {
+                dst.cast::<u64>().write_unaligned(src.cast::<u64>().read_unaligned());
+                dst.add(n - 8).cast::<u64>().write_unaligned(src.add(n - 8).cast::<u64>().read_unaligned());
+            }
+            17..=32 => {
+                dst.cast::<u64>().write_unaligned(src.cast::<u64>().read_unaligned());
+                dst.add(8).cast::<u64>().write_unaligned(src.add(8).cast::<u64>().read_unaligned());
+                dst.add(n - 16).cast::<u64>().write_unaligned(src.add(n - 16).cast::<u64>().read_unaligned());
+                dst.add(n - 8).cast::<u64>().write_unaligned(src.add(n - 8).cast::<u64>().read_unaligned());
+            }
+            _ => std::ptr::copy_nonoverlapping(src, dst, n),
+        }
+    }
+}
+
 impl Heap {
     /// The address of the block and the cid of string `h`; `None` if `h` is not a
     /// string. N4 panic (from [`Heap::header`]) for a dead or invalid object.
@@ -694,10 +767,39 @@ impl Heap {
     /// A new string of `len` zeroed units (in the requested form). May collect: the
     /// references the caller holds need roots.
     pub fn new_string(&mut self, len: usize, two: bool) -> Ref {
+        self.new_string_units(len, two).0
+    }
+
+    /// [`Heap::new_string`] with the address of its units (`b + UNITS`), for the
+    /// caller to fill right away — in the same heap borrow and before any other
+    /// allocation: the object is not published yet, so the writes need neither
+    /// barrier nor a revalidation of the handle (the rule of
+    /// [`Heap::words_mut`]). May collect before the block exists: the references
+    /// the caller holds need roots, and a source string is read again afterwards.
+    pub(crate) fn new_string_units(&mut self, len: usize, two: bool) -> (Ref, *mut u8) {
         let w = layout::string_words(len, two);
         let h = self.allocate(string_cid(two), w, flags::RAW);
-        self.words_mut(h)[0] = len as i64;
-        h
+        let body = self.fresh_body(h);
+        // SAFETY: the body of the block just allocated has `w ≥ 1` words: the
+        // length at word 0 (`b + LENGTH`) and the units from word 1 (`b + UNITS`) on.
+        unsafe {
+            body.write(len as i64);
+            (h, body.add(1).cast::<u8>())
+        }
+    }
+
+    /// The block address, the length and the form (`true`: two bytes per unit) of
+    /// string `h`, which nobody has published yet (a writer): one validation of
+    /// the handle (N4 panic for a dead or invalid object; panic for a static one)
+    /// and, under ARC, the snapshot of [`Heap::words_mut`].
+    fn string_under_construction(&mut self, h: Ref) -> (usize, usize, bool) {
+        let (b, c) = self.string_block(h).expect("compiler bug: string expected");
+        // SAFETY: a live string block (`string_block`): the state at `b + STATE`
+        // and the length at `b + LENGTH`.
+        let (state, len) = unsafe { (*((b + offsets::STATE) as *const u8), *((b + offsets::LENGTH) as *const i64)) };
+        assert!(state != state::PERMANENT, "compiler bug: write to a static object");
+        self.fresh_body(h);
+        (b, len as usize, c == cid::TWO_BYTE_STRING)
     }
 
     /// The units of a `_OneByteString` not yet published.
@@ -705,10 +807,11 @@ impl Heap {
     /// # Panics
     /// If `h` is not a `_OneByteString`.
     pub fn one_units_mut(&mut self, h: Ref) -> &mut [u8] {
-        let (_, c) = self.string_block(h).expect("compiler bug: _OneByteString expected");
-        assert_eq!(c, cid::ONE_BYTE_STRING, "compiler bug: _OneByteString expected");
-        let len = self.words(h)[0] as usize;
-        &mut self.bytes_mut(h)[8..8 + len]
+        let (b, len, two) = self.string_under_construction(h);
+        assert!(!two, "compiler bug: _OneByteString expected");
+        // SAFETY: the units of the live string start at `b+24` and are `len` bytes
+        // long; the mutable heap borrow is exclusive.
+        unsafe { std::slice::from_raw_parts_mut((b + offsets::UNITS) as *mut u8, len) }
     }
 
     /// The units of a `_TwoByteString` not yet published.
@@ -716,43 +819,23 @@ impl Heap {
     /// # Panics
     /// If `h` is not a `_TwoByteString`.
     pub fn two_units_mut(&mut self, h: Ref) -> &mut [u16] {
-        let (_, c) = self.string_block(h).expect("compiler bug: _TwoByteString expected");
-        assert_eq!(c, cid::TWO_BYTE_STRING, "compiler bug: _TwoByteString expected");
-        let len = self.words(h)[0] as usize;
-        let bytes = &mut self.bytes_mut(h)[8..8 + 2 * len];
-        // SAFETY: the bytes of the units start at `b+24` (aligned to 8) and are
-        // `2·len` bytes long; the `u16` slice covers exactly them.
-        unsafe { std::slice::from_raw_parts_mut(bytes.as_mut_ptr().cast::<u16>(), len) }
+        let (b, len, two) = self.string_under_construction(h);
+        assert!(two, "compiler bug: _TwoByteString expected");
+        // SAFETY: the units of the live string start at `b+24` (aligned to 8) and
+        // are `2·len` bytes long; the mutable heap borrow is exclusive.
+        unsafe { std::slice::from_raw_parts_mut((b + offsets::UNITS) as *mut u16, len) }
     }
 
     /// Writes the units of `t` from unit `pos` of string `dest` on (not yet
     /// published). In a `_OneByteString` each unit of `t` must fit in one byte (the
     /// destination's form was chosen by whoever allocated it).
     pub fn write_string(&mut self, dest: Ref, pos: usize, t: TextRef<'_>) {
-        let (_, c) = self.string_block(dest).expect("compiler bug: string expected");
-        let n = t.len();
-        if c == cid::ONE_BYTE_STRING {
-            let d = &mut self.one_units_mut(dest)[pos..pos + n];
-            match t {
-                TextRef::OneByte(b) => d.copy_from_slice(b),
-                TextRef::TwoByte(u) => {
-                    for (x, &y) in d.iter_mut().zip(u) {
-                        debug_assert!(y <= 0xFF, "unit {y:#x} in a _OneByteString");
-                        *x = y as u8;
-                    }
-                }
-            }
-        } else {
-            let d = &mut self.two_units_mut(dest)[pos..pos + n];
-            match t {
-                TextRef::OneByte(b) => {
-                    for (x, &y) in d.iter_mut().zip(b) {
-                        *x = u16::from(y);
-                    }
-                }
-                TextRef::TwoByte(u) => d.copy_from_slice(u),
-            }
-        }
+        let (b, len, two) = self.string_under_construction(dest);
+        assert!(pos + t.len() <= len, "compiler bug: write beyond the end of the string");
+        // SAFETY: the units of the live string `dest` run from `b+24` for `len`
+        // units of its form, and `pos + t.len() ≤ len`; `t` is not in `dest`
+        // (another block, or a buffer of the caller).
+        unsafe { write_units((b + offsets::UNITS + pos * unit_size(two)) as *mut u8, two, t) };
     }
 
     /// Copies the units `start..end` of string `source` to position `pos` of string
@@ -774,8 +857,12 @@ impl Heap {
     /// must not come from this heap (the allocation may collect): for a slice of a
     /// live string use [`Heap::string_slice`].
     pub fn allocate_string(&mut self, t: TextRef<'_>) -> Ref {
-        let h = self.new_string(t.len(), !t.fits_in_one_byte());
-        self.write_string(h, 0, t);
+        let two = !t.fits_in_one_byte();
+        let (h, p) = self.new_string_units(t.len(), two);
+        // SAFETY: `p` has room for `t.len()` units of the form chosen for `t`,
+        // which does not come from this heap (the contract above): the allocation
+        // left it in place.
+        unsafe { write_units(p, two, t) };
         h
     }
 
@@ -783,8 +870,13 @@ impl Heap {
     /// in canonical form (the VM's `_substringUnchecked`).
     pub fn string_slice(&mut self, h: Ref, start: usize, end: usize) -> Ref {
         let one = self.text(h).expect("compiler bug: string expected").piece(start, end).fits_in_one_byte();
-        let r = self.new_string(end - start, !one);
-        self.copy_string(r, 0, h, start, end);
+        let (r, p) = self.new_string_units(end - start, !one);
+        // The source is read again after the allocation (which may have collected;
+        // the caller roots it).
+        let t = self.text(h).expect("compiler bug: string expected").piece(start, end);
+        // SAFETY: `p` has room for `end - start` units of the form chosen for the
+        // piece; `r` is another block than `h`, so the copy does not overlap.
+        unsafe { write_units(p, !one, t) };
         r
     }
 
@@ -798,12 +890,17 @@ impl Heap {
             total += t.len();
             one &= t.fits_in_one_byte();
         }
-        let r = self.new_string(total, !one);
+        let two = !one;
+        let (r, units) = self.new_string_units(total, two);
         let mut pos = 0;
         for &p in part_list {
-            let n = self.text(p).map_or(0, TextRef::len);
-            self.copy_string(r, pos, p, 0, n);
-            pos += n;
+            // Read again after the allocation (which may have collected; the
+            // caller roots the parts).
+            let t = self.text(p).expect("compiler bug: string expected");
+            // SAFETY: `pos + t.len() ≤ total` units of room from `units`, in the
+            // form chosen for all the parts; `r` is another block than any part.
+            unsafe { write_units(units.add(pos * unit_size(two)), two, t) };
+            pos += t.len();
         }
         r
     }

@@ -19,6 +19,9 @@ pub struct NativeDriverOptions {
     pub cpu: Option<crate::generator::Cpu>,
     /// SDK library directory matching the emitted IR. Raw IR callers may use discovery.
     pub sdk_lib: Option<PathBuf>,
+    /// Asserts and `dart.vm.product` of the emitted IR ([`crate::DartFlags`]):
+    /// the linked SDK objects come out with the same ones (the cache key).
+    pub flags: crate::DartFlags,
 }
 
 impl Default for NativeDriverOptions {
@@ -30,6 +33,7 @@ impl Default for NativeDriverOptions {
             debug_info: false,
             cpu: None,
             sdk_lib: None,
+            flags: crate::DartFlags::DEVELOPMENT,
         }
     }
 }
@@ -92,7 +96,7 @@ pub fn compile_and_link(
         } else {
             crate::sdk_module::SdkProfile::Development
         };
-        let sdk = crate::sdk_module::compiled_sdk_in_profile(&dir, &options.clang, profile)?;
+        let sdk = crate::sdk_module::compiled_sdk_for(&dir, &options.clang, profile, options.flags)?;
         if let Some(t) = sdk.cold
             && options.timings
         {
@@ -396,6 +400,25 @@ pub fn outliner_at_link() -> bool {
         && !crate::target::symbolic_stack_trace().unwrap_or(true)
         && !crate::target::arc_memory().unwrap_or(true);
     cfg!(target_arch = "aarch64") && default_mode && (LINK_IN_PARTS.get() || request.as_deref() == Some("1"))
+}
+
+/// Whether the production LTO runs LLVM's `MergeFunctions` pass
+/// (`-mllvm -enable-merge-functions`): identical bodies become one function
+/// and the others thunks to it, so every tear-off keeps its own address —
+/// unlike the linker's ICF, which has no `addrsig` to respect in this pipeline
+/// (`linker_macos.rs`). Measured on the File Explorer (18 ThinLTO parts, 18
+/// October 2026): `__text` −293,340 B with the same cold link time; bench.dart
+/// −16.6 KB with the kernels unchanged; corpus/native/80 equal to the VM. The
+/// option is global to LLVM and invisible to the ThinLTO cache key, so each
+/// linker keeps these modules in a subdirectory of their own. It stays out of
+/// the symbolic stack trace (§13.14): a body folded into a thunk would report
+/// the frame of the function it was merged into. `DARTFORGE_NO_MERGE_FUNCTIONS=1`
+/// turns it off (measurement).
+pub fn merge_functions_at_link() -> bool {
+    if std::env::var("DARTFORGE_NO_MERGE_FUNCTIONS").is_ok_and(|v| v == "1") {
+        return false;
+    }
+    !crate::target::symbolic_stack_trace().unwrap_or(true)
 }
 
 /// The directory of the ThinLTO cache of the production link (next to the object

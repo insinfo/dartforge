@@ -25,15 +25,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// The native-only reserved definition. An integer query cannot parse `true`
-    /// and therefore uses its default; other keys remain undefined.
+    /// The native definitions: `dartforge.compiler` (true) and the VM's profile
+    /// keys — `dart.vm.product` (`Context::product`: true in
+    /// `DartFlags::PRODUCTION`, as in `dart compile exe`; false in development,
+    /// as in `dart run`) and `dart.vm.profile` (false). `hasEnvironment` is
+    /// true for the three in both profiles, as in the VM. An integer query
+    /// cannot parse `true`/`false` and therefore uses its default; other keys
+    /// remain undefined.
     pub(super) fn environment_value(&self, unit: UnitId, key: ast::ExprId, kind: &str, has: bool) -> Option<Constant> {
-        let reserved = self.environment_key(unit, key, 0)? == "dartforge.compiler";
-        if has { return Some(Constant::Bool(reserved)); }
-        if !reserved { return None; }
+        let value = match self.environment_key(unit, key, 0)?.as_str() {
+            "dartforge.compiler" => true,
+            "dart.vm.product" => self.ctx.product,
+            "dart.vm.profile" => false,
+            _ => return if has { Some(Constant::Bool(false)) } else { None },
+        };
+        if has { return Some(Constant::Bool(true)); }
         match kind {
-            "bool" => Some(Constant::Bool(true)),
-            "String" => Some(Constant::String("true".into())),
+            "bool" => Some(Constant::Bool(value)),
+            "String" => Some(Constant::String(if value { "true" } else { "false" }.into())),
             _ => None,
         }
     }

@@ -100,6 +100,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(r) = self.compare_to_int(ast, e) {
             return Some(r);
         }
+        if let Some(r) = self.num_to_int(ast, e) {
+            return Some(r);
+        }
         let (recv, name_str, call) = match &ast.expr(e).kind {
             ExprKind::Property { target, name, null_aware: false } => (*target, name.sym, false),
             ExprKind::Call { target, arguments } if arguments.args.is_empty() && arguments.type_args.is_empty() => {
@@ -169,6 +172,66 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let larger = self.emit(Instruction::ZExt { op: larger, from: Type::I1, to: Type::I64 }, Type::I64);
         let smaller = self.emit(Instruction::ZExt { op: smaller, from: Type::I1, to: Type::I64 }, Type::I64);
         Some(self.emit(Instruction::Sub(larger, smaller), Type::I64))
+    }
+
+    /// `n.toInt()` (and `truncate()`) with `n` statically `num`
+    /// (non-nullable): `num` is sealed, so the value is an `int` — a `Smi` or
+    /// a `_Mint`, the result itself — or a `_Double`, which takes the guarded
+    /// `fptosi` of [`Self::double_intrinsic`] (NaN and the values outside
+    /// `[-2^63, 2^63)` keep going through the SDK member, which throws the
+    /// `UnsupportedError`). Before, a `num` receiver went through the dispatch
+    /// by class to `_Double.toInt`, a call into the runtime, on every
+    /// conversion of the dart_ui color kernel.
+    fn num_to_int(&mut self, ast: &ast::Ast, e: ExprId) -> Option<Operand> {
+        use dartforge_runtime::layout::cid;
+        let ExprKind::Call { target, arguments } = &ast.expr(e).kind else { return None };
+        if !arguments.args.is_empty() || !arguments.type_args.is_empty() {
+            return None;
+        }
+        let ExprKind::Property { target: recv, name, null_aware: false } = &ast.expr(*target).kind else {
+            return None;
+        };
+        let shape = self.ctx.symbol_name(name.sym);
+        if shape != "toInt" && shape != "truncate" {
+            return None;
+        }
+        let T::Interface { class, nullable: false, .. } = self.ctx.table.get(self.ctx.get_type(self.unit_id, *recv)?) else {
+            return None;
+        };
+        if Some(*class) != self.ctx.core.num_class || self.ctx.arc_memory {
+            return None;
+        }
+        let v = self.lower_expr(ast, *recv);
+        if self.is_terminated() {
+            return Some(Operand::Constant(Constant::Null));
+        }
+        let v = self.coerce(v, Type::Ref);
+        let cls = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_value_class".to_string(),
+                args: vec![(v.clone(), Type::Ref)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        );
+        let is_double = self.emit(Instruction::ICmp(ICmpOp::Eq, cls, c(i64::from(cid::DOUBLE))), Type::I1);
+        let b_double = self.new_block();
+        let b_int = self.new_block();
+        let join = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: is_double, then_block: b_double, else_block: b_int });
+        self.set_block(b_double);
+        let d = self.double_intrinsic(v.clone(), "toInt");
+        let mut incoming = Vec::new();
+        if !self.is_terminated() {
+            incoming.push((self.current_block, d));
+            self.terminate(Terminator::Branch(join));
+        }
+        self.set_block(b_int);
+        let i = self.coerce(v, Type::I64);
+        incoming.push((self.current_block, i));
+        self.terminate(Terminator::Branch(join));
+        self.set_block(join);
+        Some(self.emit(Instruction::Phi { incoming, ty: Type::I64 }, Type::I64))
     }
 
     /// `list.add(v)` with a list of static type `List<int>`,

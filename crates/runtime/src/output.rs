@@ -501,29 +501,20 @@ pub extern "C" fn dartforge_tagged_to_string(bits: i64, tag: u8) -> i64 {
 /// Converts an integer to a managed heap string.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_to_string_i64(value: i64) -> i64 {
-    // The digits go straight into a stack buffer (without the `fmt` machinery and
-    // without the intermediate `String`).
+    // The digits go straight into a stack buffer (the pairs table of
+    // `write_decimal`, the same text as the interpolation for every `int`,
+    // `i64::MIN` included) and from there into the new string, already in
+    // one-byte form: no `fmt`, no `Text`, no intermediate `String`.
     let mut buf = [0u8; 20];
-    let mut i = buf.len();
-    let mut n = value.unsigned_abs();
-    loop {
-        i -= 1;
-        buf[i] = b'0' + (n % 10) as u8;
-        n /= 10;
-        if n == 0 {
-            break;
-        }
-    }
-    let mut text = [0u8; 21];
-    let mut k = 0;
-    if value < 0 {
-        text[0] = b'-';
-        k = 1;
-    }
-    let d = buf.len() - i;
-    text[k..k + d].copy_from_slice(&buf[i..]);
-    // The digits are already in one-byte form: no need to go through `Text`.
-    HEAP.with(|heap| heap.borrow_mut().allocate_string(crate::text::TextRef::OneByte(&text[..k + d])))
+    let i = write_decimal(&mut buf, value);
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let (h, p) = heap.new_string_units(buf.len() - i, false);
+        // SAFETY: `p` has `buf.len() - i` bytes of room; the digits are one-byte
+        // units, on the stack.
+        unsafe { crate::text::write_units(p, false, crate::text::TextRef::OneByte(&buf[i..])) };
+        h
+    })
 }
 
 /// Converts a double to a managed heap string.

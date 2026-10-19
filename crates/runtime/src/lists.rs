@@ -163,7 +163,10 @@ impl Heap {
             f |= flags::CARDS;
         }
         let h = self.allocate(cid, layout::list_words(len), f);
-        self.words_mut(h)[0] = len as i64;
+        // SAFETY: the body of the block just allocated has `list_words(len) ≥ 1`
+        // words; word 0 is the length.
+        #[allow(unsafe_code)]
+        unsafe { self.fresh_body(h).write(len as i64) };
         h
     }
 
@@ -171,7 +174,12 @@ impl Heap {
     /// (at least `len`).
     pub fn new_growable(&mut self, len: usize, capacity: usize, e: Element) -> Ref {
         let data = self.new_list(cid::LIST, capacity.max(len), e);
-        let h = self.list_with_roots(&[data], |heap| heap.allocate_instance(cid::GROWABLE_LIST, 2));
+        // From the TLAB the `_GrowableList` does not collect (`data` has no root
+        // yet); otherwise the general allocation, with `data` rooted.
+        let h = match self.allocate_from_tlab(cid::GROWABLE_LIST, layout::instance_words(2), flags::INSTANCE, 2) {
+            Some(h) => h,
+            None => self.list_with_roots(&[data], |heap| heap.allocate_instance(cid::GROWABLE_LIST, 2)),
+        };
         self.set_field(h, 0, len as i64, false);
         self.set_field(h, 1, data, true);
         h

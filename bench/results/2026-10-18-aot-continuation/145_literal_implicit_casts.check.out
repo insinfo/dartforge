@@ -1,0 +1,30 @@
+list bad: TypeError
+first,bad
+map value bad: TypeError
+key1,value1,key2,bad
+map key bad: TypeError
+bad
+list if: TypeError
+bad
+list for: TypeError
+bad
+map if: TypeError
+bad
+set: TypeError
+bad
+nullable: [null, 2]
+null,int
+contextual: TypeError
+bad
+generic list: TypeError
+
+generic map: TypeError
+
+generic list valid: [1]
+
+generic map valid: {key: 1}
+
+valid map: {a: 2}
+a,one
+covariance: TypeError
+

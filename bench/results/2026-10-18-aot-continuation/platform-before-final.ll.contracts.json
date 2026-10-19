@@ -1,0 +1,20 @@
+{
+  "artifact": {
+    "ir_digest": "9f5a47e349b19229c4860d2517bd4250",
+    "kind": "llvm_ir",
+    "path": "bench/results/2026-10-18-aot-continuation/platform-before-final.ll"
+  },
+  "certified": false,
+  "diagnostics": [],
+  "manifest_schema": 1,
+  "mode": "verify",
+  "package": null,
+  "requests": [],
+  "sources": [
+    {
+      "blake3": "313f27b5890eb15a9d1098f53a897e7dd42629d56d3cb7ce839e0b3dc206e37d",
+      "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/constant_args/main.dart"
+    }
+  ],
+  "verification_implemented": false
+}

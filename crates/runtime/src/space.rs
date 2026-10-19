@@ -1163,6 +1163,16 @@ impl ObjectSpace {
             // SAFETY: free blocks of the class, without live objects.
             unsafe { std::ptr::write_bytes(cursor, 0, j * size) };
         }
+        if cfg!(debug_assertions) || self.clear_dead {
+            // The handout contract: every block leaves zeroed, header and body
+            // (the inline allocation of the generated code and
+            // `Heap::allocate_from_tlab` write only the header word). Checked in
+            // debug builds and in the verifying modes (`--gc-stress`,
+            // `DARTFORGE_GC_VERIFY`, the tests).
+            // SAFETY: the `j` blocks just taken, without live objects.
+            let bytes = unsafe { std::slice::from_raw_parts(cursor, j * size) };
+            assert!(bytes.iter().all(|&x| x == 0), "collector bug: a dirty block handed out (class {class})");
+        }
         (cursor, j)
     }
 

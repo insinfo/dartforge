@@ -11,6 +11,7 @@
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
 use dartforge_diagnostics::Span;
+use dartforge_types::table::TypeId;
 use dartforge_frontend::ast::{self, CollectionElement, ExprId, ForInit};
 
 /// From how many elements a constant literal goes in chunks
@@ -50,6 +51,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
         }
         elements.iter().find_map(leaf).unwrap_or(false)
+    }
+
+    /// Type arguments inferred for a collection literal, including contextual types.
+    pub fn literal_element_types(&self, expr: ExprId) -> Vec<TypeId> {
+        match self.ctx.get_type(self.unit_id, expr).map(|t| self.ctx.table.get(t)) {
+            Some(dartforge_types::table::Type::Interface { args, .. }) => args.to_vec(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Checks a dynamic element before evaluating the next element. Batch fills and
+    /// direct list appends bypass the SDK's covariant entry, so the implicit cast
+    /// belongs here, while the literal's destination type is still available.
+    pub fn lower_literal_element(&mut self, ast: &ast::Ast, expr: ExprId, expected: Option<TypeId>) -> Operand {
+        let value = self.lower_expr(ast, expr);
+        if !self.is_terminated()
+            && self.ctx.get_type(self.unit_id, expr) == Some(self.ctx.core.dynamic_)
+            && let Some(expected) = expected.filter(|t| *t != self.ctx.core.dynamic_)
+        {
+            let ty = self.type_rti(expected);
+            self.cast_rti_in(value.clone(), ty, super::rti::CastContext::Implicit);
+        }
+        value
     }
 
     /// An empty collection of the requested type: the `_GrowableList` of the literal (`AllocList`
@@ -95,6 +119,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         typ: Collection,
         elements: &[CollectionElement],
         span: Span,
+        expected: &[TypeId],
     ) -> Operand {
         let target = self.empty_collection(typ);
         if self.fill_from_table(ast, target.clone(), typ, elements) {
@@ -103,11 +128,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.fill_in_chunks(ast, target.clone(), typ, elements, span) {
             return target;
         }
-        if self.fill_map_at_once(ast, target.clone(), typ, elements) {
+        if self.fill_map_at_once(ast, target.clone(), typ, elements, expected) {
             return target;
         }
         for el in elements {
-            self.collection_element(ast, target.clone(), typ, el, span);
+            self.collection_element(ast, target.clone(), typ, el, span, expected);
         }
         target
     }
@@ -261,15 +286,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// The map literal with only entries (`{k: v, …}`, without control
     /// elements nor `?`), as the VM builds it: evaluates the keys and the values in
     /// order, keeps them in a list `[k0, v0, k1, v1, …]` (`AllocList`, a single
-    /// allocation) and inserts everything at the end (`_dartforgeFillMap`). The VM
-    /// does the same (`Map._fromLiteral`,
-    /// runtime/vm/compiler/frontend/kernel_binary_flowgraph.cc): the `hashCode`
-    /// and the `==` of the keys only run after all values are evaluated.
-    /// Before it was one `[]=` by selector per entry — the argument vector, the
-    /// selector lookup, the indirect call and the exception check for each
-    /// one: the `toMap`/`toJson` of a real backend are made of that. Outside
-    /// ARC, which builds the list through the Owned factory (`ir_lists.rs`).
-    fn fill_map_at_once(&mut self, ast: &ast::Ast, target: Operand, typ: Collection, elements: &[CollectionElement]) -> bool {
+    /// allocation) and inserts everything at the end. The VM does the same
+    /// (`Map._fromLiteral`, runtime/vm/compiler/frontend/kernel_binary_flowgraph.cc):
+    /// the `hashCode` and the `==` of the keys only run after all values are
+    /// evaluated.
+    ///
+    /// The insertion is the batch of `_Map._dfFillFromRange(pairs, 0, 2n)`
+    /// (`compact_hash.dart`, the `_populateUnsafe` of the JSON decoder): the
+    /// index and the data are sized once for `n` entries and the `String`/`int`
+    /// keys go in through the runtime (`hash_map_fill`), each one as `_set`
+    /// would store it, in order — a repeated key overwrites the value at its
+    /// first position —, and a key the runtime does not compare (`double`, an
+    /// object with its own `==`) goes through `_set(key, value, _hashCode(key))`
+    /// at its turn, so the `hashCode`/`==` calls happen in the same order as
+    /// one `[]=` per entry. Before (`_dartforgeFillMap`), each entry was a
+    /// `[]=` by selector through the uniform entry with two covariance checks,
+    /// and the first one rehashed the fresh map (`_init`); before that it was
+    /// the same per entry in the code: the `toMap`/`toJson` of a real backend
+    /// are made of that. Outside ARC, which builds the list through the Owned
+    /// factory (`ir_lists.rs`).
+    fn fill_map_at_once(&mut self, ast: &ast::Ast, target: Operand, typ: Collection, elements: &[CollectionElement], expected: &[TypeId]) -> bool {
         // Up to `LITERAL_CHUNK` entries: the values stay alive (and
         // rooted) until the list, in the frame.
         if typ != Collection::Map || elements.len() < 2 || elements.len() > LITERAL_CHUNK || self.ctx.arc_memory {
@@ -281,12 +317,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if !only_entries {
             return false;
         }
-        let Some(fid) = self.top_level_function("dart:_compact_hash", "_dartforgeFillMap") else { return false };
+        // The literal is always the default `_Map` (`source_empty_collection`):
+        // its batch, or the generic support function if the overlay lacks it.
+        let batch = self.ctx.sdk_class("_compact_hash", "_Map").and_then(|c| {
+            let sym = self.ctx.interner.lookup("_dfFillFromRange")?;
+            let f = self.ctx.program.classes[c.0 as usize].instance_members.get(&sym)?;
+            super::members::has_body(self.ctx, f.0 as usize).then_some(f.0 as usize)
+        });
+        let generic = if batch.is_none() {
+            match self.top_level_function("dart:_compact_hash", "_dartforgeFillMap") {
+                Some(f) => Some(f),
+                None => return false,
+            }
+        } else {
+            None
+        };
         let mut values: Vec<(Operand, u8)> = Vec::with_capacity(elements.len() * 2);
         for el in elements {
             let CollectionElement::MapEntry { key, value, .. } = el else { unreachable!("checked above") };
-            for e in [*key, *value] {
-                let x = self.lower_expr(ast, e);
+            for (index, e) in [*key, *value].into_iter().enumerate() {
+                let x = self.lower_literal_element(ast, e, expected.get(index).copied());
                 if self.is_terminated() {
                     return true;
                 }
@@ -294,10 +344,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 values.push((x, tag));
             }
         }
+        let n = values.len() as i64;
         let list = self.emit(Instruction::AllocList { elements: values }, Type::Ref);
-        let evaluated: Vec<super::members::Evaluated> = vec![(None, target), (None, list)];
-        let args = self.match_args(fid, &evaluated);
-        self.call_direct(fid, None, args);
+        match (batch, generic) {
+            (Some(fid), _) => {
+                let evaluated: Vec<super::members::Evaluated> = vec![
+                    (None, list),
+                    (None, Operand::Constant(Constant::Int(0))),
+                    (None, Operand::Constant(Constant::Int(n))),
+                ];
+                let args = self.match_args(fid, &evaluated);
+                self.call_direct(fid, Some(target), args);
+            }
+            (None, Some(fid)) => {
+                let evaluated: Vec<super::members::Evaluated> = vec![(None, target), (None, list)];
+                let args = self.match_args(fid, &evaluated);
+                self.call_direct(fid, None, args);
+            }
+            (None, None) => unreachable!("checked above"),
+        }
         true
     }
 
@@ -359,7 +424,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if g.is_terminated() {
                     break;
                 }
-                g.collection_element(ast, p.clone(), typ, el, span);
+                g.collection_element(ast, p.clone(), typ, el, span, &[]);
             }
             if !g.is_terminated() {
                 g.terminate(Terminator::Return(Some(Operand::Constant(Constant::Null))));
@@ -437,10 +502,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         typ: Collection,
         el: &CollectionElement,
         span: Span,
+        expected: &[TypeId],
     ) {
         match el {
             CollectionElement::Expression(e) => {
-                let v = self.lower_expr(ast, *e);
+                let v = self.lower_literal_element(ast, *e, expected.first().copied());
                 if typ == Collection::Map {
                     self.unsupported("expression in a map literal", span);
                     return;
@@ -461,8 +527,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.unsupported("null-aware map entry", span);
                     return;
                 }
-                let k = self.lower_expr(ast, *key);
-                let v = self.lower_expr(ast, *value);
+                let k = self.lower_literal_element(ast, *key, expected.first().copied());
+                let v = self.lower_literal_element(ast, *value, expected.get(1).copied());
                 self.append_entry(target, k, v);
             }
             CollectionElement::Spread { value, null_aware } => {
@@ -486,7 +552,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     };
                     let saved = std::mem::replace(&mut self.unit_id, unit_ref);
                     for el in element_list.iter() {
-                        self.collection_element(ast_c, target.clone(), typ, el, span);
+                        self.collection_element(ast_c, target.clone(), typ, el, span, expected);
                     }
                     self.unit_id = saved;
                     return;
@@ -540,12 +606,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     });
                     self.set_block(b_then);
                 }
-                self.collection_element(ast, target.clone(), typ, then, span);
+                self.collection_element(ast, target.clone(), typ, then, span, expected);
                 self.close_scope();
                 self.terminate(Terminator::Branch(end));
                 self.set_block(b_else);
                 if let Some(e) = else_ {
-                    self.collection_element(ast, target, typ, e, span);
+                    self.collection_element(ast, target, typ, e, span, expected);
                 }
                 self.terminate(Terminator::Branch(end));
                 self.set_block(end);
@@ -597,7 +663,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 self.set_block(fn_body);
                 self.emit_safepoint();
-                self.collection_element(ast, target, typ, body, span);
+                self.collection_element(ast, target, typ, body, span, expected);
                 if let Some(ForInit::Variables(list)) = init {
                     for var in list.variables.iter() {
                         self.renew_cell(var.name.sym);
@@ -622,7 +688,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.iterate_source(source, &mut |s: &mut Self, x: Operand| {
                     s.open_scope();
                     s.bind_for_in_target(ast, for_target, x, *iterable, span);
-                    s.collection_element(ast, target.clone(), typ, fn_body, span);
+                    s.collection_element(ast, target.clone(), typ, fn_body, span, expected);
                     s.close_scope();
                 });
             }

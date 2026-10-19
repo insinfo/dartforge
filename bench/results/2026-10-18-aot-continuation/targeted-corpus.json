@@ -1,0 +1,610 @@
+[
+  {
+    "source": "100_mapas_conjuntos_chave_int.dart",
+    "mode": "check",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "100_mapas_conjuntos_chave_int.dart",
+    "mode": "tables",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "101_json_pilha_e_mapas.dart",
+    "mode": "check",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "101_json_pilha_e_mapas.dart",
+    "mode": "tables",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "110_identidade_de_literais_dev.dart",
+    "mode": "check",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "110_identidade_de_literais_dev.dart",
+    "mode": "tables",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "122_literais_grandes_constantes.dart",
+    "mode": "check",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "122_literais_grandes_constantes.dart",
+    "mode": "tables",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "127_const_padrao_com_variavel_de_tipo.dart",
+    "mode": "check",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "127_const_padrao_com_variavel_de_tipo.dart",
+    "mode": "tables",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "134_estouro_de_pilha.dart",
+    "mode": "check",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "134_estouro_de_pilha.dart",
+    "mode": "tables",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "136_estouro_de_pilha_e_coleta.dart",
+    "mode": "check",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "136_estouro_de_pilha_e_coleta.dart",
+    "mode": "tables",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "137_constantes_grandes_por_tabela.dart",
+    "mode": "check",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "137_constantes_grandes_por_tabela.dart",
+    "mode": "tables",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "138_json_error_unwind.dart",
+    "mode": "check",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "138_json_error_unwind.dart",
+    "mode": "tables",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "139_socket_read_buffers.dart",
+    "mode": "check",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "139_socket_read_buffers.dart",
+    "mode": "tables",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "141_inline_pragmas.dart",
+    "mode": "check",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "141_inline_pragmas.dart",
+    "mode": "tables",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "144_static_function_values.dart",
+    "mode": "check",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "144_static_function_values.dart",
+    "mode": "tables",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "145_literal_implicit_casts.dart",
+    "mode": "check",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "145_literal_implicit_casts.dart",
+    "mode": "tables",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "27_listas_covariancia.dart",
+    "mode": "check",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "27_listas_covariancia.dart",
+    "mode": "tables",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "57_await_em_operandos_e_future_runtime_type.dart",
+    "mode": "check",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "57_await_em_operandos_e_future_runtime_type.dart",
+    "mode": "tables",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "80_tearoffs_de_corpo_identico.dart",
+    "mode": "check",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  },
+  {
+    "source": "80_tearoffs_de_corpo_identico.dart",
+    "mode": "tables",
+    "build": "passed",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "oracle_exit": 0,
+        "equal": true
+      }
+    ]
+  }
+]

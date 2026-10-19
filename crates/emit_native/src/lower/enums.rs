@@ -28,6 +28,16 @@ fn pattern_enum_class(
     unit: dartforge_elements::model::UnitId,
     expr: dartforge_frontend::ast::ExprId,
 ) -> Option<ClassId> {
+    certified_enum_constant(ctx, unit, expr).map(|(cid, _)| cid)
+}
+
+/// [`pattern_enum_class`] with the declaration index of the constant (the
+/// `index` the value carries in its first field).
+pub(super) fn certified_enum_constant(
+    ctx: &Context,
+    unit: dartforge_elements::model::UnitId,
+    expr: dartforge_frontend::ast::ExprId,
+) -> Option<(ClassId, usize)> {
     let variable = match ctx.get_resolved(unit, expr)? {
         Resolved::Element(Element::Variable(v))
         | Resolved::Member {
@@ -54,7 +64,7 @@ fn pattern_enum_class(
     let DeclKind::Enum(declaration) = &ctx.program.unit(unit).ast.decl(decl).kind else {
         return None;
     };
-    (declaration.constants.get(index)?.name.sym == value.name).then_some(cid)
+    (declaration.constants.get(index)?.name.sym == value.name).then_some((cid, index))
 }
 
 /// Certifies only declaration shape; the optimizer still audits current bodies.
@@ -83,7 +93,7 @@ pub(super) fn simple_enum_constant(ctx: &Context, variable: VariableId) -> Optio
 
 /// Missing synthetic enum ancestry is not evidence that the SDK kept identity.
 /// Verify both implicit SDK classes and the actual patched Object operator.
-fn enum_identity_operator(ctx: &Context, cid: ClassId) -> bool {
+pub(super) fn enum_identity_operator(ctx: &Context, cid: ClassId) -> bool {
     let Some(core) = ctx.program.core else {
         return false;
     };
@@ -237,7 +247,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some(self.emit(Instruction::ICmp(ICmpOp::Eq, constant, candidate), Type::I1))
     }
 
-    /// `index`/`name` of an enum value of class `cid`.
+    /// `index`/`name` of an enum value of class `cid`: the two implicit
+    /// fields (positions 0 and 1), read in line (`GetField`: a load, not a
+    /// call; the emitter already read a constant-index `dartforge_object_get`
+    /// in line, but the HIR saw a runtime call with effects). Under ARC the
+    /// field goes through the runtime, which owns the borrow rules.
     pub fn enum_member(&mut self, cid: ClassId, name: &str, value: Operand) -> Option<Operand> {
         if !is_enum(self.ctx, cid) {
             return None;
@@ -248,6 +262,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             _ => return None,
         };
         let value = self.coerce(value, Type::Ref);
+        if !self.ctx.arc_memory {
+            return Some(self.emit(Instruction::GetField { object: value, index: idx as usize }, ty));
+        }
         Some(self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_object_get".to_string(),
@@ -259,6 +276,35 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             ty,
         ))
+    }
+
+    /// `a == b` (or `a != b`, with `negate`) when the static type of `a` is a
+    /// certified enum (`E` or `E?`, [`enum_identity_operator`]): the identity
+    /// of the handles. §17.26: with a null side the result is `identical`;
+    /// otherwise `a.==(b)`, which for an enum is `Object.==` — `identical`
+    /// again. A handle comparison is `identical` here because an enum value
+    /// (or null) is never a number box, the only case where `identical`
+    /// looks past the handle. `None`: the general path (a left side of
+    /// another type, whose `==` the right side cannot predict).
+    pub(super) fn enum_identity_equality(
+        &mut self,
+        type_of_a: Option<dartforge_types::table::TypeId>,
+        a: &Operand,
+        b: &Operand,
+        negate: bool,
+    ) -> Option<Operand> {
+        if self.in_adapter || !self.ctx.enum_pattern_identity_enabled || self.operand_type(a) != Type::Ref {
+            return None;
+        }
+        let dartforge_types::table::Type::Interface { class, .. } = self.ctx.table.get(type_of_a?) else {
+            return None;
+        };
+        if !enum_identity_operator(self.ctx, *class) {
+            return None;
+        }
+        let b = self.coerce(b.clone(), Type::Ref);
+        let e = self.emit(Instruction::ICmp(ICmpOp::Eq, a.clone(), b), Type::I1);
+        Some(if negate { self.emit(Instruction::LNot(e), Type::I1) } else { e })
     }
 
     /// `E.values`: the list of the values, in declaration order.

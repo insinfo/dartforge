@@ -579,6 +579,11 @@ fn with_isolate_entry<R>(input: &Graph, message: &Graph, handle_it: impl FnOnce(
 /// The life of an isolate created by `Isolate.spawn`, on its thread.
 fn run_isolate(p: IsolateRequest) {
     let call = p.entrypoints.call;
+    // This thread's context, published before its first generated prologue
+    // (`gc_roots::publish_in_tsd`: the production prologue reads the slot
+    // without a null check; with exceptions by tables `dart_v0` already enters
+    // generated code, `@df.port.v0`).
+    dartforge_context();
     dart_v0(p.entrypoints.prepare as usize);
     let (control, pause, termination) = with_state(|e| {
         e.errors_fatal = p.errors_fatal;

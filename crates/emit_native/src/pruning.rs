@@ -1270,7 +1270,14 @@ pub struct Assembly {
 /// Assembles the method tables in the IR of the program (§3.8): those of the program
 /// rewritten with only the live pairs, and those of the SDK summaries defined,
 /// pruned, with the function that returns each one. `prune = false`: all the
-/// pairs (`DARTFORGE_NO_TABLE_PRUNING`).
+/// pairs (`DARTFORGE_NO_TABLE_PRUNING`). When the program declares
+/// `@df.register.sdk_tables` (`LlvmEmitter::with_tables_registered_at_startup`),
+/// the declaration becomes its definition: one `dartforge_register_table` per
+/// assembled SDK table, in ascending cid order — the lazy registration of
+/// `dartforge_object_new_t` is then never the first one, and the inline
+/// allocation of production has no registration test. Every assembled table is
+/// registered, live or not (a dead one is empty), so `DARTFORGE_NO_TABLE_PRUNING`
+/// registers everything the SDK has.
 ///
 /// # Errors
 /// A table line of the program that cannot be read (format outside that of
@@ -1278,6 +1285,8 @@ pub struct Assembly {
 pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembly, String> {
     let t0 = std::time::Instant::now();
     const PROGRAM: &str = "programa";
+    const REGISTRATION: &str = "df.register.sdk_tables";
+    let mut registration_declared = false;
     let program = summarize(ir, PROGRAM, &[]);
     let mut all: Vec<&Summary> = summaries.to_vec();
     all.push(&program);
@@ -1331,6 +1340,10 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
                 if externals.contains(n) || arc_registrations.contains(n) {
                     continue;
                 }
+                if n == REGISTRATION {
+                    registration_declared = true;
+                    continue;
+                }
                 declared_set.insert(n.to_string());
             }
         } else if let Some((n, local)) = define_name(without_end) {
@@ -1365,6 +1378,8 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
     // The tables of the summaries.
     exit.push_str("\n; SDK method tables assembled at link time (docs/NATIVO-PODA-DE-TABELAS.md)\n");
     let mut declare: Vec<String> = Vec::new();
+    // (cid, table function) of every assembled table, for the startup registration.
+    let mut registrations: Vec<(i64, String)> = Vec::new();
     for r in summaries {
         let table_of: HashMap<u32, &SummarizedTable> = r.tables.iter().map(|t| (t.node, t)).collect();
         for &e in &r.externals {
@@ -1384,10 +1399,23 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
             let data = llvm_name(node);
             exit.push_str(&table_line(&format!("{data} = private unnamed_addr constant "), t.cid, &live_set));
             writeln!(exit, "define ptr {}() {{\nb0:\n  ret ptr {data}\n}}", llvm_name(function)).unwrap();
+            registrations.push((t.cid, llvm_name(function)));
         }
     }
     for d in declare {
         exit.push_str(&d);
+    }
+    if registration_declared {
+        registrations.sort();
+        registrations.dedup();
+        writeln!(exit, "define void @{REGISTRATION}() {{\nb0:").unwrap();
+        for (cid, function) in &registrations {
+            writeln!(exit, "  call void @dartforge_register_table(i64 {cid}, ptr {function})").unwrap();
+        }
+        exit.push_str("  ret void\n}\n");
+        if declared_set.insert("dartforge_register_table".to_string()) {
+            exit.push_str("declare void @dartforge_register_table(i64, ptr)\n");
+        }
     }
     arc_ports::assemble(&mut exit, &all, &reachability, prune, &mut declared_set)?;
     st.time = t0.elapsed();
@@ -1806,6 +1834,24 @@ mod tests {
         let main = r.definitions.iter().find(|d| r.names[d.name as usize] == "main").unwrap();
         assert!(main.calls.contains(&h("tc:usado")));
         assert!(main.calls.contains(&h("c:usado")));
+    }
+
+    /// The program that declares `@df.register.sdk_tables` gets it defined with
+    /// one registration per assembled table; without the declaration, nothing.
+    #[test]
+    fn declared_startup_registration_registers_every_assembled_table() {
+        let s = sdk();
+        let with = "define i32 @main() {\n  call void @df.register.sdk_tables()\n  ret i32 0\n}\ndeclare void @df.register.sdk_tables()\n";
+        let m = assemble(with, &[&s], true).unwrap();
+        let ir = &m.ir;
+        assert!(!ir.contains("declare void @df.register.sdk_tables()"), "{ir}");
+        assert!(
+            ir.contains("define void @df.register.sdk_tables() {\nb0:\n  call void @dartforge_register_table(i64 200, ptr @df.mt.C)\n  ret void\n}\n"),
+            "{ir}"
+        );
+        assert!(ir.contains("declare void @dartforge_register_table(i64, ptr)"), "{ir}");
+        let without = assemble("define i32 @main() {\n  ret i32 0\n}\n", &[&s], true).unwrap();
+        assert!(!without.ir.contains("df.register.sdk_tables"), "{}", without.ir);
     }
 
     #[test]

@@ -34,6 +34,7 @@ mod tests;
 mod pre_prune_tests;
 mod physical_devirtualize;
 mod checked_double_roundtrip;
+mod constant_args;
 mod constant_specialize;
 pub(crate) mod primitive_clamp;
 pub(crate) mod enum_constants;
@@ -54,20 +55,33 @@ pub(crate) fn prepare_for_pruning(module: &mut Module) {
 /// Specialize bounded constant contexts after the first reachability pruning.
 /// Dead native adapters must be removed before constructing enum identity proofs.
 /// This runs before effect summaries can remove pending-exception checks.
+/// The result counts the rewrites; above zero, the caller prunes again
+/// (`lib.rs`): the constant arguments (`constant_args`) fold branches that
+/// held whole backends alive.
 pub(crate) fn specialize_constants(module: &mut Module, requested_table_exceptions: bool) -> usize {
-    if disabled() || requested_table_exceptions {
+    if disabled() {
         return 0;
     }
+    let propagated = constant_args::propagate(module);
+    if requested_table_exceptions {
+        return propagated;
+    }
     let specialized = constant_specialize::rewrite(module);
-    specialized + primitive_clamp::rewrite(module)
+    propagated + specialized + primitive_clamp::rewrite(module)
 }
 
 
 fn prune_constant_cfg(module: &mut Module) {
     for function in &mut module.functions {
-        representation_constants::propagate_literals(function);
-        simplify::fold_constants(function);
-        simplify::remove_unreachable(function);
+        loop {
+            let mut changed = representation_constants::propagate_literals(function);
+            changed |= constant_args::fold_string_equality(function);
+            changed |= simplify::fold_constants(function);
+            changed |= simplify::remove_unreachable(function);
+            if !changed {
+                break;
+            }
+        }
     }
 }
 
@@ -103,22 +117,25 @@ fn clear(func: &mut Function, do_not_throw: &std::collections::HashSet<String>) 
         }
     }
     simplify::dead_checks(func, do_not_throw);
-    loop {
-        representation_constants::propagate_literals(func);
-        representation_constants::normalize(func);
-        simplify::fold_constants(func);
-        if !representation_constants::fold_booleans(func) {
-            break;
-        }
-    }
-    simplify::remove_unreachable(func);
-    simplify::join_blocks(func);
-    simplify::remove_dead(func);
+    // String constants may become visible through local CFG simplification or
+    // inlining, even when no parameter remains for interprocedural propagation.
+    constant_args::fold(func);
 }
 
 /// The entry is the first block in all the rest of the compiler.
 fn valid(f: &Function) -> bool {
     f.blocks.first().is_some_and(|b| b.id.0 == 0)
+}
+
+/// How many `CallStatic` sites each symbol has in the module.
+fn static_call_sites(module: &Module) -> HashMap<String, usize> {
+    let mut sites: HashMap<String, usize> = HashMap::new();
+    for inst in module.functions.iter().flat_map(|f| &f.blocks).flat_map(|b| &b.instructions) {
+        if let Instruction::CallStatic { symbol, .. } = &inst.1 {
+            *sites.entry(symbol.clone()).or_default() += 1;
+        }
+    }
+    sites
 }
 
 /// How many threads the per-function passes use: the machine's, at most 4
@@ -228,15 +245,13 @@ pub fn optimize(module: &mut Module) {
         let origins = &module.arc_sites;
         let updated = std::sync::Mutex::new(HashMap::new());
         let arc_memory = module.arc_memory;
+        // The static call sites of each symbol, for the inliner's budget in the
+        // arms of a devirtualization `switch` (`inline::ARM_BODY_LIMIT`).
+        let call_sites = static_call_sites(module);
         let changed = in_parallel(&mut module.functions, &|f| {
             let mut sites = origins.get(&f.symbol).cloned().unwrap_or_default();
             let mut frames = frame_sources.get(&f.symbol).cloned().unwrap_or_default();
-            let changed = if frame_sources.is_empty() {
-                if arc_memory { inline::inlining_with_origins(f, &copies, origins, &mut sites) }
-                else { inline::inlining(f, &copies) }
-            } else {
-                inline::inlining_with_metadata(f, &copies, origins, &mut sites, &frame_sources, &mut frames)
-            };
+            let changed = inline::inlining_with_metadata(f, &copies, origins, &mut sites, &frame_sources, &mut frames, &call_sites);
             if arc_memory && !sites.is_empty() {
                 updated.lock().unwrap().insert(f.symbol.clone(), sites);
             }

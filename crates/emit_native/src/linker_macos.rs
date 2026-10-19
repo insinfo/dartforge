@@ -993,8 +993,15 @@ pub fn link(ld: &Path, sysroot: &SysrootMacos, l: &Linkage<'_>) -> Result<(), St
         if outliner {
             cmd.arg("-mllvm").arg("-enable-machine-outliner=always");
         }
+        // MergeFunctions (`driver::merge_functions_at_link`): a global LLVM
+        // option as well, invisible to the cache key — its own subdirectory too.
+        let merge = crate::driver::merge_functions_at_link();
+        if merge {
+            cmd.arg("-mllvm").arg("-enable-merge-functions");
+        }
         if let Some(d) = crate::driver::thinlto_cache() {
             let d = if outliner { d.join("outliner") } else { d };
+            let d = if merge { d.join("mergefunc") } else { d };
             if std::fs::create_dir_all(&d).is_ok() {
                 cmd.arg("-cache_path_lto").arg(d);
             }
@@ -1013,13 +1020,24 @@ pub fn link(ld: &Path, sysroot: &SysrootMacos, l: &Linkage<'_>) -> Result<(), St
     }
     if l.prune {
         cmd.arg("-dead_strip");
-        // Without `--icf=safe` (which `ld64.lld` has, like `ld.lld` and
-        // `lld-link`): it was not verified on a Mac that it treats as taken
-        // every address of an object without `__llvm_addrsig` (the Rust ones), and
-        // the `==` of tear-offs depends on that (`linker_windows.rs`).
-        // `-S` strips the debug map (J05); `-x`, the local symbols.
+        // No `--icf=safe` (which `ld64.lld` has, like `ld.lld` and `lld-link`).
+        // Measured on the File Explorer (18 October 2026, relinks of the same
+        // inputs): `--icf=safe` and `--icf=all` produce the same executable byte
+        // for byte (−1,020,268 B of `__text`), because neither the objects the
+        // Mach-O LTO generates nor the Rust ones carry `__llvm_addrsig` — so
+        // nothing counts as address-significant and `safe` degenerates into
+        // `all`. corpus/native/80_tearoffs_de_corpo_identico then diverges from
+        // the VM (`ext mais/maisb: true` instead of `false`, `conjunto: 9`
+        // instead of 10): tear-offs of identical bodies fold into one address.
+        // `-mllvm -enable-merge-functions` in the LTO (above) recovers part of
+        // it (−293 KB there) keeping the identity through thunks. ICF comes
+        // back only when the LTO emits `addrsig` (`lld/MachO/LTO.cpp`).
+        // `-S` strips the debug map (J05); `-x`, the local symbols;
+        // `-no_function_starts`, the `LC_FUNCTION_STARTS` table that only serves
+        // the symbolization of a binary that keeps its symbols (−145,728 B of
+        // `__LINKEDIT` on the File Explorer).
         if !crate::linker::keep_symbols() && !l.keep_debug_info {
-            cmd.args(["-S", "-x"]);
+            cmd.args(["-S", "-x", "-no_function_starts"]);
         }
         // The production executable exports nothing: nobody loads it nor
         // looks a symbol up in it (the runtime's `dlsym` and

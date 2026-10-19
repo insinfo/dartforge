@@ -1,0 +1,50 @@
+[
+  {
+    "source": "134_estouro_de_pilha",
+    "mode": "check",
+    "stress": false,
+    "equal": true
+  },
+  {
+    "source": "134_estouro_de_pilha",
+    "mode": "check",
+    "stress": true,
+    "equal": true
+  },
+  {
+    "source": "145_literal_implicit_casts",
+    "mode": "check",
+    "stress": false,
+    "equal": true
+  },
+  {
+    "source": "145_literal_implicit_casts",
+    "mode": "check",
+    "stress": true,
+    "equal": true
+  },
+  {
+    "source": "134_estouro_de_pilha",
+    "mode": "tables",
+    "stress": false,
+    "equal": true
+  },
+  {
+    "source": "134_estouro_de_pilha",
+    "mode": "tables",
+    "stress": true,
+    "equal": true
+  },
+  {
+    "source": "145_literal_implicit_casts",
+    "mode": "tables",
+    "stress": false,
+    "equal": true
+  },
+  {
+    "source": "145_literal_implicit_casts",
+    "mode": "tables",
+    "stress": true,
+    "equal": true
+  }
+]

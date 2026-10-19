@@ -554,7 +554,10 @@ pub fn dartforge_native(env: &Environment, program: &Program, dir: &Path) -> Out
                 generator: None,
                 cpu: None,
             };
-            dartforge_emit_native::compile(&entry, &out_path, &options)
+            // The oracle is `dart run --enable-asserts` (`dart_run`): the
+            // asserts stay on and `dart.vm.product` false also in the
+            // `--optimize` profile, explicitly, whatever the CLI's default.
+            dartforge_emit_native::compile_with_flags(&entry, &out_path, &options, dartforge_emit_native::DartFlags::DEVELOPMENT)
         })
         .map_err(|e| format!("failed to create the compilation thread: {e}"))
         .and_then(|h| h.join().map_err(|_| "the compilation thread aborted".to_string()))
@@ -622,7 +625,7 @@ fn emit_program_ir(program: &Program, jit: bool) -> Result<String, String> {
             if jit {
                 dartforge_emit_native::emit_reloadable_ir(&entry, &options, None).map(|ir| ir.text)
             } else {
-                dartforge_emit_native::emit_ir(&entry, &options).map(|ir| ir.text)
+                dartforge_emit_native::emit_ir_with_flags(&entry, &options, dartforge_emit_native::DartFlags::DEVELOPMENT).map(|ir| ir.text)
             }
         })
         .map_err(|e| format!("[emit-ir] failed to create the emission thread: {e}"))?

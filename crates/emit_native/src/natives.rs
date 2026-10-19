@@ -357,20 +357,24 @@ pub const NATIVES: &[NativeEntry] = &[
     runtime("Directory_SetAsyncDirectoryListerPointer"),
     runtime("Directory_SetCurrent"),
     runtime("Directory_SystemTemp"),
-    runtime("Double_add"),
-    runtime("Double_div"),
-    runtime("Double_doubleFromInteger"),
-    runtime("Double_equal"),
-    runtime("Double_equalToInteger"),
-    runtime("Double_flipSignBit"),
-    runtime("Double_getIsInfinite"),
-    runtime("Double_getIsNaN"),
-    runtime("Double_getIsNegative"),
-    runtime("Double_greaterThan"),
-    runtime("Double_greaterThanFromInteger"),
-    runtime("Double_mul"),
+    // The pure arithmetic and comparisons of `_Double`/`_IntegerImplementation`
+    // are HIR operations in place of the call (`sdk_source::embedded_native`):
+    // the runtime functions stay for whoever links them, but generated code no
+    // longer pays a call, an exception check and the roots per operator.
+    embedded("Double_add"),
+    embedded("Double_div"),
+    embedded("Double_doubleFromInteger"),
+    embedded("Double_equal"),
+    embedded("Double_equalToInteger"),
+    embedded("Double_flipSignBit"),
+    embedded("Double_getIsInfinite"),
+    embedded("Double_getIsNaN"),
+    embedded("Double_getIsNegative"),
+    embedded("Double_greaterThan"),
+    embedded("Double_greaterThanFromInteger"),
+    embedded("Double_mul"),
     runtime("Double_parse"),
-    runtime("Double_sub"),
+    embedded("Double_sub"),
     runtime("Double_toString"),
     runtime("Double_toStringAsExponential"),
     runtime("Double_toStringAsFixed"),
@@ -533,18 +537,18 @@ pub const NATIVES: &[NativeEntry] = &[
     runtime("Int32x4_shuffleMix"),
     runtime("Int32x4_sub"),
     runtime("Int32x4_xor"),
-    runtime("Integer_addFromInteger"),
-    runtime("Integer_bitAndFromInteger"),
-    runtime("Integer_bitOrFromInteger"),
-    runtime("Integer_bitXorFromInteger"),
-    runtime("Integer_equalToInteger"),
+    embedded("Integer_addFromInteger"),
+    embedded("Integer_bitAndFromInteger"),
+    embedded("Integer_bitOrFromInteger"),
+    embedded("Integer_bitXorFromInteger"),
+    embedded("Integer_equalToInteger"),
     pending("Integer_fromEnvironment"),
-    runtime("Integer_greaterThanFromInteger"),
+    embedded("Integer_greaterThanFromInteger"),
     runtime("Integer_moduloFromInteger"),
-    runtime("Integer_mulFromInteger"),
+    embedded("Integer_mulFromInteger"),
     runtime("Integer_shlFromInteger"),
     runtime("Integer_shrFromInteger"),
-    runtime("Integer_subFromInteger"),
+    embedded("Integer_subFromInteger"),
     runtime("Integer_truncDivFromInteger"),
     runtime("Integer_ushrFromInteger"),
     pending("Internal_allocateObjectInstructionsEnd"),
@@ -857,6 +861,51 @@ pub struct SdkExternal {
     pub native: Option<String>,
     /// Has `@pragma("vm:recognized", ...)` (a VM intrinsic).
     pub recognized: bool,
+}
+
+/// The kind of `@pragma("vm:recognized", kind)` of a function
+/// (`asm-intrinsic`, `graph-intrinsic`, `other`), if it has the pragma.
+pub fn recognized_kind(
+    program: &dartforge_elements::Program,
+    interner: &dartforge_intern::Interner,
+    f: &dartforge_elements::model::FunctionElement,
+) -> Option<String> {
+    use dartforge_elements::model::FunctionRef;
+    use dartforge_frontend::ast;
+    let (unit, metadata): (_, &[ast::Annotation]) = match f.node {
+        FunctionRef::Function { unit, function } => {
+            let a = &program.unit(unit).ast;
+            let m = a
+                .members
+                .iter()
+                .find(|m| matches!(m.kind, ast::MemberKind::Method(id) if id == function))
+                .map(|m| &*m.metadata)
+                .or_else(|| {
+                    a.decls
+                        .iter()
+                        .find(|d| matches!(d.kind, ast::DeclKind::Function(id) if id == function))
+                        .map(|d| &*d.metadata)
+                })
+                .unwrap_or(&[]);
+            (unit, m)
+        }
+        FunctionRef::Constructor { unit, member } => (unit, &program.unit(unit).ast.members[member.0 as usize].metadata),
+        FunctionRef::None => return None,
+    };
+    let text = |e: ast::ExprId| match &program.unit(unit).ast.exprs[e.0 as usize].kind {
+        ast::ExprKind::String(lit) => lit.constant_value().map(|t| String::from_utf8_lossy(t.as_bytes()).into_owned()),
+        _ => None,
+    };
+    metadata.iter().find_map(|an| {
+        if an.name.len() != 1 || interner.resolve(an.name[0].sym) != "pragma" {
+            return None;
+        }
+        let args = an.arguments.as_ref()?;
+        if text(args.args.first()?.value).as_deref() != Some("vm:recognized") {
+            return None;
+        }
+        text(args.args.get(1)?.value)
+    })
 }
 
 /// What the `@pragma`s of a function say: the name of the native

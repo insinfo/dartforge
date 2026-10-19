@@ -1008,7 +1008,14 @@ pub fn arguments(sysroot: &SysrootWindows, l: &Linkage<'_>) -> Vec<std::ffi::OsS
             a.push(o);
             a.push("--time-trace-granularity=20000".into());
         }
+        // MergeFunctions (`driver::merge_functions_at_link`): a global LLVM
+        // option the ThinLTO cache key does not see — its own subdirectory.
+        let merge = crate::driver::merge_functions_at_link();
+        if merge {
+            a.push("/mllvm:-enable-merge-functions".into());
+        }
         if let Some(d) = crate::driver::thinlto_cache() {
+            let d = if merge { d.join("mergefunc") } else { d };
             let mut o = std::ffi::OsString::from("/lldltocache:");
             o.push(d.as_os_str());
             a.push(o);

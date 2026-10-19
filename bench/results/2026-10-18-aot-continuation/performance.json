@@ -1,0 +1,1243 @@
+{
+  "rounds": 5,
+  "bench": [
+    {
+      "iteration": 0,
+      "variant": "a0",
+      "kernel": "fib",
+      "milliseconds": [
+        10,
+        8,
+        7,
+        6
+      ],
+      "checksum": "2178309"
+    },
+    {
+      "iteration": 0,
+      "variant": "a0",
+      "kernel": "trees",
+      "milliseconds": [
+        22,
+        20,
+        20,
+        20
+      ],
+      "checksum": "3156655"
+    },
+    {
+      "iteration": 0,
+      "variant": "a0",
+      "kernel": "numeric",
+      "milliseconds": [
+        96,
+        95,
+        96,
+        96
+      ],
+      "checksum": "752938"
+    },
+    {
+      "iteration": 0,
+      "variant": "a0",
+      "kernel": "strings",
+      "milliseconds": [
+        45,
+        44,
+        45,
+        44
+      ],
+      "checksum": "2000000"
+    },
+    {
+      "iteration": 0,
+      "variant": "a0",
+      "kernel": "json",
+      "milliseconds": [
+        79,
+        75,
+        74,
+        75
+      ],
+      "checksum": "1253013890"
+    },
+    {
+      "iteration": 0,
+      "variant": "a1",
+      "kernel": "fib",
+      "milliseconds": [
+        10,
+        8,
+        8,
+        7
+      ],
+      "checksum": "2178309"
+    },
+    {
+      "iteration": 0,
+      "variant": "a1",
+      "kernel": "trees",
+      "milliseconds": [
+        24,
+        20,
+        20,
+        20
+      ],
+      "checksum": "3156655"
+    },
+    {
+      "iteration": 0,
+      "variant": "a1",
+      "kernel": "numeric",
+      "milliseconds": [
+        95,
+        96,
+        96,
+        96
+      ],
+      "checksum": "752938"
+    },
+    {
+      "iteration": 0,
+      "variant": "a1",
+      "kernel": "strings",
+      "milliseconds": [
+        45,
+        44,
+        44,
+        45
+      ],
+      "checksum": "2000000"
+    },
+    {
+      "iteration": 0,
+      "variant": "a1",
+      "kernel": "json",
+      "milliseconds": [
+        78,
+        74,
+        72,
+        73
+      ],
+      "checksum": "1253013890"
+    },
+    {
+      "iteration": 0,
+      "variant": "dart",
+      "kernel": "fib",
+      "milliseconds": [
+        16,
+        12,
+        11,
+        10
+      ],
+      "checksum": "2178309"
+    },
+    {
+      "iteration": 0,
+      "variant": "dart",
+      "kernel": "trees",
+      "milliseconds": [
+        14,
+        12,
+        12,
+        11
+      ],
+      "checksum": "3156655"
+    },
+    {
+      "iteration": 0,
+      "variant": "dart",
+      "kernel": "numeric",
+      "milliseconds": [
+        95,
+        95,
+        95,
+        95
+      ],
+      "checksum": "752938"
+    },
+    {
+      "iteration": 0,
+      "variant": "dart",
+      "kernel": "strings",
+      "milliseconds": [
+        54,
+        74,
+        46,
+        47
+      ],
+      "checksum": "2000000"
+    },
+    {
+      "iteration": 0,
+      "variant": "dart",
+      "kernel": "json",
+      "milliseconds": [
+        73,
+        78,
+        74,
+        72
+      ],
+      "checksum": "1253013890"
+    },
+    {
+      "iteration": 1,
+      "variant": "a1",
+      "kernel": "fib",
+      "milliseconds": [
+        4,
+        5,
+        5,
+        4
+      ],
+      "checksum": "2178309"
+    },
+    {
+      "iteration": 1,
+      "variant": "a1",
+      "kernel": "trees",
+      "milliseconds": [
+        20,
+        20,
+        21,
+        20
+      ],
+      "checksum": "3156655"
+    },
+    {
+      "iteration": 1,
+      "variant": "a1",
+      "kernel": "numeric",
+      "milliseconds": [
+        101,
+        98,
+        97,
+        96
+      ],
+      "checksum": "752938"
+    },
+    {
+      "iteration": 1,
+      "variant": "a1",
+      "kernel": "strings",
+      "milliseconds": [
+        45,
+        46,
+        47,
+        46
+      ],
+      "checksum": "2000000"
+    },
+    {
+      "iteration": 1,
+      "variant": "a1",
+      "kernel": "json",
+      "milliseconds": [
+        81,
+        77,
+        74,
+        76
+      ],
+      "checksum": "1253013890"
+    },
+    {
+      "iteration": 1,
+      "variant": "dart",
+      "kernel": "fib",
+      "milliseconds": [
+        9,
+        9,
+        9,
+        9
+      ],
+      "checksum": "2178309"
+    },
+    {
+      "iteration": 1,
+      "variant": "dart",
+      "kernel": "trees",
+      "milliseconds": [
+        13,
+        12,
+        12,
+        12
+      ],
+      "checksum": "3156655"
+    },
+    {
+      "iteration": 1,
+      "variant": "dart",
+      "kernel": "numeric",
+      "milliseconds": [
+        100,
+        97,
+        98,
+        97
+      ],
+      "checksum": "752938"
+    },
+    {
+      "iteration": 1,
+      "variant": "dart",
+      "kernel": "strings",
+      "milliseconds": [
+        46,
+        45,
+        45,
+        45
+      ],
+      "checksum": "2000000"
+    },
+    {
+      "iteration": 1,
+      "variant": "dart",
+      "kernel": "json",
+      "milliseconds": [
+        71,
+        75,
+        73,
+        71
+      ],
+      "checksum": "1253013890"
+    },
+    {
+      "iteration": 1,
+      "variant": "a0",
+      "kernel": "fib",
+      "milliseconds": [
+        7,
+        6,
+        5,
+        5
+      ],
+      "checksum": "2178309"
+    },
+    {
+      "iteration": 1,
+      "variant": "a0",
+      "kernel": "trees",
+      "milliseconds": [
+        20,
+        19,
+        20,
+        20
+      ],
+      "checksum": "3156655"
+    },
+    {
+      "iteration": 1,
+      "variant": "a0",
+      "kernel": "numeric",
+      "milliseconds": [
+        96,
+        96,
+        96,
+        96
+      ],
+      "checksum": "752938"
+    },
+    {
+      "iteration": 1,
+      "variant": "a0",
+      "kernel": "strings",
+      "milliseconds": [
+        44,
+        45,
+        46,
+        45
+      ],
+      "checksum": "2000000"
+    },
+    {
+      "iteration": 1,
+      "variant": "a0",
+      "kernel": "json",
+      "milliseconds": [
+        79,
+        74,
+        72,
+        75
+      ],
+      "checksum": "1253013890"
+    },
+    {
+      "iteration": 2,
+      "variant": "dart",
+      "kernel": "fib",
+      "milliseconds": [
+        9,
+        9,
+        9,
+        9
+      ],
+      "checksum": "2178309"
+    },
+    {
+      "iteration": 2,
+      "variant": "dart",
+      "kernel": "trees",
+      "milliseconds": [
+        13,
+        11,
+        11,
+        12
+      ],
+      "checksum": "3156655"
+    },
+    {
+      "iteration": 2,
+      "variant": "dart",
+      "kernel": "numeric",
+      "milliseconds": [
+        96,
+        95,
+        95,
+        95
+      ],
+      "checksum": "752938"
+    },
+    {
+      "iteration": 2,
+      "variant": "dart",
+      "kernel": "strings",
+      "milliseconds": [
+        45,
+        45,
+        45,
+        45
+      ],
+      "checksum": "2000000"
+    },
+    {
+      "iteration": 2,
+      "variant": "dart",
+      "kernel": "json",
+      "milliseconds": [
+        70,
+        76,
+        73,
+        71
+      ],
+      "checksum": "1253013890"
+    },
+    {
+      "iteration": 2,
+      "variant": "a0",
+      "kernel": "fib",
+      "milliseconds": [
+        5,
+        5,
+        6,
+        6
+      ],
+      "checksum": "2178309"
+    },
+    {
+      "iteration": 2,
+      "variant": "a0",
+      "kernel": "trees",
+      "milliseconds": [
+        20,
+        20,
+        21,
+        20
+      ],
+      "checksum": "3156655"
+    },
+    {
+      "iteration": 2,
+      "variant": "a0",
+      "kernel": "numeric",
+      "milliseconds": [
+        96,
+        96,
+        96,
+        96
+      ],
+      "checksum": "752938"
+    },
+    {
+      "iteration": 2,
+      "variant": "a0",
+      "kernel": "strings",
+      "milliseconds": [
+        45,
+        44,
+        44,
+        45
+      ],
+      "checksum": "2000000"
+    },
+    {
+      "iteration": 2,
+      "variant": "a0",
+      "kernel": "json",
+      "milliseconds": [
+        78,
+        73,
+        71,
+        74
+      ],
+      "checksum": "1253013890"
+    },
+    {
+      "iteration": 2,
+      "variant": "a1",
+      "kernel": "fib",
+      "milliseconds": [
+        4,
+        4,
+        4,
+        4
+      ],
+      "checksum": "2178309"
+    },
+    {
+      "iteration": 2,
+      "variant": "a1",
+      "kernel": "trees",
+      "milliseconds": [
+        20,
+        19,
+        20,
+        20
+      ],
+      "checksum": "3156655"
+    },
+    {
+      "iteration": 2,
+      "variant": "a1",
+      "kernel": "numeric",
+      "milliseconds": [
+        108,
+        97,
+        97,
+        96
+      ],
+      "checksum": "752938"
+    },
+    {
+      "iteration": 2,
+      "variant": "a1",
+      "kernel": "strings",
+      "milliseconds": [
+        58,
+        44,
+        44,
+        45
+      ],
+      "checksum": "2000000"
+    },
+    {
+      "iteration": 2,
+      "variant": "a1",
+      "kernel": "json",
+      "milliseconds": [
+        79,
+        74,
+        71,
+        74
+      ],
+      "checksum": "1253013890"
+    },
+    {
+      "iteration": 3,
+      "variant": "a0",
+      "kernel": "fib",
+      "milliseconds": [
+        6,
+        6,
+        6,
+        6
+      ],
+      "checksum": "2178309"
+    },
+    {
+      "iteration": 3,
+      "variant": "a0",
+      "kernel": "trees",
+      "milliseconds": [
+        20,
+        20,
+        21,
+        20
+      ],
+      "checksum": "3156655"
+    },
+    {
+      "iteration": 3,
+      "variant": "a0",
+      "kernel": "numeric",
+      "milliseconds": [
+        96,
+        96,
+        96,
+        96
+      ],
+      "checksum": "752938"
+    },
+    {
+      "iteration": 3,
+      "variant": "a0",
+      "kernel": "strings",
+      "milliseconds": [
+        46,
+        45,
+        45,
+        44
+      ],
+      "checksum": "2000000"
+    },
+    {
+      "iteration": 3,
+      "variant": "a0",
+      "kernel": "json",
+      "milliseconds": [
+        81,
+        76,
+        73,
+        75
+      ],
+      "checksum": "1253013890"
+    },
+    {
+      "iteration": 3,
+      "variant": "a1",
+      "kernel": "fib",
+      "milliseconds": [
+        4,
+        4,
+        5,
+        4
+      ],
+      "checksum": "2178309"
+    },
+    {
+      "iteration": 3,
+      "variant": "a1",
+      "kernel": "trees",
+      "milliseconds": [
+        20,
+        19,
+        21,
+        20
+      ],
+      "checksum": "3156655"
+    },
+    {
+      "iteration": 3,
+      "variant": "a1",
+      "kernel": "numeric",
+      "milliseconds": [
+        97,
+        96,
+        96,
+        96
+      ],
+      "checksum": "752938"
+    },
+    {
+      "iteration": 3,
+      "variant": "a1",
+      "kernel": "strings",
+      "milliseconds": [
+        45,
+        45,
+        44,
+        44
+      ],
+      "checksum": "2000000"
+    },
+    {
+      "iteration": 3,
+      "variant": "a1",
+      "kernel": "json",
+      "milliseconds": [
+        78,
+        73,
+        71,
+        73
+      ],
+      "checksum": "1253013890"
+    },
+    {
+      "iteration": 3,
+      "variant": "dart",
+      "kernel": "fib",
+      "milliseconds": [
+        9,
+        9,
+        9,
+        9
+      ],
+      "checksum": "2178309"
+    },
+    {
+      "iteration": 3,
+      "variant": "dart",
+      "kernel": "trees",
+      "milliseconds": [
+        13,
+        12,
+        12,
+        11
+      ],
+      "checksum": "3156655"
+    },
+    {
+      "iteration": 3,
+      "variant": "dart",
+      "kernel": "numeric",
+      "milliseconds": [
+        95,
+        95,
+        95,
+        95
+      ],
+      "checksum": "752938"
+    },
+    {
+      "iteration": 3,
+      "variant": "dart",
+      "kernel": "strings",
+      "milliseconds": [
+        45,
+        45,
+        45,
+        45
+      ],
+      "checksum": "2000000"
+    },
+    {
+      "iteration": 3,
+      "variant": "dart",
+      "kernel": "json",
+      "milliseconds": [
+        70,
+        75,
+        72,
+        71
+      ],
+      "checksum": "1253013890"
+    },
+    {
+      "iteration": 4,
+      "variant": "a1",
+      "kernel": "fib",
+      "milliseconds": [
+        4,
+        4,
+        4,
+        4
+      ],
+      "checksum": "2178309"
+    },
+    {
+      "iteration": 4,
+      "variant": "a1",
+      "kernel": "trees",
+      "milliseconds": [
+        20,
+        20,
+        21,
+        20
+      ],
+      "checksum": "3156655"
+    },
+    {
+      "iteration": 4,
+      "variant": "a1",
+      "kernel": "numeric",
+      "milliseconds": [
+        97,
+        96,
+        96,
+        97
+      ],
+      "checksum": "752938"
+    },
+    {
+      "iteration": 4,
+      "variant": "a1",
+      "kernel": "strings",
+      "milliseconds": [
+        45,
+        44,
+        44,
+        44
+      ],
+      "checksum": "2000000"
+    },
+    {
+      "iteration": 4,
+      "variant": "a1",
+      "kernel": "json",
+      "milliseconds": [
+        79,
+        74,
+        71,
+        73
+      ],
+      "checksum": "1253013890"
+    },
+    {
+      "iteration": 4,
+      "variant": "dart",
+      "kernel": "fib",
+      "milliseconds": [
+        9,
+        9,
+        9,
+        9
+      ],
+      "checksum": "2178309"
+    },
+    {
+      "iteration": 4,
+      "variant": "dart",
+      "kernel": "trees",
+      "milliseconds": [
+        12,
+        11,
+        12,
+        12
+      ],
+      "checksum": "3156655"
+    },
+    {
+      "iteration": 4,
+      "variant": "dart",
+      "kernel": "numeric",
+      "milliseconds": [
+        95,
+        95,
+        95,
+        96
+      ],
+      "checksum": "752938"
+    },
+    {
+      "iteration": 4,
+      "variant": "dart",
+      "kernel": "strings",
+      "milliseconds": [
+        45,
+        45,
+        44,
+        45
+      ],
+      "checksum": "2000000"
+    },
+    {
+      "iteration": 4,
+      "variant": "dart",
+      "kernel": "json",
+      "milliseconds": [
+        70,
+        75,
+        72,
+        70
+      ],
+      "checksum": "1253013890"
+    },
+    {
+      "iteration": 4,
+      "variant": "a0",
+      "kernel": "fib",
+      "milliseconds": [
+        6,
+        6,
+        6,
+        6
+      ],
+      "checksum": "2178309"
+    },
+    {
+      "iteration": 4,
+      "variant": "a0",
+      "kernel": "trees",
+      "milliseconds": [
+        20,
+        19,
+        20,
+        20
+      ],
+      "checksum": "3156655"
+    },
+    {
+      "iteration": 4,
+      "variant": "a0",
+      "kernel": "numeric",
+      "milliseconds": [
+        97,
+        96,
+        96,
+        96
+      ],
+      "checksum": "752938"
+    },
+    {
+      "iteration": 4,
+      "variant": "a0",
+      "kernel": "strings",
+      "milliseconds": [
+        45,
+        44,
+        44,
+        44
+      ],
+      "checksum": "2000000"
+    },
+    {
+      "iteration": 4,
+      "variant": "a0",
+      "kernel": "json",
+      "milliseconds": [
+        78,
+        74,
+        71,
+        74
+      ],
+      "checksum": "1253013890"
+    }
+  ],
+  "color": [
+    {
+      "iteration": 0,
+      "variant": "a0",
+      "microseconds": 51077,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 0,
+      "variant": "a0",
+      "microseconds": 32187,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 0,
+      "variant": "a0",
+      "microseconds": 30567,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 0,
+      "variant": "a0",
+      "microseconds": 29951,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 0,
+      "variant": "a0",
+      "microseconds": 30150,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 0,
+      "variant": "dart",
+      "microseconds": 10172,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 0,
+      "variant": "dart",
+      "microseconds": 8670,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 0,
+      "variant": "dart",
+      "microseconds": 7645,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 0,
+      "variant": "dart",
+      "microseconds": 6817,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 0,
+      "variant": "dart",
+      "microseconds": 6205,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 1,
+      "variant": "dart",
+      "microseconds": 6384,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 1,
+      "variant": "dart",
+      "microseconds": 5869,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 1,
+      "variant": "dart",
+      "microseconds": 5612,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 1,
+      "variant": "dart",
+      "microseconds": 5683,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 1,
+      "variant": "dart",
+      "microseconds": 5721,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 1,
+      "variant": "a0",
+      "microseconds": 31373,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 1,
+      "variant": "a0",
+      "microseconds": 31139,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 1,
+      "variant": "a0",
+      "microseconds": 31207,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 1,
+      "variant": "a0",
+      "microseconds": 31415,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 1,
+      "variant": "a0",
+      "microseconds": 29715,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 2,
+      "variant": "a0",
+      "microseconds": 31796,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 2,
+      "variant": "a0",
+      "microseconds": 32042,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 2,
+      "variant": "a0",
+      "microseconds": 31255,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 2,
+      "variant": "a0",
+      "microseconds": 30012,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 2,
+      "variant": "a0",
+      "microseconds": 30400,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 2,
+      "variant": "dart",
+      "microseconds": 5836,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 2,
+      "variant": "dart",
+      "microseconds": 5490,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 2,
+      "variant": "dart",
+      "microseconds": 5463,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 2,
+      "variant": "dart",
+      "microseconds": 5500,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 2,
+      "variant": "dart",
+      "microseconds": 5475,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 3,
+      "variant": "dart",
+      "microseconds": 6135,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 3,
+      "variant": "dart",
+      "microseconds": 6349,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 3,
+      "variant": "dart",
+      "microseconds": 6215,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 3,
+      "variant": "dart",
+      "microseconds": 6190,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 3,
+      "variant": "dart",
+      "microseconds": 6323,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 3,
+      "variant": "a0",
+      "microseconds": 31204,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 3,
+      "variant": "a0",
+      "microseconds": 30647,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 3,
+      "variant": "a0",
+      "microseconds": 30662,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 3,
+      "variant": "a0",
+      "microseconds": 30597,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 3,
+      "variant": "a0",
+      "microseconds": 29246,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 4,
+      "variant": "a0",
+      "microseconds": 30402,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 4,
+      "variant": "a0",
+      "microseconds": 30452,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 4,
+      "variant": "a0",
+      "microseconds": 30234,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 4,
+      "variant": "a0",
+      "microseconds": 29714,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 4,
+      "variant": "a0",
+      "microseconds": 30201,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 4,
+      "variant": "dart",
+      "microseconds": 5652,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 4,
+      "variant": "dart",
+      "microseconds": 5662,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 4,
+      "variant": "dart",
+      "microseconds": 5628,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 4,
+      "variant": "dart",
+      "microseconds": 5307,
+      "checksum": "126625349"
+    },
+    {
+      "iteration": 4,
+      "variant": "dart",
+      "microseconds": 5287,
+      "checksum": "126625349"
+    }
+  ],
+  "summary": {
+    "fib": {
+      "a0": 5,
+      "a1": 4,
+      "dart": 9
+    },
+    "trees": {
+      "a0": 19,
+      "a1": 19,
+      "dart": 11
+    },
+    "numeric": {
+      "a0": 95,
+      "a1": 95,
+      "dart": 95
+    },
+    "strings": {
+      "a0": 44,
+      "a1": 44,
+      "dart": 44
+    },
+    "json": {
+      "a0": 71,
+      "a1": 71,
+      "dart": 70
+    },
+    "color_us": {
+      "a0": 29246,
+      "dart": 5287
+    },
+    "bytes": {
+      "a0": 3162704,
+      "a1": 3261872,
+      "dart": 5379152
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "WindowsBackend": [
+    "define i64 @df.main$2edart.WindowsBackend.name(i64 %v0) \"disable-tail-calls\"=\"true\" nounwind {",
+    "define i64 @df.main$2edart.WindowsBackend.name$g(i64 %v0, ptr %v1, ptr %v2) \"disable-tail-calls\"=\"true\" nounwind {",
+    "define ptr @df.mt.main$2edart.WindowsBackend() nounwind {"
+  ],
+  "MacBackend": [
+    "define i64 @df.main$2edart.MacBackend.name(i64 %v0) \"disable-tail-calls\"=\"true\" nounwind {",
+    "define void @df.main$2edart.MacBackend.new(i64 %v0) \"disable-tail-calls\"=\"true\" nounwind {",
+    "define linkonce_odr i64 @df.main$2edart.MacBackend.new$tear(i64 %v0, ptr %v1, ptr %v2) \"disable-tail-calls\"=\"true\" nounwind {",
+    "define i64 @df.main$2edart.MacBackend.name$g(i64 %v0, ptr %v1, ptr %v2) \"disable-tail-calls\"=\"true\" nounwind {",
+    "define ptr @df.mt.main$2edart.MacBackend() nounwind {"
+  ],
+  "LinuxBackend": [
+    "define i64 @df.main$2edart.LinuxBackend.name(i64 %v0) \"disable-tail-calls\"=\"true\" nounwind {",
+    "define i64 @df.main$2edart.LinuxBackend.name$g(i64 %v0, ptr %v1, ptr %v2) \"disable-tail-calls\"=\"true\" nounwind {",
+    "define ptr @df.mt.main$2edart.LinuxBackend() nounwind {"
+  ]
+}

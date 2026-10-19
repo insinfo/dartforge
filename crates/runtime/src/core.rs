@@ -19,6 +19,9 @@ unsafe extern "C" {
 #[cfg(not(any(dartforge_runtime_embedded, dartforge_runtime_dll)))]
 #[unsafe(no_mangle)]
 pub extern "C" fn main() -> i32 {
+    // The context of the main thread before any generated prologue (see
+    // `dartforge_init`).
+    dartforge_context();
     // SAFETY: the object was emitted for this ABI and linked by the same native driver.
     unsafe { dartforge_entry() };
     let code = finalize_program();
@@ -34,6 +37,13 @@ pub extern "C" fn main() -> i32 {
 /// `dartforge_entry`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_init(input: extern "C" fn(), to_string_fn: extern "C" fn(i64) -> i64) -> i32 {
+    // The context of the main thread, before any generated prologue: the
+    // production prologue on macOS arm64 reads the `pthread` slot of the
+    // context without a null check (`sdk_module::context_in_tsd`), so the key
+    // is created here — or the process aborts — and this thread's slot is
+    // filled (`gc_roots::publish_in_tsd`). Every other thread that runs Dart
+    // code does the same at its start (`isolates::run_isolate`).
+    dartforge_context();
     TO_STRING.with(|p| p.set(Some(to_string_fn)));
     // The main isolate uses the allocator's free lists (`allocator.rs`).
     enable_allocation_cache();
@@ -433,6 +443,38 @@ pub extern "C" fn dartforge_object_new(class_id: i64, field_count: i64) -> i64 {
         let h = heap.allocate_instance(cid, n);
         // The next allocation of this size comes inline, from the TLAB (without
         // collecting here: `h` has no root yet).
+        heap.refill_tlab(crate::layout::instance_words(n));
+        h
+    })
+}
+
+/// [`dartforge_object_new`] with the reference map of the first 32 fields
+/// already written: bit `i` of `map` set when field `i` holds a reference — the
+/// declared representation of the class, the same word the inline allocation
+/// writes on its fast path (`llvm/mod.rs`, `emit_inline_allocation`; this is its
+/// slow path, and the one of `AllocObject`). The stores into the fresh object
+/// then skip the read-modify-write of a bit they agree with; a store that
+/// disagrees still updates it. A set bit over a field still null (0) is what the
+/// collector already sees in the objects the runtime creates (`Heap::new_object`
+/// with null `Ref` fields): null is not a handle, and the marker skips it.
+#[unsafe(no_mangle)]
+#[allow(unsafe_code)]
+pub extern "C" fn dartforge_object_new_m(class_id: i64, field_count: i64, map: i64) -> i64 {
+    let n = usize::try_from(field_count).expect("invalid fields");
+    let cid = i32::try_from(class_id).expect("invalid class");
+    let map = u32::try_from(map).expect("reference map beyond 32 bits");
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let h = heap.allocate_instance(cid, n);
+        // SAFETY: `h` is the handle (`block + HANDLE_OFFSET`) of the block this
+        // thread has just allocated and nobody else references yet; its header
+        // (`layout::Header`, `HEADER_SIZE` bytes, the `u32` map at
+        // `offsets::MAP`, 4-byte aligned in a 16-byte aligned block) is inside
+        // the block, and the heap borrow keeps the collector away.
+        unsafe {
+            let header = (h - crate::layout::HANDLE_OFFSET) as *mut u8;
+            header.add(crate::layout::offsets::MAP).cast::<u32>().write(map);
+        }
         heap.refill_tlab(crate::layout::instance_words(n));
         h
     })

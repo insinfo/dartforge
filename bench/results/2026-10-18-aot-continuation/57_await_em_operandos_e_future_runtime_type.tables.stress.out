@@ -1,0 +1,34 @@
+[3, ok, 10]
+{a: 2, b: 4, c: C}
+{2, 4, 6}
+(2, dois, nome: 6)
+2|b|6|0|-
+2|b|6|8|E
+26
+14
+abc
+true
+2 meio 6
+Acumulador[2, dois, 6]
+[sim, 14]
+18
+{x: [2, 4], y: [6, 0, 2]}
+[0, 2, 4] 3
+pegou: falhou
+[2, -1, 6]
+2-x-4
+6
+8
+[10, y, 12]
+[2, 3]
+Future<int>
+Future<int>
+Future<String>
+Future<int>
+_SyncCompleter<int>
+_ControllerStream<int>
+false
+Future<List<int>>
+Future<int>
+Map<String, List<int>>
+true

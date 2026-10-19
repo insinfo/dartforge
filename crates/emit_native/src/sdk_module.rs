@@ -284,6 +284,14 @@ pub struct SdkLibrary {
 /// ([`with_optsize`]) and the method tables are left for the link
 /// (`LlvmEmitter::with_tables_at_link`, docs/NATIVO-PODA-DE-TABELAS.md).
 pub fn emit_sdk_libraries(lib_dir: &Path, production: bool) -> Result<Vec<SdkLibrary>, String> {
+    emit_sdk_libraries_with(lib_dir, production, crate::DartFlags::DEVELOPMENT)
+}
+
+/// [`emit_sdk_libraries`] with the asserts and `dart.vm.product` of
+/// `flags` ([`crate::DartFlags`]): the production SDK of `aot --optimize`
+/// comes out without asserts and with `dart.vm.product`, like the VM's
+/// product snapshot; the harness's keeps the oracle's.
+pub fn emit_sdk_libraries_with(lib_dir: &Path, production: bool, flags: crate::DartFlags) -> Result<Vec<SdkLibrary>, String> {
     use dartforge_types::table::{CoreTypes, TypeTable};
     let (program, interner) = load_source_libraries(lib_dir)?;
     let mut table = TypeTable::new();
@@ -322,6 +330,9 @@ pub fn emit_sdk_libraries(lib_dir: &Path, production: bool) -> Result<Vec<SdkLib
             .with_source_sdk()
             .only_the_library(lib);
         ctx.arc_memory = arc_memory;
+        ctx.enable_asserts = flags.enable_asserts;
+        ctx.product = flags.product;
+        ctx.production = production;
         if symbolic_stack_trace {
             ctx.link_debug();
             ctx.stack_trace = true;
@@ -375,7 +386,9 @@ pub fn emit_sdk_libraries(lib_dir: &Path, production: bool) -> Result<Vec<SdkLib
             // The production SDK only goes to AOT; the development one (the DLL)
             // also serves the JIT, which migrates objects on reload.
             .with_body_without_outside(production)
+            .with_production(production)
             .with_tables_at_link(production)
+            .with_tables_registered_at_startup(production)
             .with_arc_ports_at_link(production)
             .with_roots_by_maps(roots_by_maps)
             .with_stack_trace(symbolic_stack_trace)
@@ -390,9 +403,12 @@ pub fn emit_sdk_libraries(lib_dir: &Path, production: bool) -> Result<Vec<SdkLib
         // maps (the collector's walk; see `lib.rs`).
         let ir = if (table_exceptions || roots_by_maps) && cfg!(unix) { with_uwtable(&ir) } else { ir };
         let ir = if cfg!(unix) && !table_exceptions && !roots_by_maps { with_nounwind(&ir) } else { ir };
-        // Only on Unix (macOS measured; Windows not).
-        let ir = if cfg!(unix) && production && !table_exceptions && !roots_by_maps && !arc_memory {
-            with_context_in_tls(&ir, ContextInTls::Free, "df.ctx.tls")
+        // Only on Unix (macOS measured; Windows not), in every production
+        // profile but roots by maps (`lib.rs`: the helper is not a declared leaf
+        // of the statepoint pass). The production SDK only lives in the single
+        // image of the executable: the slot of the context is `dso_local`.
+        let ir = if cfg!(unix) && production && !roots_by_maps {
+            with_context_in_tls(&ir, ContextInTls::Free, "df.ctx.tls", true)
         } else {
             ir
         };
@@ -505,7 +521,7 @@ fn sdk_key_with_overlay(lib_dir: &Path, overlay: &Path, clang_id: &str, args: &[
     files.sort();
     files.dedup();
     let mut h = blake3::Hasher::new();
-    h.update(b"dartforge-sdk-selected-source-v6\0");
+    h.update(b"dartforge-sdk-selected-source-v7\0");
     h.update(env!("CARGO_PKG_VERSION").as_bytes());
     h.update(b"\0");
     h.update(env!("DARTFORGE_EMITTER_HASH").as_bytes());
@@ -650,8 +666,16 @@ pub fn compiled_sdk(lib_dir: &Path, clang: &Path) -> Result<CompiledSdk, String>
     compiled_sdk_in_profile(lib_dir, clang, SdkProfile::Development)
 }
 
-/// [`compiled_sdk`] in the requested profile.
+/// [`compiled_sdk`] in the requested profile, with the oracle's
+/// [`crate::DartFlags`] (asserts on, `dart.vm.product` false).
 pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile) -> Result<CompiledSdk, String> {
+    compiled_sdk_for(lib_dir, clang, profile, crate::DartFlags::DEVELOPMENT)
+}
+
+/// [`compiled_sdk_in_profile`] with explicit [`crate::DartFlags`]: the flags
+/// enter the key, so the production SDK without asserts and the one of the
+/// harness (asserts on) are two entries of the cache.
+pub fn compiled_sdk_for(lib_dir: &Path, clang: &Path, profile: SdkProfile, flags: crate::DartFlags) -> Result<CompiledSdk, String> {
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     // In production, the SDK bitcode comes out of Clang, with the ThinLTO summary
@@ -666,7 +690,8 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
         Generator::choose(clang)
     };
     let generation = sdk_generation(profile);
-    let key = sdk_key(lib_dir, &generator.identity()?, &[generation.description().as_str()])?;
+    let flags_tag = flags.cache_tag();
+    let key = sdk_key(lib_dir, &generator.identity()?, &[generation.description().as_str(), flags_tag.as_str()])?;
     let root = crate::cache::native_cache_dir().join("sdk");
     let dir = root.join(&key);
     let dll_name = format!("dfsdk_{}", &key[..16]);
@@ -704,7 +729,7 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
         .stack_size(256 << 20)
         .spawn({
             let lib_dir = lib_dir.to_path_buf();
-            move || emit_sdk_libraries(&lib_dir, profile == SdkProfile::Production)
+            move || emit_sdk_libraries_with(&lib_dir, profile == SdkProfile::Production, flags)
         })
         .map_err(|e| e.to_string())?
         .join()
@@ -1047,29 +1072,35 @@ pub enum ContextInTls {
 
 /// The IR with the thread context (`dartforge_context`, a Rust function with a
 /// frame, the `thread_local!` variable and the stack limit check)
-/// kept in a `thread_local` variable of the module itself: the prologue of each function reads the variable (on Mach-O, the
-/// `tlv_get_addr`, which does not touch the other registers) and only calls the
-/// runtime the first time on each thread. The address of the context of a
-/// thread does not change while it lives (`runtime/src/gc_roots.rs`). Only in
-/// AOT: the JIT has no `thread_local` in its modules. The `fib(32)` of
-/// `bench/comparison` spent 1/3 of the time in the runtime function.
+/// read inline by the prologue of each function: on Linux, from a
+/// `thread_local` variable of the module itself (the `tlv_get_addr` of Mach-O
+/// does not touch the other registers), filled by the runtime on the first call
+/// of each thread; on macOS arm64, from the `pthread` slot that the runtime
+/// publishes before any Dart code of the thread ([`context_in_tsd`]). The
+/// address of the context of a thread does not change while it lives
+/// (`runtime/src/gc_roots.rs`). Only in AOT: the JIT has no `thread_local` in
+/// its modules. The `fib(32)` of `bench/comparison` spent 1/3 of the time in
+/// the runtime function.
 ///
 /// ```
 /// use dartforge_emit_native::sdk_module::{with_context_in_tls, ContextInTls};
 /// let ir = "define i64 @f() {\n  %ctx = call ptr @dartforge_context()\n  ret i64 0\n}\n";
-/// let new_ir = with_context_in_tls(ir, ContextInTls::Inline, "df.ctx.tls");
+/// let new_ir = with_context_in_tls(ir, ContextInTls::Inline, "df.ctx.tls", false);
 /// assert!(new_ir.contains("%ctx = call ptr @df.context()"));
 /// // On macOS arm64 the slot of a `pthread` key (`context_in_tsd`) replaces the variable.
 /// let variable = new_ir.contains("@df.ctx.tls = internal thread_local global ptr null");
 /// assert_eq!(variable, !cfg!(all(target_os = "macos", target_arch = "aarch64")));
 /// let without = "define void @g() {\n  ret void\n}\n";
-/// assert_eq!(with_context_in_tls(without, ContextInTls::Inline, "df.ctx.tls"), without);
+/// assert_eq!(with_context_in_tls(without, ContextInTls::Inline, "df.ctx.tls", false), without);
 /// ```
 ///
 /// `variable` is the name of the variable: the program in parts promotes it to
 /// external (`partition.rs`), and its name cannot be that of the internal one of an
-/// SDK module (like `@df.area_id.program`).
-pub fn with_context_in_tls(ir: &str, mode: ContextInTls, variable: &str) -> String {
+/// SDK module (like `@df.area_id.program`). `single_image`: the runtime is
+/// linked statically into the executable (production), so the slot global of
+/// macOS arm64 is `dso_local` (no GOT); the development executable reads the
+/// slot of the SDK DLL's runtime through the GOT.
+pub fn with_context_in_tls(ir: &str, mode: ContextInTls, variable: &str, single_image: bool) -> String {
     const CALL: &str = "call ptr @dartforge_context()";
     if !ir.contains(CALL) {
         return ir.to_string();
@@ -1081,7 +1112,7 @@ pub fn with_context_in_tls(ir: &str, mode: ContextInTls, variable: &str) -> Stri
     };
     let mut s = ir.replace(CALL, "call ptr @df.context()");
     if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        s.push_str(&context_in_tsd(attribute));
+        s.push_str(&context_in_tsd(attribute, single_image));
         return s;
     }
     s.push_str(&format!(
@@ -1109,32 +1140,40 @@ pub fn with_context_in_tls(ir: &str, mode: ContextInTls, variable: &str) -> Stri
 /// pointer (`TPIDRRO_EL0`, the base of the thread's TSD) plus the offset of the
 /// runtime's `pthread` key slot (`dartforge_context_slot`), read inline, like Go
 /// reads its `g`. A `thread_local` variable costs a call to `tlv_get_addr` in each
-/// prologue (2–8% of `bench/comparison` trees and strings). A zero offset (no
-/// key yet) or an empty slot (first call on this thread) goes to
-/// `dartforge_context`, which fills the slot; the read of slot 0 that the zero
-/// offset produces is valid memory (`pthread_self`) and is discarded. The
-/// runtime function is declared `speculatable` (`llvm/externs.rs`): called
-/// directly, LLVM turned the branch into a `select` and called it in every
-/// prologue; behind `@df.context.slow` (`noinline cold`) it stays off the path.
-/// Like that declaration, the helper is `memory(none)` and its loads
-/// `!invariant.load`: the answer is the same in the whole thread, so LLVM merges
-/// the reads of the inlined callees (a sort with its comparisons inlined had 197
-/// calls to `@df.context` in one function). A stale read only sees the zero of
-/// before the first call, which goes to the runtime again.
+/// prologue (2–8% of `bench/comparison` trees and strings). No null check and
+/// no slow path: the runtime publishes the context of every thread that runs
+/// Dart code before its first generated prologue — `dartforge_init` (the main
+/// thread) and `run_isolate` (each `Isolate.spawn`) call `dartforge_context`
+/// first, which creates the key once per process (or aborts the process) and
+/// fills the slot of the thread (`runtime/src/gc_roots.rs`, `publish_in_tsd`)
+/// —, so when a prologue reads them the offset is never 0 and the slot never
+/// empty. Before, every prologue tested both (`cmp; ccmp; b.eq`) and each
+/// inlined copy kept a cold block calling the runtime (4,867 blocks in the
+/// `bench/comparison` binary, ~20 bytes each). Like the declaration of
+/// `dartforge_context` (`llvm/externs.rs`), the helper is `memory(none)` and
+/// its loads `!invariant.load`: the answer is the same in the whole thread, so
+/// LLVM merges the reads of the inlined callees (a sort with its comparisons
+/// inlined had 197 calls to `@df.context` in one function). `single_image`
+/// (production: the runtime linked statically) declares the slot global
+/// `dso_local`: `adrp; ldr` instead of the GOT load.
 ///
 /// ```
 /// let ir = dartforge_emit_native::sdk_module::with_context_in_tls(
 ///     "define i64 @f() {\n  %ctx = call ptr @dartforge_context()\n  ret i64 0\n}\n",
 ///     dartforge_emit_native::sdk_module::ContextInTls::Inline,
 ///     "df.ctx.tls",
+///     true,
 /// );
 /// if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
 ///     assert!(ir.contains("mrs $0, TPIDRRO_EL0") && !ir.contains("thread_local"));
+///     assert!(!ir.contains("@df.context.slow") && !ir.contains("icmp eq ptr %c, null"));
+///     assert!(ir.contains("@dartforge_context_slot = external dso_local global i64"));
 /// }
 /// ```
-fn context_in_tsd(attribute: &str) -> String {
+fn context_in_tsd(attribute: &str, single_image: bool) -> String {
+    let preemption = if single_image { "dso_local " } else { "" };
     format!(
-        "\n@dartforge_context_slot = external global i64, align 8\n\
+        "\n@dartforge_context_slot = external {preemption}global i64, align 8\n\
          define internal ptr @df.context() nounwind willreturn memory(none){attribute} {{\n\
          \x20 %o = load i64, ptr @dartforge_context_slot, align 8, !invariant.load !{{}}\n\
          \x20 %t = call i64 asm \"mrs $0, TPIDRRO_EL0\", \"=r\"() nounwind memory(none)\n\
@@ -1142,19 +1181,7 @@ fn context_in_tsd(attribute: &str) -> String {
          \x20 %a = add i64 %b, %o\n\
          \x20 %p = inttoptr i64 %a to ptr\n\
          \x20 %c = load ptr, ptr %p, align 8, !invariant.load !{{}}\n\
-         \x20 %z0 = icmp eq i64 %o, 0\n\
-         \x20 %z1 = icmp eq ptr %c, null\n\
-         \x20 %z = or i1 %z0, %z1\n\
-         \x20 br i1 %z, label %lento, label %pronto\n\
-         lento:\n\
-         \x20 %n = call ptr @df.context.slow()\n\
-         \x20 ret ptr %n\n\
-         pronto:\n\
          \x20 ret ptr %c\n\
-         }}\n\
-         define internal ptr @df.context.slow() noinline cold nounwind {{\n\
-         \x20 %n = call ptr @dartforge_context()\n\
-         \x20 ret ptr %n\n\
          }}\n"
     )
 }

@@ -1578,6 +1578,18 @@ pub struct Heap {
     /// The heap of the thread's isolate (not a test one): refills the TLAB of its
     /// [`Context`].
     published: bool,
+    /// The [`Context`] of the thread whose isolate this heap serves (null in a
+    /// test heap): the TLAB ranges live there, and the runtime's own allocations
+    /// bump them ([`Heap::allocate_from_tlab`]) without a thread-local access per
+    /// allocation. Set by [`Heap::for_isolate`], on the thread that uses the heap.
+    context: *const Context,
+    /// The runtime's own allocations bump the TLAB ([`Heap::allocate_from_tlab`]);
+    /// `DARTFORGE_NO_RUNTIME_TLAB=1` sends them all through the general path
+    /// (the ablation switch for measurements: the result is the same).
+    runtime_tlab: bool,
+    /// Up to how many blocks each TLAB refill hands out ([`TLAB_BLOCKS`];
+    /// `DARTFORGE_TLAB_BLOCKS=<n>` to measure other sizes).
+    tlab_blocks: usize,
     /// Bytes allocated since the last collection (the minor collection trigger).
     young_bytes: usize,
     /// The collection in progress is minor (young only).
@@ -1706,6 +1718,19 @@ impl Heap {
         }
     }
 }
+impl Drop for Heap {
+    /// A published heap owns the TLAB ranges of its thread [`Context`]: emptied
+    /// before its object space goes, so that a heap installed later on this
+    /// thread never hands out blocks of it (the tests replace the thread heap).
+    fn drop(&mut self) {
+        if !self.context.is_null() {
+            // SAFETY: `context` is the `Context` of this thread (`for_isolate`), a
+            // thread-local without a destructor: it outlives every heap of the thread.
+            #[allow(unsafe_code)]
+            Self::clear_tlab(unsafe { &*self.context });
+        }
+    }
+}
 impl Heap {
     /// Initializes the heap; stress forces a collection before each allocation.
     pub fn new(stress: bool) -> Self {
@@ -1747,6 +1772,12 @@ impl Heap {
             exact_estimated_bytes: 0,
             objects: ObjectSpace::new(stress || cfg!(test) || std::env::var("DARTFORGE_GC_VERIFY").as_deref() == Ok("1")),
             published: false,
+            context: std::ptr::null(),
+            runtime_tlab: std::env::var_os("DARTFORGE_NO_RUNTIME_TLAB").is_none_or(|v| v != "1"),
+            tlab_blocks: std::env::var("DARTFORGE_TLAB_BLOCKS")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .map_or(TLAB_BLOCKS, |n| n.clamp(1, 1 << 16)),
             young_bytes: 0,
             arc: None,
             minor_collection: false,
@@ -2366,7 +2397,9 @@ impl Heap {
         // External growth can invalidate prepaid quotas even after cancellation
         // or expiry. Never let an old cached range conceal that pressure.
         if !external_growth && !self.gc_policy.is_active() { return; }
-        self.gc_policy.refresh(std::time::Instant::now());
+        // The clock only expires a window: without one, `refresh` does nothing
+        // (and external growth comes with every socket read and buffer write).
+        if self.gc_policy.window.is_some() { self.gc_policy.refresh(std::time::Instant::now()); }
         let pressure = self.allocations >= YOUNG_COUNT
             || self.young_bytes >= self.young_limit
             || self.stats.estimated_bytes >= self.byte_threshold
@@ -2417,7 +2450,34 @@ impl Heap {
     pub fn for_isolate(stress: bool) -> Self {
         let mut h = Self::new(stress);
         h.published = true;
+        h.context = CONTEXT.with(|c| {
+            // Whatever a previous heap of this thread left in the TLAB (the tests
+            // swap the thread heap) belongs to another object space: this heap
+            // starts with empty ranges.
+            Self::clear_tlab(c);
+            c as *const Context
+        });
         h
+    }
+    /// Empties the TLAB ranges of `c` without returning them to any heap: the
+    /// blocks stay counted as handed out in the heap that took them (its next
+    /// collection sweeps the unused ones, zeroed and `FREE`, as dead).
+    fn clear_tlab(c: &Context) {
+        for n in 0..=TLAB_N {
+            c.tlab[n][0].set(std::ptr::null_mut());
+            c.tlab[n][1].set(std::ptr::null_mut());
+        }
+    }
+    /// The [`Context`] whose TLAB this heap uses, if it is the heap of the
+    /// thread's isolate and the TLAB is in use (never under `--gc-stress` nor
+    /// `DARTFORGE_GC_SCHEDULE`: there the ranges stay empty and every allocation
+    /// goes through the triggers).
+    #[inline(always)]
+    fn tlab_context(&self) -> Option<*const Context> {
+        if self.context.is_null() || self.stress || self.schedule.is_some() {
+            return None;
+        }
+        Some(self.context)
     }
     /// Allocates a user object of `n` zeroed fields (the path of
     /// `dartforge_object_new`), in the object space.
@@ -2436,12 +2496,64 @@ impl Heap {
     /// `dartforge_allocate`.
     #[inline]
     pub(crate) fn allocate_block(&mut self, cid: i32, words: usize, flags: u8, n: usize) -> Ref {
-        let bytes = allocation_bytes(words);
-        if self.needs_collection(bytes) {
-            return self.allocate_slow(cid, words, flags, n);
+        if let Some(h) = self.allocate_from_tlab(cid, words, flags, n) {
+            return h;
         }
-        self.count_allocation(1, bytes);
-        self.objects.allocate(cid, words, flags, n)
+        self.allocate_block_outside_tlab(cid, words, flags, n)
+    }
+    /// The runtime's bump allocation from the TLAB of the thread [`Context`]: the
+    /// same ranges, and the same header write, as the generated code's inline
+    /// allocation (`@df.allocate`, `llvm/mod.rs`). A block of `words ≤ TLAB_N`
+    /// body words when the range of that size has room; `None` otherwise (the
+    /// general path, [`Heap::allocate_block_outside_tlab`], which also refills
+    /// the range). Only through [`Heap::tlab_context`]: the heap of the thread's
+    /// isolate, never under `--gc-stress` or `DARTFORGE_GC_SCHEDULE`.
+    ///
+    /// The block comes zeroed and already counted (bytes, allocations, `live_set`,
+    /// `handed_out`) by [`Heap::refill_tlab`], which only hands out what fits
+    /// before the next trigger: nothing is counted or checked here. The object
+    /// lives in a range of `ObjectSpace::ranges`, which the minor sweep,
+    /// `young_marked` and `young_handed_out` walk: a young object like any other.
+    /// Does not collect: a caller that holds unrooted references may use it
+    /// before falling back to a rooted general allocation.
+    #[inline(always)]
+    pub(crate) fn allocate_from_tlab(&mut self, cid: i32, words: usize, flags: u8, n: usize) -> Option<Ref> {
+        if words.wrapping_sub(1) >= TLAB_N || !self.runtime_tlab {
+            return None;
+        }
+        // SAFETY: `context` is the `Context` of this thread (`for_isolate`), a
+        // thread-local without a destructor: it outlives every heap of the thread.
+        #[allow(unsafe_code)]
+        let c = unsafe { &*self.tlab_context()? };
+        let cursor = c.tlab[words][0].get();
+        let next = cursor.wrapping_add(block_bytes(words));
+        if next > c.tlab[words][1].get() {
+            return None;
+        }
+        c.tlab[words][0].set(next);
+        // SAFETY: a zeroed free block of a range that `refill_tlab` took from this
+        // heap's space for the Context (word 0 is the header).
+        #[allow(unsafe_code)]
+        unsafe {
+            cursor.cast::<u64>().write(crate::layout::header_word(YOUNG, flags, n, cid));
+        }
+        Some(cursor as i64 + HANDLE_OFFSET)
+    }
+    /// [`Heap::allocate_block`] outside the TLAB: the triggers, the counting and a
+    /// block from the space; then the TLAB of `words` is refilled, so that the
+    /// next allocations of that size (by the runtime or the generated code) come
+    /// from it.
+    #[inline(never)]
+    fn allocate_block_outside_tlab(&mut self, cid: i32, words: usize, flags: u8, n: usize) -> Ref {
+        let bytes = allocation_bytes(words);
+        let h = if self.needs_collection(bytes) {
+            self.allocate_slow(cid, words, flags, n)
+        } else {
+            self.count_allocation(1, bytes);
+            self.objects.allocate(cid, words, flags, n)
+        };
+        self.refill_tlab(words);
+        h
     }
     /// Would an allocation of `bytes` now exceed some collection trigger?
     /// The minor one comes every [`YOUNG_LIMIT`] bytes (or [`YOUNG_COUNT`]
@@ -2485,15 +2597,24 @@ impl Heap {
     /// nor in test heaps.
     pub fn refill_tlab(&mut self, words: usize) {
         let n = words;
-        if self.gc_policy.window.is_some() { self.gc_policy.refresh(std::time::Instant::now()); }
-        if !self.published || self.stress || self.schedule.is_some() || self.gc_policy.blocks_tlabs() || n == 0 || n > TLAB_N {
+        if n == 0 || n > TLAB_N {
             return;
         }
+        let Some(c) = self.tlab_context() else { return };
+        // SAFETY: `context` is the `Context` of this thread (`for_isolate`), a
+        // thread-local without a destructor: it outlives every heap of the thread.
+        #[allow(unsafe_code)]
+        let c = unsafe { &*c };
         let size = block_bytes(n);
-        if CONTEXT.with(|c| (c.tlab[n][1].get() as usize).saturating_sub(c.tlab[n][0].get() as usize) >= size) {
+        if (c.tlab[n][1].get() as usize).saturating_sub(c.tlab[n][0].get() as usize) >= size {
             return;
         }
-        let mut k = TLAB_BLOCKS
+        if self.gc_policy.window.is_some() { self.gc_policy.refresh(std::time::Instant::now()); }
+        if self.gc_policy.blocks_tlabs() {
+            return;
+        }
+        let mut k = self
+            .tlab_blocks
             .min(YOUNG_COUNT.saturating_sub(self.allocations))
             .min(self.young_limit.saturating_sub(self.young_bytes) / size)
             .min(self.byte_threshold.saturating_sub(self.stats.estimated_bytes) / size);
@@ -2518,20 +2639,22 @@ impl Heap {
         self.allocations += k;
         self.stats.allocations += k as u64;
         self.young_bytes = self.young_bytes.saturating_add(bytes);
-        CONTEXT.with(|c| {
-            c.tlab[n][0].set(start);
-            c.tlab[n][1].set(start.wrapping_add(k * size));
-        });
+        c.tlab[n][0].set(start);
+        c.tlab[n][1].set(start.wrapping_add(k * size));
     }
     /// Returns the TLABs of the [`Context`] (what the generated code did not use) before
     /// a collection: the rest of each range goes back to the front of the free list
     /// and leaves the allocation count.
     fn return_tlabs(&mut self) {
-        if !self.published {
+        if self.context.is_null() {
             return;
         }
+        // SAFETY: `context` is the `Context` of this thread (`for_isolate`), a
+        // thread-local without a destructor: it outlives every heap of the thread.
+        #[allow(unsafe_code)]
+        let c = unsafe { &*self.context };
         for n in 1..=TLAB_N {
-            let (cursor, end) = CONTEXT.with(|c| (c.tlab[n][0].replace(std::ptr::null_mut()), c.tlab[n][1].replace(std::ptr::null_mut())));
+            let (cursor, end) = (c.tlab[n][0].replace(std::ptr::null_mut()), c.tlab[n][1].replace(std::ptr::null_mut()));
             let size = block_bytes(n);
             let k = (end as usize).saturating_sub(cursor as usize) / size;
             if k > 0 {
@@ -3829,6 +3952,21 @@ impl Heap {
         // keeps it.
         unsafe { std::slice::from_raw_parts(fields_of(c), w) }
     }
+    /// The body (word 0, `b + 16`) of a block of this heap that nobody has
+    /// published yet — one just allocated, or one a native is still filling —,
+    /// for the caller to write in the same heap borrow, before any other
+    /// allocation: the rule of [`Heap::words_mut`] without the revalidation of
+    /// the handle (the object is a `RAW`/`REFS` block or an `INSTANCE` whose body
+    /// is still inline). Under ARC, takes the snapshot `words_mut` would take.
+    #[inline]
+    pub(crate) fn fresh_body(&mut self, h: Ref) -> *mut i64 {
+        debug_assert!(is_object(h), "runtime bug: fresh_body of a value that is not an object");
+        let b = (h - HANDLE_OFFSET) as *mut Header;
+        if self.arc.is_some() {
+            self.arc_snapshot(b, h);
+        }
+        fields_of(b)
+    }
     /// The whole body of `h`, writable **without barrier**: only `RAW`, or before
     /// publishing the object (whoever writes a `Ref` into a published object calls
     /// [`Heap::remember`]/[`Heap::remember_element`]).
@@ -4300,12 +4438,150 @@ mod object_space {
             heap.refill_tlab(w);
             return h;
         };
-        // SAFETY: free block of the range.
+        // SAFETY: free block of the range, zeroed by the handout (the generated
+        // code writes only the header word).
         unsafe {
-            *b.add(16).cast::<i64>() = 0;
             *b.cast::<u64>() = 1 | (n as u64) << 16 | (class_id as u64) << 32;
         }
         b as i64 + HANDLE_OFFSET
+    }
+
+    /// Does the TLAB range of `words` body words have blocks left?
+    fn tlab_has_room(words: usize) -> bool {
+        CONTEXT.with(|c| c.tlab[words][0].get() != c.tlab[words][1].get())
+    }
+
+    /// The runtime's allocations (`Heap::allocate`, `new_string`,
+    /// `allocate_object`) come from the same TLAB ranges as the generated code's:
+    /// the first allocation of a size fills the range, the following ones bump
+    /// it, and the objects are young like any other (kept by a root, swept with
+    /// the range).
+    #[test]
+    fn runtime_allocations_bump_the_tlab_ranges() {
+        std::thread::spawn(|| {
+            let mut heap = Heap::for_isolate(false);
+            let frame = heap.push_frame_with_slots(1);
+            let w = crate::layout::string_words(6, false);
+            assert!(!tlab_has_room(w));
+            let first = heap.allocate_str("first!");
+            // The general path filled the range: the next block of the size is the
+            // one at the cursor.
+            assert!(tlab_has_room(w));
+            let cursor = CONTEXT.with(|c| c.tlab[w][0].get());
+            let second = heap.allocate_str("second");
+            assert_eq!(second - HANDLE_OFFSET, cursor as i64);
+            assert_eq!(CONTEXT.with(|c| c.tlab[w][0].get()), cursor.wrapping_add(block_bytes(w)));
+            assert_eq!(heap.text(second).unwrap(), "second");
+            let hd = *heap.header(second);
+            assert_eq!(
+                (hd.state, hd.flags, usize::from(hd.n), hd.class_id, hd.map, hd.metadata),
+                (YOUNG, crate::layout::flags::RAW, w, crate::layout::cid::ONE_BYTE_STRING, 0, 0)
+            );
+            // An object of two fields comes from the same range (the size class
+            // is by body words), with the field count in the header.
+            let o = heap.allocate_object(5, 2);
+            assert_eq!(o - HANDLE_OFFSET, cursor.wrapping_add(block_bytes(w)) as i64);
+            let hd = *heap.header(o);
+            assert_eq!((hd.state, hd.flags, usize::from(hd.n), hd.class_id), (YOUNG, crate::layout::flags::INSTANCE, 2, 5));
+            heap.set(o, 1, second, true);
+            heap.set_root(frame, 0, o);
+            let before = heap.stats().collections;
+            heap.run_collection(true);
+            assert_eq!(heap.stats().collections, before + 1);
+            assert!(heap.is_live_object(o) && heap.is_live_object(second));
+            assert!(!heap.is_live_object(first), "unrooted string of the range survived");
+            assert_eq!(heap.text(second).unwrap(), "second");
+            assert_eq!(heap.object(o).expect("live object").field(1), (second, true));
+            heap.set_root(frame, 0, 0);
+            heap.run_collection(false);
+            assert_eq!(heap.stats().live_objects, 0);
+        })
+        .join()
+        .unwrap();
+    }
+
+    /// A heap published later on the same thread (the tests swap the thread
+    /// heap) starts with empty ranges and, when dropped, empties the ones it
+    /// filled; a test heap never touches them: no heap hands out blocks of
+    /// another object space.
+    #[test]
+    fn a_published_heap_never_hands_out_another_heap_ranges() {
+        std::thread::spawn(|| {
+            let mut first = Heap::for_isolate(false);
+            first.allocate_object(5, 2);
+            assert!(tlab_has_room(2));
+            let mut second = Heap::for_isolate(false);
+            assert!(!tlab_has_room(2));
+            let h = second.allocate_object(5, 2);
+            assert!(tlab_has_room(2));
+            assert!(second.objects.block_of(h).is_some() && first.objects.block_of(h).is_none());
+            let h2 = second.allocate_object(5, 2);
+            assert!(second.objects.block_of(h2).is_some() && first.objects.block_of(h2).is_none());
+            drop(second);
+            assert!(!tlab_has_room(2));
+            let h3 = first.allocate_object(5, 2);
+            assert!(first.objects.block_of(h3).is_some());
+            // The range `first` lost is swept with the others.
+            first.run_collection(true);
+            assert_eq!(first.stats().live_objects, 0);
+            first.allocate_object(5, 2);
+            assert!(tlab_has_room(2));
+            let cursor = CONTEXT.with(|c| c.tlab[2][0].get());
+            let mut test_heap = Heap::new(false);
+            let t = test_heap.allocate_object(5, 2);
+            assert_eq!(CONTEXT.with(|c| c.tlab[2][0].get()), cursor);
+            assert!(test_heap.objects.block_of(t).is_some() && first.objects.block_of(t).is_none());
+        })
+        .join()
+        .unwrap();
+    }
+
+    /// The strings the runtime builds through the TLAB keep their text and
+    /// canonical form: one byte when every unit fits, two bytes otherwise; pieces
+    /// of every length (the small copies by word moves, the large ones by
+    /// `memcpy`).
+    #[test]
+    fn strings_built_through_the_tlab_keep_text_and_form() {
+        use crate::layout::cid::{ONE_BYTE_STRING, TWO_BYTE_STRING};
+        use crate::text::TextRef;
+        std::thread::spawn(|| {
+            let mut heap = Heap::for_isolate(false);
+            let frame = heap.push_frame_with_slots(4);
+            let ascii: String = (0..100u8).map(|i| char::from(b'a' + i % 26)).collect();
+            for n in 0..=100 {
+                let s = heap.allocate_str(&ascii[..n]);
+                assert_eq!(heap.text(s).unwrap(), &ascii[..n]);
+                assert_eq!(heap.header(s).class_id, ONE_BYTE_STRING);
+                heap.set_root(frame, 0, s);
+                let (a, b) = (n / 3, n - n / 4);
+                let t = heap.string_slice(s, a, b);
+                assert_eq!(heap.text(t).unwrap(), &ascii[a..b]);
+                heap.set_root(frame, 1, t);
+                let j = heap.join_strings(&[s, t, s]);
+                assert_eq!(heap.text(j).unwrap().to_dart_string(), format!("{}{}{}", &ascii[..n], &ascii[a..b], &ascii[..n]));
+                assert_eq!(heap.header(j).class_id, ONE_BYTE_STRING);
+            }
+            // Two-byte text: the form follows the units, and a piece that fits
+            // goes back to one byte.
+            let units: Vec<u16> = "héllo wörld — ✓ ok".encode_utf16().collect();
+            let s = heap.allocate_string(TextRef::TwoByte(&units));
+            assert_eq!(heap.header(s).class_id, TWO_BYTE_STRING);
+            assert_eq!(heap.text(s).unwrap(), TextRef::TwoByte(&units));
+            heap.set_root(frame, 2, s);
+            let latin = heap.string_slice(s, 0, 5);
+            assert_eq!(heap.header(latin).class_id, ONE_BYTE_STRING);
+            assert_eq!(heap.text(latin).unwrap().to_dart_string(), "héllo");
+            heap.set_root(frame, 3, latin);
+            let mixed = heap.join_strings(&[latin, s, latin]);
+            assert_eq!(heap.header(mixed).class_id, TWO_BYTE_STRING);
+            assert_eq!(heap.text(mixed).unwrap().to_dart_string(), "héllohéllo wörld — ✓ okhéllo");
+            let tail = heap.string_slice(mixed, 5, 5 + units.len());
+            assert_eq!(heap.header(tail).class_id, TWO_BYTE_STRING);
+            assert_eq!(heap.text(tail).unwrap(), TextRef::TwoByte(&units));
+            heap.pop_frame(frame);
+        })
+        .join()
+        .unwrap();
     }
 
     #[test]
@@ -4367,10 +4643,11 @@ mod object_space {
             for round in 0..6 {
                 for i in 0..20_000 {
                     let link = allocate_like_generated_code(&mut heap, 5, 3);
-                    // The generated code only zeroes the first field: the rest (and the
-                    // reference map) must come zeroed from the handout.
+                    // The generated code writes only the header word: every field
+                    // (the first one included) and the reference map must come
+                    // zeroed from the handout.
                     let o = heap.object(link).expect("freshly allocated");
-                    assert_eq!((o.field(1), o.field(2)), ((0, false), (0, false)), "dirty block handed out");
+                    assert_eq!((o.field(0), o.field(1), o.field(2)), ((0, false), (0, false), (0, false)), "dirty block handed out");
                     heap.set(link, 0, smi::of(i).unwrap(), false);
                     heap.set(link, 1, head, true);
                     heap.set(link, 2, 77, false);

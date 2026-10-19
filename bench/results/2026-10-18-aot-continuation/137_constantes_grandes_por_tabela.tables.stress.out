@@ -1,0 +1,19 @@
+{a: C(1), b: C(2, dois), c: [1, 2, 3], d: {x: 1, y: C(9)}, e: Cor.verde, f: C(1, um), g: Par(1, 2), h: -7, i: 2.5, j: null, k: 1099511627776, l: texto, m: true, n: {1, 2}}
+[C(1), C(2), C(3), Cor.azul, C(1, um), [C(1)], Par(p, q), fim, 1099511627776, null]
+{C(10), C(11), C(12), C(13), C(14), C(15), C(16), C(17), Cor.vermelho}
+{Cor.vermelho: C(100), Cor.verde: C(200), Cor.azul: C(300), C(1): chave objeto, k1: C(1), k2: C(1), k3: [C(1)], k4: [C(1)]}
+true
+true
+true
+true
+true
+true
+true
+true
+true
+true
+lista constante imutável
+mapa constante imutável
+false
+false
+[C(1), C(2), C(3), C(4), C(5), C(6), C(7), C(8)]

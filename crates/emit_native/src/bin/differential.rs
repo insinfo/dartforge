@@ -69,7 +69,8 @@ fn main() {
                     generator: None,
                     cpu: None,
                 };
-                dartforge_emit_native::compile(&i2, &o2, &options)
+                // The oracle runs with `--enable-asserts`: the same flags here.
+                dartforge_emit_native::compile_with_flags(&i2, &o2, &options, dartforge_emit_native::DartFlags::DEVELOPMENT)
             })
             .expect("spawn thread")
             .join()

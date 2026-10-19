@@ -214,7 +214,14 @@ pub fn statement(ld: &Path, sysroot: &SysrootLinux, l: &Linkage<'_>) -> Result<C
         let cpu = l.cpu.unwrap_or(if cfg!(target_arch = "x86_64") { "x86-64" } else { "generic" });
         cmd.arg(format!("--lto-O{}", crate::driver::lto_level())).arg(format!("--lto-partitions={partitions}")).arg(format!("-plugin-opt=mcpu={cpu}"));
         cmd.arg(format!("--thinlto-jobs={}", crate::driver::generation_tasks()));
+        // MergeFunctions (`driver::merge_functions_at_link`): a global LLVM
+        // option the ThinLTO cache key does not see — its own subdirectory.
+        let merge = crate::driver::merge_functions_at_link();
+        if merge {
+            cmd.arg("-mllvm").arg("-enable-merge-functions");
+        }
         if let Some(d) = crate::driver::thinlto_cache() {
+            let d = if merge { d.join("mergefunc") } else { d };
             cmd.arg(format!("--thinlto-cache-dir={}", d.display()));
         }
     }

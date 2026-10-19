@@ -131,6 +131,18 @@ fn set_stack_trace(value: &str) -> Result<(), String> {
 }
 
 #[cfg(feature = "native")]
+/// The asserts and `dart.vm.product` of the compiled program
+/// (`dartforge_emit_native::DartFlags`). `--optimize` is the profile of
+/// `dart compile exe`: asserts off (unless `--enable-asserts`) and
+/// `dart.vm.product` true; without it, the profile of the corpus oracle
+/// `dart run --enable-asserts` (asserts on, `dart.vm.product` false), which
+/// `run`/JIT and the differential harness keep.
+fn dart_flags(optimize: bool, enable_asserts: bool) -> dartforge_emit_native::DartFlags {
+    use dartforge_emit_native::DartFlags;
+    if optimize { DartFlags { enable_asserts, ..DartFlags::PRODUCTION } } else { DartFlags::DEVELOPMENT }
+}
+
+#[cfg(feature = "native")]
 /// `dartforge aot <input.dart> <output.exe>` — production AOT.
 ///
 /// This command used to call `dartforge_compiler::compile_path_llvm_*`, from
@@ -150,13 +162,16 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
     // The CLI option selects ARC; an inherited environment does not change the default.
     set_memory_policy("tracing")?;
     set_subsystem("console")?;
-    let usage = "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--debug] [--timings] [--cpu x86-64|x86-64-v2|x86-64-v3|x86-64-v4|native] [--exceptions check|tables] [--memory tracing|arc] [--subsystem console|gui] [--dartforge-contracts verify|ignore] [--stack-trace symbolic|none] [--sdk <lib>] [--packages <package_config.json>]";
+    let usage = "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--enable-asserts] [--debug] [--timings] [--cpu x86-64|x86-64-v2|x86-64-v3|x86-64-v4|native] [--exceptions check|tables] [--memory tracing|arc] [--subsystem console|gui] [--dartforge-contracts verify|ignore] [--stack-trace symbolic|none] [--sdk <lib>] [--packages <package_config.json>]
+  --optimize        production: asserts off and dart.vm.product true (dart compile exe)
+  --enable-asserts  keeps the asserts on with --optimize (dart compile exe --enable-asserts)";
     if args.len() < 3 {
         return Err(usage.into());
     }
     let input = PathBuf::from(&args[1]);
     let output = PathBuf::from(&args[2]);
     let mut optimize = false;
+    let mut enable_asserts = false;
     let mut debug = false;
     let mut timings = false;
     let mut sdk: Option<PathBuf> = None;
@@ -167,6 +182,7 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
     while let Some(flag) = flags.next() {
         match flag.to_str() {
             Some("--optimize") => optimize = true,
+            Some("--enable-asserts") => enable_asserts = true,
             Some("--debug") => debug = true,
             Some("--timings") => timings = true,
             Some("--cpu") => {
@@ -252,7 +268,8 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
                     generator: generator,
                     cpu,
                 };
-                dartforge_emit_native::compile(&input, &output, &options).map_err(|e| e.to_string())
+                let flags = dart_flags(optimize, enable_asserts);
+                dartforge_emit_native::compile_with_flags(&input, &output, &options, flags).map_err(|e| e.to_string())
             })
         })
         .map_err(|e| e.to_string())?
@@ -266,9 +283,12 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
     set_memory_policy("tracing")?;
     set_subsystem("console")?;
     use dartforge_elements::sdk::LanguageOptions;
-    let usage = "usage: dartforge compile-native <input.dart> -o <output.exe> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--optimize] [--debug] [--cpu <cpu>] [--exceptions check|tables] [--memory tracing|arc] [--subsystem console|gui] [--dartforge-contracts verify|ignore] [--stack-trace symbolic|none] [--language-version x.y] [--enable-experiment=a,b]
+    let usage = "usage: dartforge compile-native <input.dart> -o <output.exe> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--optimize] [--enable-asserts] [--debug] [--cpu <cpu>] [--exceptions check|tables] [--memory tracing|arc] [--subsystem console|gui] [--dartforge-contracts verify|ignore] [--stack-trace symbolic|none] [--language-version x.y] [--enable-experiment=a,b]
        dartforge compile-native <input.dart> --emit-ir -o <output.ll> [--digest] [...]
        dartforge compile-native <input.dart> --digest [...]
+  --optimize  production: asserts off and dart.vm.product true, as `dart compile exe`;
+             without it, asserts on and dart.vm.product false, as `dart run --enable-asserts`
+  --enable-asserts  keeps the asserts on with --optimize
   --debug  line tables for the native debugger (gdb, lldb, Visual Studio)
   --cpu      target CPU: x86-64 (the baseline, SSE2), x86-64-v2, x86-64-v3, x86-64-v4 or native
              (the executable only runs on machines that have it)
@@ -294,6 +314,7 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
     let mut contracts = dartforge_emit_native::contracts::ContractMode::Verify;
     let mut timings = false;
     let mut optimize = false;
+    let mut enable_asserts = false;
     let mut debug = false;
     let mut emit_ir = false;
     let mut digest = false;
@@ -311,6 +332,7 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
                 cpu = Some(dartforge_emit_native::generator::Cpu::from_name(name)?);
             }
             Some("--optimize") => optimize = true,
+            Some("--enable-asserts") => enable_asserts = true,
             Some("--debug") => debug = true,
             Some("--emit-ir") => emit_ir = true,
             Some("--digest") => digest = true,
@@ -371,11 +393,12 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
     let Some(input) = input else {
         return Err(usage.into());
     };
+    let flags = dart_flags(optimize, enable_asserts);
     if emit_ir || digest {
         if emit_ir && out.is_none() {
             return Err(usage.into());
         }
-        return emit_native_ir(input, out.filter(|_| emit_ir), sdk, packages, timings, digest, language, debug, optimize, contracts);
+        return emit_native_ir(input, out.filter(|_| emit_ir), sdk, packages, timings, digest, language, debug, optimize, contracts, flags);
     }
     let Some(out) = out else {
         return Err(usage.into());
@@ -399,7 +422,7 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
                     generator: generator,
                     cpu,
                 };
-                dartforge_emit_native::compile(&i2, &o2, &options).map_err(|e| e.to_string())
+                dartforge_emit_native::compile_with_flags(&i2, &o2, &options, flags).map_err(|e| e.to_string())
             })
         })
         .map_err(|e| e.to_string())?
@@ -426,6 +449,7 @@ fn emit_native_ir(
     // with fields and per-call helpers. Link-time pruning comes later.
     optimize: bool,
     contracts: dartforge_emit_native::contracts::ContractMode,
+    flags: dartforge_emit_native::DartFlags,
 ) -> Outcome {
     let ir = std::thread::Builder::new()
         .stack_size(1 << 30)
@@ -441,7 +465,7 @@ fn emit_native_ir(
                 generator: None,
                 cpu: None,
             };
-            dartforge_emit_native::emit_ir(&input, &options)
+            dartforge_emit_native::emit_ir_with_flags(&input, &options, flags)
         })
         .map_err(|e| e.to_string())?
         .join()

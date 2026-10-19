@@ -27,6 +27,9 @@ const INLINE_FIELDS: usize = layout::INLINE_FIELDS;
 const TLAB_N: i64 = layout::TLAB_N as i64;
 /// The mask of `e_objeto` (`h & (7 | i64::MIN) == 2`).
 const OBJECT_MASK: i64 = 7 | i64::MIN;
+/// The stack pointer register the stack check reads (`llvm.read_register`,
+/// [`LlvmEmitter::emit_stack_check`]): the target is the host.
+const STACK_POINTER: &str = if cfg!(target_arch = "x86_64") { "rsp" } else { "sp" };
 mod selectors;
 mod arc_immediates;
 mod arc_tag_guards;
@@ -177,6 +180,11 @@ pub struct LlvmEmitter<'a> {
     /// block (never outside, never null or a `Smi`) and the object is young (the
     /// barrier does nothing).
     fresh_set: std::collections::HashSet<u32>,
+    /// The static reference map written by the allocation of each object of
+    /// [`Self::fresh_set`] ([`Self::static_map`]): a store into the object whose
+    /// constant `is_ref` agrees with the bit skips the read-modify-write of the
+    /// map ([`Self::emit_field_write`]).
+    fresh_maps: std::collections::HashMap<u32, u32>,
     /// No object has an outside body (`with_body_without_outside`).
     body_without_outside: bool,
     /// The `this` of the function being emitted, when its body is direct
@@ -193,6 +201,11 @@ pub struct LlvmEmitter<'a> {
     /// [`Self::fields_per_call`], `@df.body` goes `noinline` (the
     /// optimizer would put it back inline).
     production: bool,
+    /// Production: every method table assembled at link time is registered when
+    /// the isolate is prepared (`@df.register.sdk_tables`, `pruning::assemble`),
+    /// so the inline allocation does not test `Context::registered`
+    /// ([`Self::with_tables_registered_at_startup`]).
+    tables_registered_at_startup: bool,
     /// The method tables are assembled at link time
     /// (docs/NATIVO-PODA-DE-TABELAS.md §3.2): the module only declares the function
     /// of each table, and the content goes into the summary (`pruning.rs`). It is the production
@@ -338,9 +351,11 @@ impl<'a> LlvmEmitter<'a> {
             outlined_helpers: Vec::new(),
             optimize_size: false,
             fresh_set: std::collections::HashSet::new(),
+            fresh_maps: std::collections::HashMap::new(),
             body_without_outside: false,
             this_object: None,
             compact_selector: false,
+            tables_registered_at_startup: false,
             tables_at_link: false,
             arc_ports_at_link: false,
             strings: Default::default(),
@@ -489,6 +504,20 @@ impl<'a> LlvmEmitter<'a> {
 
     pub fn with_tables_at_link(mut self, yes: bool) -> Self {
         self.tables_at_link = yes;
+        self
+    }
+
+    /// Production (the program and the SDK modules): the method tables assembled
+    /// at link time are registered when the isolate is prepared, and the inline
+    /// allocation skips the registration test ([`Self::emit_inline_allocation`]).
+    /// The program module declares `@df.register.sdk_tables`, which
+    /// `pruning::assemble` defines with one `dartforge_register_table` per
+    /// assembled table, and calls it from `df.prepare_isolate` right after
+    /// `df.register.program`. Development and the JIT keep the lazy
+    /// registration (`dartforge_object_new_t`): a reload republishes the tables
+    /// with `n_registered = 0`.
+    pub fn with_tables_registered_at_startup(mut self, yes: bool) -> Self {
+        self.tables_registered_at_startup = yes;
         self
     }
 
@@ -797,6 +826,7 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str(simd::DECLARATIONS);
         self.out.push_str("declare i8 @llvm.expect.i8(i8, i8)\n");
         self.out.push_str("declare i1 @llvm.expect.i1(i1, i1)\n");
+        self.out.push_str("declare i64 @llvm.read_register.i64(metadata)\n");
         for (_, decl) in externs::GLOBALS {
             self.out.push_str(decl);
             self.out.push('\n');
@@ -811,7 +841,7 @@ impl<'a> LlvmEmitter<'a> {
         let value_class = value_class(&self.module.runtime_cids);
         self.out.push_str(&value_class);
         self.out.push_str(&space_helpers());
-        self.out.push_str(&body_helper(self.fields_per_call, self.production));
+        self.out.push_str(&body_helper(self.fields_per_call, self.production, self.body_without_outside));
         if !self.outlined_helpers.is_empty() {
             let helpers = self.out.split_off(helpers_start);
             self.out.push_str(&out_of_line(&helpers, &self.outlined_helpers));
@@ -821,7 +851,11 @@ impl<'a> LlvmEmitter<'a> {
             self.out.push_str(&leaf_helpers(&helpers));
         }
         if self.out_of_line_allocation {
-            self.out.push_str(&new_instance());
+            // Without the closed set of active program tables (experimental), every
+            // table of the module is registered at startup, and the helper
+            // has no registration test.
+            let registered = self.tables_registered_at_startup && self.module.closed_class_tables.is_none();
+            self.out.push_str(&new_instance(registered));
         }
         if self.compact_selector {
             self.out.push_str(SELECTOR_BY_DESCRIPTOR);
@@ -938,7 +972,10 @@ impl<'a> LlvmEmitter<'a> {
             Some(InlinePolicy::Prefer) if func.debug_info.is_none() && !self.module.dwarf => " inlinehint",
             _ => "",
         };
-        let attributes = format!("{}{}", if self.optimize_size { " optsize" } else { "" }, inline_attribute);
+        // Dart recursion must still grow the stack and throw StackOverflowError.
+        // Reading sp does not make a frame escape: without this attribute LLVM
+        // can replace a recursive call with a loop and hoist its stack check.
+        let attributes = format!("{}{} \"disable-tail-calls\"=\"true\"", if self.optimize_size { " optsize" } else { "" }, inline_attribute);
         // The `this` of a method is always an object of the space (never null or a
         // `Smi`: the class has the read field); without an outside body, the address
         // of its fields is `this − 2 + 16`.
@@ -1038,6 +1075,8 @@ impl<'a> LlvmEmitter<'a> {
                         Some((b.id.0, format!("inv{v}.fim")))
                     } else if Self::inline_allocation(i).is_some() && !self.out_of_line_allocation {
                         Some((b.id.0, format!("ao{v}.fim")))
+                    } else if self.inline_closure_entry(i) {
+                        Some((b.id.0, format!("ce{v}.fim")))
                     } else if self.inline_barrier(i) {
                         Some((b.id.0, format!("wb{v}.fim")))
                     } else if !self.static_objects && matches!(i, Instruction::Const(Constant::String(_) | Constant::StringWtf8(_))) {
@@ -1143,15 +1182,6 @@ impl<'a> LlvmEmitter<'a> {
                     let n = self.frame_size();
                     writeln!(self.out, "  %gcq = alloca {{ ptr, i64, [{n} x i64] }}, align 8").unwrap();
                 }
-                // The marker of the stack check
-                // (`emit_stack_check`), for the same reason: after
-                // `df.get_area` (or the inline context,
-                // `sdk_module::with_context_in_tls`) it became a dynamic
-                // allocation, with the frame pointer and the `sp` adjustment on each
-                // call.
-                if self.has_ctx {
-                    writeln!(self.out, "  %pilhaq = alloca i8, align 1").unwrap();
-                }
                 if Self::uses_area(func) {
                     writeln!(self.out, "  %area = call ptr @df.get_area()").unwrap();
                 }
@@ -1237,6 +1267,7 @@ impl<'a> LlvmEmitter<'a> {
             // `phi`s all come out after the last of them.
             let mut phi_roots: Vec<(usize, u32)> = Vec::new();
             self.fresh_set.clear();
+            self.fresh_maps.clear();
 
             for (instruction_index, (vid, inst, ty)) in block.instructions.iter().enumerate() {
                 let v = vid.0;
@@ -1277,6 +1308,7 @@ impl<'a> LlvmEmitter<'a> {
                 // (old after the collection): it stops being fresh.
                 if self.may_collect(inst) {
                     self.fresh_set.clear();
+                    self.fresh_maps.clear();
                 }
                 let instruction_start = self.out.len();
                 match inst {
@@ -1479,10 +1511,25 @@ impl<'a> LlvmEmitter<'a> {
                     }
                     Instruction::AllocObject { class_id, fields } => {
                         let count = fields.len();
-                        writeln!(
-                            self.out,
-                            "  %v{v} = call i64 @dartforge_object_new(i64 {class_id}, i64 {count})"
-                        ).unwrap();
+                        // Production: the reference map of the first 32 fields in
+                        // one word, written by the runtime at the allocation
+                        // (`dartforge_object_new_m`); the stores below then skip
+                        // the read-modify-write of each bit ([`Self::static_map`]).
+                        let map = self.static_maps().then(|| {
+                            fields.iter().take(32).enumerate().fold(0u32, |m, (i, f)| {
+                                if self.type_of(f) == Type::Ref { m | 1 << i } else { m }
+                            })
+                        });
+                        match map {
+                            Some(m) if m != 0 => writeln!(
+                                self.out,
+                                "  %v{v} = call i64 @dartforge_object_new_m(i64 {class_id}, i64 {count}, i64 {m})"
+                            ).unwrap(),
+                            _ => writeln!(
+                                self.out,
+                                "  %v{v} = call i64 @dartforge_object_new(i64 {class_id}, i64 {count})"
+                            ).unwrap(),
+                        }
                         // The inline fields, through the field table (the object
                         // is new: no other code sees it before this).
                         if !fields.is_empty() {
@@ -1492,7 +1539,7 @@ impl<'a> LlvmEmitter<'a> {
                             // E1: `is_ref` by the representation of the value.
                             let is_ref = u8::from(self.type_of(field) == Type::Ref).to_string();
                             let sf = self.coerce(field, Type::I64);
-                            self.emit_field_write(v, &format!(".{idx}"), idx, &sf, &is_ref);
+                            self.emit_field_write(v, &format!(".{idx}"), idx, &sf, &is_ref, map, !self.module.arc_memory);
                         }
                         // Under ARC, the fields written inline count.
                         if fields.iter().any(|f| self.type_of(f) == Type::Ref) {
@@ -1524,9 +1571,10 @@ impl<'a> LlvmEmitter<'a> {
                         let only = self.coerce(object, Type::I64);
                         let sv = self.coerce(value, Type::I64);
                         let fresh = self.fresh(object);
+                        let known = self.fresh_map(object);
                         let direct = self.direct_body(object);
                         self.emit_field_addresses_of(v, &only, direct);
-                        self.emit_field_write(v, "", *index, &sv, &is_ref.to_string());
+                        self.emit_field_write(v, "", *index, &sv, &is_ref.to_string(), known, fresh);
                         if self.inline_barrier(inst) {
                             if fresh {
                                 self.emit_barrier_label(v);
@@ -1604,9 +1652,10 @@ impl<'a> LlvmEmitter<'a> {
                             }
                         };
                         let fresh = self.fresh(&args[0].0);
+                        let known = self.fresh_map(&args[0].0);
                         let direct = self.direct_body(&args[0].0);
                         self.emit_field_addresses_of(v, &only, direct);
-                        self.emit_field_write(v, "", *i as usize, &sv, &is_ref);
+                        self.emit_field_write(v, "", *i as usize, &sv, &is_ref, known, fresh);
                         if self.inline_barrier(inst) {
                             if fresh {
                                 self.emit_barrier_label(v);
@@ -2317,11 +2366,49 @@ impl<'a> LlvmEmitter<'a> {
         self.module.arc_memory && self.module.arc_prepared
     }
 
+    /// The call of a function value reads the entry inline
+    /// ([`Self::closure_entry`]): the HIR block ends at `ce{v}.fim`. Under ARC
+    /// the entry stays with the runtime (`dartforge_closure_entry`, or the
+    /// uniform ARC invocation).
+    fn inline_closure_entry(&self, inst: &Instruction) -> bool {
+        !self.module.arc_memory && matches!(inst, Instruction::CallClosure { .. } | Instruction::CallClosureForward { .. })
+    }
+
     /// `%cf<v>`: the pointer of the uniform entry of the closure `c` — its
     /// code, or `@df_clo_invalido` when the value is not a closure (the runtime
-    /// returns 0 and leaves the `NoSuchMethodError` pending).
+    /// returns 0 and leaves the `NoSuchMethodError` pending). An object of
+    /// class `_Closure` (`layout::cid::CLOSURE`) has the code in its first
+    /// field (`layout::offsets::CLOSURE_CODE`), read inline — the same read
+    /// `dartforge_closure_entry` does (`Heap::closure`), without the call and
+    /// the heap borrow; anything else (null, a `Smi`, a callable class with
+    /// `call`, a value that is not a function) goes to the runtime, as before.
+    /// The block ends at `ce{v}.fim` ([`LlvmEmitter::exit_labels`]).
     fn closure_entry(&mut self, v: u32, c: &str) {
-        writeln!(self.out, "  %cc{v} = call i64 @dartforge_closure_entry(i64 {c})").unwrap();
+        if self.module.arc_memory {
+            writeln!(self.out, "  %cc{v} = call i64 @dartforge_closure_entry(i64 {c})").unwrap();
+        } else {
+            let o = &mut self.out;
+            writeln!(o, "  %cek{v} = and i64 {c}, {OBJECT_MASK}").unwrap();
+            writeln!(o, "  %ceo{v} = icmp eq i64 %cek{v}, 2").unwrap();
+            writeln!(o, "  br i1 %ceo{v}, label %ce{v}.obj, label %ce{v}.lento").unwrap();
+            writeln!(o, "ce{v}.obj:").unwrap();
+            writeln!(o, "  %ceca{v} = add i64 {c}, {}", layout::offsets::CLASS as i64 - layout::HANDLE_OFFSET).unwrap();
+            writeln!(o, "  %cecp{v} = inttoptr i64 %ceca{v} to ptr").unwrap();
+            writeln!(o, "  %cec{v} = load i32, ptr %cecp{v}, align 4").unwrap();
+            writeln!(o, "  %ceq{v} = icmp eq i32 %cec{v}, {}", layout::cid::CLOSURE).unwrap();
+            writeln!(o, "  br i1 %ceq{v}, label %ce{v}.rapido, label %ce{v}.lento").unwrap();
+            writeln!(o, "ce{v}.rapido:").unwrap();
+            writeln!(o, "  %cefa{v} = add i64 {c}, {}", layout::offsets::CLOSURE_CODE as i64 - layout::HANDLE_OFFSET).unwrap();
+            writeln!(o, "  %cefp{v} = inttoptr i64 %cefa{v} to ptr").unwrap();
+            writeln!(o, "  %cer{v} = load i64, ptr %cefp{v}, align 8").unwrap();
+            writeln!(o, "  br label %ce{v}.fim").unwrap();
+            writeln!(o, "ce{v}.lento:").unwrap();
+            writeln!(o, "  %cel{v} = call i64 @dartforge_closure_entry(i64 {c})").unwrap();
+            writeln!(o, "  br label %ce{v}.fim").unwrap();
+            writeln!(o, "ce{v}.fim:").unwrap();
+            writeln!(o, "  %cc{v} = phi i64 [ %cer{v}, %ce{v}.rapido ], [ %cel{v}, %ce{v}.lento ]").unwrap();
+            self.current_label = format!("ce{v}.fim");
+        }
         writeln!(self.out, "  %cz{v} = icmp eq i64 %cc{v}, 0").unwrap();
         writeln!(
             self.out,
@@ -2971,6 +3058,14 @@ impl<'a> LlvmEmitter<'a> {
                 self.externals.insert(r.clone(), format!("declare void @{r}()"));
             }
             writeln!(self.out, "  call void @df.register.program()").unwrap();
+            if self.tables_registered_at_startup {
+                // Production: the SDK tables assembled at link time
+                // (`pruning::assemble` defines `@df.register.sdk_tables` from
+                // this declaration), registered before any Dart code: the
+                // inline allocation does not test the registration.
+                writeln!(self.out, "  call void @df.register.sdk_tables()").unwrap();
+                self.externals.insert("df.register.sdk_tables".into(), "declare void @df.register.sdk_tables()".into());
+            }
             // RTI and the event loop, as in the usual entry (below).
             if let Some(start) = &self.module.start_rti {
                 writeln!(self.out, "  {}", entry_call(self.module.table_exceptions, start, &[])).unwrap();
@@ -3739,17 +3834,25 @@ impl<'a> LlvmEmitter<'a> {
 
     /// The stack check in the prologue (the VM's `stack_overflow_check`,
     /// `runtime/vm/compiler/backend/il.h:9693`, `CheckStackOverflowInstr`): the
-    /// address of an `alloca` of the frame below
+    /// stack pointer at the entry of the function (`llvm.read_register` of
+    /// `sp`/`rsp`, the VM's `cmp sp, [thr + stack_limit]`) below
     /// `Context::stack_limit` throws `StackOverflowError`
     /// (`dartforge_stack_overflow`) and the function returns with the exception
     /// pending, before chaining the roots frame. Only in the functions that
-    /// call (those that have `%ctx`): a leaf does not deepen the stack.
+    /// call (those that have `%ctx`): a leaf does not deepen the stack. Before,
+    /// the address of a marker `alloca` stood for the stack pointer: 16 bytes of
+    /// frame per activation (`fib`: 0x40 → 0x30, which then fits the pre-indexed
+    /// `stp`/`ldp`). The register is read before the `sub sp` of the function:
+    /// the slack of `STACK_SLACK` (`runtime/src/gc_roots.rs`, 256 KiB) covers the
+    /// frame of the function itself. `llvm.sponentry` would do the same but
+    /// crashes the x86-64 Windows backend of LLVM 22.
     fn emit_stack_check(&mut self, func: &Function) {
         let by_tables = self.tab.is_some();
         let o = &mut self.out;
         writeln!(o, "  %pilhalp = getelementptr inbounds i8, ptr %ctx, i64 {}", layout::context::STACK_LIMIT).unwrap();
-        writeln!(o, "  %pilhal = load ptr, ptr %pilhalp, align 8").unwrap();
-        writeln!(o, "  %pilhab = icmp ult ptr %pilhaq, %pilhal").unwrap();
+        writeln!(o, "  %pilhal = load i64, ptr %pilhalp, align 8").unwrap();
+        writeln!(o, "  %pilhasp = call i64 @llvm.read_register.i64(metadata !{{!\"{STACK_POINTER}\"}})").unwrap();
+        writeln!(o, "  %pilhab = icmp ult i64 %pilhasp, %pilhal").unwrap();
         writeln!(o, "  %pilhax = call i1 @llvm.expect.i1(i1 %pilhab, i1 false)").unwrap();
         writeln!(o, "  br i1 %pilhax, label %pilha.estouro, label %pilha.ok").unwrap();
         writeln!(o, "pilha.estouro:").unwrap();
@@ -3788,7 +3891,12 @@ impl<'a> LlvmEmitter<'a> {
     /// context), zeroed fields, as `dartforge_object_fields` gave. With the
     /// `OUT_OF_LINE` bit in the `flags`, the body is the address kept in the first
     /// field (the object that changed its number of fields): a select, without a
-    /// branch. No call.
+    /// branch. No call. Without outside bodies (`body_without_outside`: AOT and
+    /// the production SDK — an outside body is only born in the instance
+    /// migration of a JIT reload, `Heap::swap_fields`; `ensure_fields` never
+    /// grows an object there, `exceptions.rs` only calls it for a field that
+    /// exists) the flags test and the second select are not emitted: the body is
+    /// the first select.
     /// The operand is an object freshly allocated in this block, without a collection
     /// point since the allocation (`fresh_set`).
     fn fresh(&self, op: &Operand) -> bool {
@@ -3828,6 +3936,11 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(o, "  %fxq{v} = inttoptr i64 %fxa{v} to ptr").unwrap();
         writeln!(o, "  %fxvp{v} = getelementptr inbounds i8, ptr %ctx, i64 40").unwrap();
         writeln!(o, "  %fxv{v} = load ptr, ptr %fxvp{v}, align 8").unwrap();
+        if self.body_without_outside {
+            writeln!(o, "  %fcb{v} = select i1 %fxo{v}, ptr %fxq{v}, ptr %fxv{v}").unwrap();
+            writeln!(o, "  %fp{v} = getelementptr inbounds i8, ptr %fcb{v}, i64 16").unwrap();
+            return;
+        }
         writeln!(o, "  %fxh{v} = select i1 %fxo{v}, ptr %fxq{v}, ptr %fxv{v}").unwrap();
         writeln!(o, "  %fxfp{v} = getelementptr inbounds i8, ptr %fxh{v}, i64 1").unwrap();
         writeln!(o, "  %fxf{v} = load i8, ptr %fxfp{v}, align 1").unwrap();
@@ -3842,12 +3955,32 @@ impl<'a> LlvmEmitter<'a> {
     /// Writes `sv` into the field `idx` of the body `%fcb{v}` and sets or clears its
     /// bit in the reference map (`is_ref`: `0`, `1` or an `i8` only
     /// known at runtime) — the first 32 in the header, the others in the
-    /// words after the fields (found through the `n` of the body).
-    fn emit_field_write(&mut self, v: u32, suffix: &str, idx: usize, sv: &str, is_ref: &str) {
+    /// words after the fields (found through the `n` of the body). `known`: the
+    /// static map the allocation of the (fresh) object wrote
+    /// ([`Self::static_map`]); a constant `is_ref` equal to its bit leaves the
+    /// map alone (the read-modify-write stays for the other fields and for a
+    /// bit that disagrees, which it corrects as always). `fresh`: the object was
+    /// allocated in this block with no collection point since
+    /// ([`Self::fresh`]), so its fields are still the zeros of the handout
+    /// (contract E8, `Heap::take_from_region`; the runtime allocations too):
+    /// the store of the constant `0` (null, `0`, `false`) is not emitted.
+    fn emit_field_write(&mut self, v: u32, suffix: &str, idx: usize, sv: &str, is_ref: &str, known: Option<u32>, fresh: bool) {
         let o = &mut self.out;
         let t = format!("{v}{suffix}");
-        writeln!(o, "  %fg{t} = getelementptr inbounds i64, ptr %fp{v}, i64 {idx}").unwrap();
-        writeln!(o, "  store i64 {sv}, ptr %fg{t}, align 8").unwrap();
+        if !(fresh && sv == "0") {
+            writeln!(o, "  %fg{t} = getelementptr inbounds i64, ptr %fp{v}, i64 {idx}").unwrap();
+            writeln!(o, "  store i64 {sv}, ptr %fg{t}, align 8").unwrap();
+        }
+        let constant = match is_ref {
+            "0" => Some(false),
+            "1" => Some(true),
+            _ => None,
+        };
+        if let (Some(map), Some(is_reference)) = (known.filter(|_| idx < 32), constant)
+            && (map >> idx & 1 == 1) == is_reference
+        {
+            return;
+        }
         let (word, width, bit) = if idx < 32 {
             writeln!(o, "  %fmp{t} = getelementptr inbounds i8, ptr %fcb{v}, i64 8").unwrap();
             (format!("%fmp{t}"), "i32", idx)
@@ -3898,36 +4031,116 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
+    /// Level A of the static reference map: production without ARC. The
+    /// allocation of a class whose layout the module declares writes the map of
+    /// the first 32 fields ([`Self::static_map`]), and the stores into the fresh
+    /// object skip the read-modify-write of the bits that agree. Development and
+    /// the JIT keep the map by store (the layout of a class changes on reload).
+    fn static_maps(&self) -> bool {
+        self.production && !self.module.arc_memory
+    }
+
+    /// The reference map of the first 32 fields of an instance of class `c`
+    /// with `n` fields, from the declared representations of the module
+    /// (`declared_field_layouts`, the same `representation` the stores of the
+    /// lowering follow — contract E1): bit `i` set when field `i` holds a `Ref`.
+    /// `None` when the module does not declare the layout (an SDK class
+    /// allocated from the program module), when a slot is synthetic or unknown
+    /// (the enum prefix) or when the layout does not have exactly `n` slots:
+    /// then the map stays 0 and every store keeps the read-modify-write, as
+    /// before. A set bit over a field still null (0) is what the collector
+    /// already sees in the objects the runtime creates (`Heap::new_object`):
+    /// null is not a handle.
+    fn static_map(&self, c: i64, n: i64) -> Option<u32> {
+        if !self.static_maps() {
+            return None;
+        }
+        let layout = self.module.declared_field_layouts.get(&(c as u32))?;
+        if layout.len() != usize::try_from(n).ok()? {
+            return None;
+        }
+        let mut map = 0u32;
+        for (i, slot) in layout.iter().enumerate().take(32) {
+            let declaration = slot.as_ref()?;
+            if declaration.layout_index != i {
+                return None;
+            }
+            if declaration.storage_type == Type::Ref {
+                map |= 1 << i;
+            }
+        }
+        Some(map)
+    }
+
+    /// The static map written by the allocation of the fresh object `op`
+    /// ([`Self::fresh`], [`Self::static_map`]), if any.
+    fn fresh_map(&self, op: &Operand) -> Option<u32> {
+        match op {
+            Operand::Val(x) if self.fresh(op) => self.fresh_maps.get(&x.0).copied(),
+            _ => None,
+        }
+    }
+
+    /// Is the method table of class `c` registered before any Dart code of the
+    /// isolate? In production with [`Self::tables_registered_at_startup`]: every
+    /// SDK table (`@df.register.sdk_tables`) and every program table of
+    /// `df.register.program` — all of them, unless the experimental closed set
+    /// of active program tables (`closed_class_tables`) leaves one out, which
+    /// then keeps the lazy registration of `dartforge_object_new_t`.
+    fn registered_at_startup(&self, c: i64) -> bool {
+        if !self.tables_registered_at_startup {
+            return false;
+        }
+        match &self.module.closed_class_tables {
+            Some(active) if self.module.method_tables.iter().any(|(cid, _, _)| i64::from(*cid) == c) => {
+                active.contains(&(c as u32))
+            }
+            _ => true,
+        }
+    }
+
     /// The inline allocation of an object of class `c` and `n` fields, like the
     /// VM's `TryAllocateObject` (`stub_code_compiler.cc`): advances the cursor
     /// of the TLAB range of `n` fields of the isolate (`Context::tlab`: cursor
     /// at `64 + 16n`, end at `72 + 16n`; the blocks have already been counted as
-    /// allocated and have the header and fields zeroed, except the chaining in the
-    /// first field), writes the header (young, `n`, the class) and returns the
-    /// handle (`block + 2`). An exhausted range — or,
+    /// allocated and come zeroed, header and fields — `Heap::take_from_region`
+    /// zeroes a recycled range on handout, a new page is zeroed memory),
+    /// writes the header (young, `n`, the class) and, when the module declares
+    /// the layout of the class, the reference map ([`Self::static_map`]), and
+    /// returns the handle (`block + 2`). An exhausted range — or, in development,
     /// for the class that registers the method table on the first allocation
-    /// (`dartforge_object_new_t`), a class not registered yet — goes to the
-    /// runtime, which collects if needed and refills. The HIR block ends
-    /// at the label `ao{v}.fim` ([`LlvmEmitter::exit_labels`]).
+    /// (`dartforge_object_new_t`), a class not registered yet
+    /// ([`Self::registered_at_startup`]) — goes to the runtime, which collects
+    /// if needed, refills and writes the same map (`dartforge_object_new_m`,
+    /// `_mt`). The HIR block ends at the label `ao{v}.fim`
+    /// ([`LlvmEmitter::exit_labels`]).
     fn emit_inline_allocation(&mut self, v: u32, c: i64, n: i64) {
         let table = self.module.table_functions.get(&(c as u32)).cloned();
         if let Some(f) = &table {
             self.annotate_external(f, Type::Ptr, &[]);
         }
+        let test_registration = table.is_some() && !self.registered_at_startup(c);
+        let map = self.static_map(c, n);
+        if let Some(m) = map {
+            self.fresh_maps.insert(v, m);
+        }
+        // A map 0 is what the zeroed block already has.
+        let written_map = map.filter(|m| *m != 0);
         // The TLAB is by words of the body: `n ≤ TLAB_N` fields take
         // `max(n, 1)` words (no map extension).
         let w = layout::instance_words(n as usize);
         let size = layout::block_bytes(w);
+        let header = layout::header_word(layout::state::YOUNG, layout::flags::INSTANCE, n as usize, c as i32);
         if self.out_of_line_allocation {
             // Production of the large program: the same computation, in a call to
             // `@df.new_instance` (docs/NATIVO-PRODUCAO-GRANDE.md §3).
-            let header = layout::header_word(layout::state::YOUNG, layout::flags::INSTANCE, n as usize, c as i32);
             let t = table.as_ref().map_or("null".to_string(), |f| format!("@{f}"));
             writeln!(
                 self.out,
-                "  %v{v} = call i64 @df.new_instance(ptr %ctx, i64 {}, i64 {size}, i64 {}, i64 {c}, i64 {n}, ptr {t})",
+                "  %v{v} = call i64 @df.new_instance(ptr %ctx, i64 {}, i64 {size}, i64 {}, i64 {c}, i64 {n}, ptr {t}, i64 {})",
                 layout::context::tlab_cursor(w),
-                header as i64
+                header as i64,
+                written_map.unwrap_or(0)
             )
             .unwrap();
             return;
@@ -3939,7 +4152,7 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(o, "  %tf{v} = load ptr, ptr %tfa{v}, align 8").unwrap();
         writeln!(o, "  %tnx{v} = getelementptr i8, ptr %tb{v}, i64 {size}").unwrap();
         writeln!(o, "  %tz{v} = icmp ugt ptr %tnx{v}, %tf{v}").unwrap();
-        if table.is_some() {
+        if test_registration {
             writeln!(o, "  %tnp{v} = getelementptr inbounds i8, ptr %ctx, i64 56").unwrap();
             writeln!(o, "  %tn{v} = load i64, ptr %tnp{v}, align 8").unwrap();
             writeln!(o, "  %tk{v} = icmp ule i64 %tn{v}, {c}").unwrap();
@@ -3958,23 +4171,26 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(o, "  %tx{v} = call i1 @llvm.expect.i1(i1 %tz{v}, i1 false)").unwrap();
             writeln!(o, "  br i1 %tx{v}, label %ao{v}.lento, label %ao{v}.rapido").unwrap();
         }
-        // The free block has the header zeroed (except the number of fields),
-        // the fields zeroed and the next of the list in the first field: the
-        // cursor is advanced, the first field is zeroed and the header
-        // word is written (young state, no flags, `n`, the class).
-        let header = layout::header_word(layout::state::YOUNG, layout::flags::INSTANCE, n as usize, c as i32);
+        // The free block comes zeroed (header and fields; the free list is a
+        // list of ranges, nothing is chained through the fields): the cursor is
+        // advanced and the header word is written (young state, no flags, `n`,
+        // the class), plus the static map when it is not 0.
         writeln!(o, "ao{v}.rapido:").unwrap();
         writeln!(o, "  store ptr %tnx{v}, ptr %ta{v}, align 8").unwrap();
-        writeln!(o, "  %tpp{v} = getelementptr inbounds i8, ptr %tb{v}, i64 16").unwrap();
-        writeln!(o, "  store i64 0, ptr %tpp{v}, align 8").unwrap();
         writeln!(o, "  store i64 {}, ptr %tb{v}, align 8", header as i64).unwrap();
+        if let Some(m) = written_map {
+            writeln!(o, "  %tmp{v} = getelementptr inbounds i8, ptr %tb{v}, i64 {}", layout::offsets::MAP).unwrap();
+            writeln!(o, "  store i32 {}, ptr %tmp{v}, align 4", m as i32).unwrap();
+        }
         writeln!(o, "  %thb{v} = ptrtoint ptr %tb{v} to i64").unwrap();
         writeln!(o, "  %th{v} = add i64 %thb{v}, 2").unwrap();
         writeln!(o, "  br label %ao{v}.fim").unwrap();
         writeln!(o, "ao{v}.lento:").unwrap();
-        match &table {
-            Some(f) => writeln!(o, "  %tl{v} = call i64 @dartforge_object_new_t(i64 {c}, i64 {n}, ptr @{f})").unwrap(),
-            None => writeln!(o, "  %tl{v} = call i64 @dartforge_object_new(i64 {c}, i64 {n})").unwrap(),
+        match (&table, written_map) {
+            (Some(f), Some(m)) => writeln!(o, "  %tl{v} = call i64 @dartforge_object_new_mt(i64 {c}, i64 {n}, i64 {m}, ptr @{f})").unwrap(),
+            (Some(f), None) => writeln!(o, "  %tl{v} = call i64 @dartforge_object_new_t(i64 {c}, i64 {n}, ptr @{f})").unwrap(),
+            (None, Some(m)) => writeln!(o, "  %tl{v} = call i64 @dartforge_object_new_m(i64 {c}, i64 {n}, i64 {m})").unwrap(),
+            (None, None) => writeln!(o, "  %tl{v} = call i64 @dartforge_object_new(i64 {c}, i64 {n})").unwrap(),
         }
         writeln!(o, "  br label %ao{v}.fim").unwrap();
         writeln!(o, "ao{v}.fim:").unwrap();
@@ -4744,18 +4960,17 @@ const SELECTOR_BY_DESCRIPTOR: &str = "define internal ptr @df.selector_d(ptr %c,
 /// `%cur` is the offset of the TLAB cursor of the words of the object in the
 /// context (the end comes 8 bytes later), `%tam` the bytes of the block, `%cab` the
 /// header word, `%tab` the function of the method table (null when the
-/// class does not register the table on the first allocation).
-fn new_instance() -> String {
-    format!(
-        "define internal i64 @df.new_instance(ptr %ctx, i64 %cur, i64 %tam, i64 %cab, i64 %c, i64 %n, ptr %tab) noinline {{
-  %ta = getelementptr inbounds i8, ptr %ctx, i64 %cur
-  %tb = load ptr, ptr %ta, align 8
-  %tfa = getelementptr inbounds i8, ptr %ta, i64 8
-  %tf = load ptr, ptr %tfa, align 8
-  %tnx = getelementptr i8, ptr %tb, i64 %tam
-  %tz = icmp ugt ptr %tnx, %tf
-  %semtab = icmp eq ptr %tab, null
-  br i1 %tz, label %lento, label %reg
+/// class does not register the table on the first allocation), `%mapa` the
+/// static reference map (0 when unknown: the zeroed block already has it, and
+/// the runtime writes 0 too). `registered`: every table is registered at
+/// startup (`LlvmEmitter::with_tables_registered_at_startup`), no registration
+/// test.
+fn new_instance(registered: bool) -> String {
+    let registration = if registered {
+        "  br i1 %tz, label %lento, label %rapido
+"
+    } else {
+        "  br i1 %tz, label %lento, label %reg
 reg:
   br i1 %semtab, label %rapido, label %reg2
 reg2:
@@ -4770,24 +4985,37 @@ reg3:
   %trv = load i8, ptr %trb, align 1
   %trz = icmp eq i8 %trv, 0
   br i1 %trz, label %lento, label %rapido
-rapido:
+"
+    };
+    format!(
+        "define internal i64 @df.new_instance(ptr %ctx, i64 %cur, i64 %tam, i64 %cab, i64 %c, i64 %n, ptr %tab, i64 %mapa) noinline {{
+  %ta = getelementptr inbounds i8, ptr %ctx, i64 %cur
+  %tb = load ptr, ptr %ta, align 8
+  %tfa = getelementptr inbounds i8, ptr %ta, i64 8
+  %tf = load ptr, ptr %tfa, align 8
+  %tnx = getelementptr i8, ptr %tb, i64 %tam
+  %tz = icmp ugt ptr %tnx, %tf
+  %semtab = icmp eq ptr %tab, null
+{registration}rapido:
   store ptr %tnx, ptr %ta, align 8
-  %tpp = getelementptr inbounds i8, ptr %tb, i64 16
-  store i64 0, ptr %tpp, align 8
   store i64 %cab, ptr %tb, align 8
+  %tmp = getelementptr inbounds i8, ptr %tb, i64 {map}
+  %mapa32 = trunc i64 %mapa to i32
+  store i32 %mapa32, ptr %tmp, align 4
   %thb = ptrtoint ptr %tb to i64
   %th = add i64 %thb, 2
   ret i64 %th
 lento:
   br i1 %semtab, label %semt, label %comt
 comt:
-  %a = call i64 @dartforge_object_new_t(i64 %c, i64 %n, ptr %tab)
+  %a = call i64 @dartforge_object_new_mt(i64 %c, i64 %n, i64 %mapa, ptr %tab)
   ret i64 %a
 semt:
-  %b = call i64 @dartforge_object_new(i64 %c, i64 %n)
+  %b = call i64 @dartforge_object_new_m(i64 %c, i64 %n, i64 %mapa)
   ret i64 %b
 }}
-"
+",
+        map = layout::offsets::MAP
     )
 }
 
@@ -4829,7 +5057,9 @@ fn out_of_line(text: &str, names: &[String]) -> String {
 /// (`ctx + 40`), and a body outside the block (attached, `flags & 1`) is followed through the
 /// pointer at `+16`. `alwaysinline` when the emitter is inline (so that the
 /// optimizer sees the same); without the attribute in development, a call.
-fn body_helper(per_call: bool, production: bool) -> String {
+/// `without_outside`: no object has an outside body (`body_without_outside`,
+/// see `emit_field_addresses`): the body is the first select.
+fn body_helper(per_call: bool, production: bool, without_outside: bool) -> String {
     // In production by call: truly out of line, and without effect or
     // memory dependency (`memory(none)`): the body of an object does not
     // change during its life — the collector does not move, and the outside body only
@@ -4843,6 +5073,21 @@ fn body_helper(per_call: bool, production: bool) -> String {
         (true, false) => "",
         (true, true) => " noinline nounwind willreturn memory(none)",
     };
+    if without_outside {
+        return format!(
+            "define internal ptr @df.body(i64 %o, ptr %ctx){attribute} {{
+  %k = and i64 %o, {OBJECT_MASK}
+  %e = icmp eq i64 %k, 2
+  %a = add i64 %o, -2
+  %q = inttoptr i64 %a to ptr
+  %vp = getelementptr inbounds i8, ptr %ctx, i64 40
+  %v = load ptr, ptr %vp, align 8
+  %h = select i1 %e, ptr %q, ptr %v
+  ret ptr %h
+}}
+"
+        );
+    }
     format!(
         "define internal ptr @df.body(i64 %o, ptr %ctx){attribute} {{
   %k = and i64 %o, {OBJECT_MASK}

@@ -1,0 +1,16 @@
+[false, true, false, true, false]
+2
+Never vazia: TypeError _TypeError
+[true, a, null]
+Object: ok
+dynamic int: ok
+int como num recebe double: TypeError _TypeError
+int grava int: ok
+[9, 2, 3]
+[1, 7]
+bool como Object recebe int: TypeError _TypeError
+bool grava bool: ok
+[false, false]
+[2.5, 2.0]
+double como Comparable recebe int: TypeError _TypeError
+imutavel: UnsupportedError

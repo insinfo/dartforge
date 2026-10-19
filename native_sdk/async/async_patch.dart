@@ -52,11 +52,18 @@ class _AsyncAwaitCompleter<T> implements Completer<T> {
   void complete([FutureOr<T>? value]) {
     // Every path requires that, if the value is null, `null as T` passes.
     value = (value == null) ? value as T : value;
-    if (!isSync) {
-      _future._asyncComplete(value);
-    } else if (value is Future<T>) {
-      assert(!_future._isComplete);
-      _future._chainFuture(value);
+    // The VM's `_SuspendState._returnAsync`, whether the body suspended or
+    // not: a `Future` value chains (`_asyncCompleteUnchecked`, an asynchronous
+    // delay in every case), any other value completes the future *now*
+    // (`_completeWithValue`). dart2js's `isSync=false` path
+    // (`_asyncComplete`, a microtask) made a `then` registered right after
+    // the call run before a microtask scheduled between the two; the VM runs
+    // it after, because `then` on an already completed future schedules its
+    // own microtask (scratchpad verify-http-async/order.dart, corpus 57).
+    // `isSync` keeps deciding `completeError`, where the VM also differs
+    // before and after the first suspension (`_handleException`).
+    if (value is Future) {
+      _future._asyncCompleteUnchecked(value);
     } else {
       _future._completeWithValue(value);
     }

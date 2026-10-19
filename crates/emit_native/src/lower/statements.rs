@@ -7,9 +7,17 @@ use crate::hir::*;
 use dartforge_frontend::ast::{self, ExprId, ExprKind, StmtId, StmtKind};
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
-    /// `assert(cond, msg)`: throws a catchable `AssertionError` (asserts
-    /// enabled, as in the `dart run --enable-asserts` oracle).
+    /// `assert(cond, msg)`: throws a catchable `AssertionError` when the
+    /// asserts are on (`Context::enable_asserts`: the `dart run
+    /// --enable-asserts` oracle, the JIT, development). With them off
+    /// (`DartFlags::PRODUCTION`) nothing is emitted — neither the condition nor
+    /// the message is evaluated, as in `dart compile exe`. The statement, the
+    /// constructor initializer and the extension type initializer all come
+    /// through here.
     pub fn lower_assert(&mut self, ast: &ast::Ast, condition: ExprId, message: Option<ExprId>) {
+        if !self.ctx.enable_asserts {
+            return;
+        }
         let c = self.lower_expr(ast, condition);
         let c = self.to_bool(c);
         let fail_b = self.new_block();

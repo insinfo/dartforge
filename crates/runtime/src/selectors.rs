@@ -183,7 +183,11 @@ fn mark_registered(cid: i64) {
         REGISTERED.with(|r| {
             let mut r = r.borrow_mut();
             if r.len() <= i {
-                r.resize(i + 1, false);
+                // Geometric growth: the startup registration of production
+                // (`@df.register.sdk_tables`, every assembled table in ascending
+                // cid order) reallocates a handful of times, not once per class.
+                let len = (i + 1).max(r.len() * 2).max(1024).min(REGISTERED_UP_TO);
+                r.resize(len, false);
             }
             r[i] = true;
             publish_registered(&r);
@@ -244,6 +248,15 @@ pub extern "C" fn dartforge_publish_generation(
 pub extern "C" fn dartforge_object_new_t(cid: i64, fields: i64, f: extern "C" fn() -> *const i64) -> i64 {
     dartforge_register_table(cid, f);
     dartforge_object_new(cid, fields)
+}
+
+/// [`dartforge_object_new_t`] that also writes the static reference map of the
+/// first 32 fields (`dartforge_object_new_m`, fragment `core.rs`): the slow path
+/// of the inline allocation of a class whose layout the module declares.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_object_new_mt(cid: i64, fields: i64, map: i64, f: extern "C" fn() -> *const i64) -> i64 {
+    dartforge_register_table(cid, f);
+    dartforge_object_new_m(cid, fields, map)
 }
 
 /// The module's ABI check (docs/NATIVO-ESPACO-UNIFICADO.md §2.4, §3.6): the

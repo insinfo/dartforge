@@ -45,6 +45,16 @@ pub struct Context<'a> {
     pub(crate) enum_pattern_identity_enabled: bool,
     /// Produces ownership facts only for the --memory=arc policy.
     pub arc_memory: bool,
+    /// The `assert`s are compiled (`DartFlags::enable_asserts`,
+    /// `lower/statements.rs`); off, they emit nothing.
+    pub enable_asserts: bool,
+    /// `const bool.fromEnvironment("dart.vm.product")` (`DartFlags::product`,
+    /// `lower/environment.rs`).
+    pub product: bool,
+    /// Production AOT (`--optimize`, or the production profile of the SDK):
+    /// the platform constants of the target fold (`lower/platform.rs`).
+    /// Development and the JIT read them at run time.
+    pub production: bool,
     /// Per library: the body of its functions is compiled (the program's;
     /// with [`Context::with_source_sdk`], also those of the source SDK).
     pub compiled: Vec<bool>,
@@ -317,6 +327,9 @@ impl<'a> Context<'a> {
             sdk_library: false,
             enum_pattern_identity_enabled: std::env::var("DARTFORGE_NO_ENUM_PATTERN_IDENTITY").as_deref() != Ok("1"),
             arc_memory: false,
+            enable_asserts: true,
+            product: false,
+            production: false,
             compiled: program.libraries.iter().map(|l| !l.is_sdk).collect(),
             in_module: program.libraries.iter().map(|l| !l.is_sdk).collect(),
             from_source: std::collections::HashSet::new(),

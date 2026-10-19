@@ -148,9 +148,14 @@ impl Heap {
         let bytes = len.checked_mul(element_size(ty)).unwrap_or(usize::MAX / 2);
         let words = 2 + bytes.div_ceil(8);
         let h = self.allocate(cid::typed(ty), words, flags::RAW);
-        let p = self.words_mut(h);
-        p[WORD_LENGTH] = len as i64;
-        p[WORD_DATA] = block(h) + layout::offsets::INTERNAL_BYTES as i64;
+        let p = self.fresh_body(h);
+        // SAFETY: the body of the block just allocated has `words ≥ 2` words: the
+        // length and the address of the data.
+        #[allow(unsafe_code)]
+        unsafe {
+            p.add(WORD_LENGTH).write(len as i64);
+            p.add(WORD_DATA).write(block(h) + layout::offsets::INTERNAL_BYTES as i64);
+        }
         h
     }
 

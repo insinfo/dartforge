@@ -105,7 +105,126 @@ pub fn class_closed_by_modifier(ctx: &Context, cid: ClassId) -> bool {
     })
 }
 
+/// The fixed runtime class ids (`layout::cid`, below `FIRST_FREE_CID`) of the
+/// instantiable classes that are subtypes of `cid`, sorted, and whether every
+/// instantiable subtype has one. `int` is `{SMI, MINT}`, `num` is `{SMI, MINT,
+/// DOUBLE}`, `String` is the two string classes, `bool` is `{BOOL}`; `List`
+/// has the three core lists among many subtypes without a fixed id
+/// (`ListBase`, the typed lists' views, program classes). Abstract and
+/// sealed classes, mixins and classes of libraries that are not compiled have
+/// no instances, so they do not count.
+pub fn fixed_subtype_cids(ctx: &Context, cid: ClassId) -> (Vec<i64>, bool) {
+    let mut fixed = Vec::new();
+    let mut all = true;
+    for &k in ctx.subtypes(cid).iter() {
+        let class = &ctx.program.classes[k.0 as usize];
+        if !ctx.compiled_library(class.library)
+            || class.modifiers.abstract_
+            || class.modifiers.sealed
+            || super::members::is_mixin(ctx, k)
+        {
+            continue;
+        }
+        match ctx.class_id_of(k) {
+            Some(id) if i64::from(id) < dartforge_runtime::layout::FIRST_FREE_CID => fixed.push(i64::from(id)),
+            _ => all = false,
+        }
+    }
+    fixed.sort_unstable();
+    fixed.dedup();
+    (fixed, all)
+}
+
+/// The maximal runs of consecutive cids of `cids` (sorted), as `(low, high)`.
+fn cid_ranges(cids: &[i64]) -> Vec<(i64, i64)> {
+    let mut ranges: Vec<(i64, i64)> = Vec::new();
+    for &c in cids {
+        match ranges.last_mut() {
+            Some((_, high)) if *high + 1 == c => *high = c,
+            _ => ranges.push((c, c)),
+        }
+    }
+    ranges
+}
+
 impl<'a, 'c> FnBuilder<'a, 'c> {
+    /// `cls` (the class of a value, `dartforge_value_class`) is a subclass of the
+    /// class `c` of runtime id `id`, as `I1`.
+    ///
+    /// The class graph answers through the bitmap of the target
+    /// (`dartforge_is_subclass`, the emitter's `df.subclass`: the context, the
+    /// width, the table, the map and the word — some fourteen instructions and
+    /// four branches). A class whose instantiable subtypes all have fixed cids
+    /// ([`fixed_subtype_cids`]) and that no code outside its library can
+    /// implement (`final`/`sealed` with closed subtypes, or private) is a
+    /// comparison with those cids — `v is int` is `cid - SMI <u 2`, like the
+    /// VM's type testing stub for a cid range. When only some subtypes have a
+    /// fixed cid (`List`: the three core lists), those are a fast path before
+    /// the bitmap, which keeps answering for the rest (`ListBase`, the views,
+    /// program classes, and whatever a later generation adds). `null`
+    /// (`NULL`) never takes the fast path: the caller decides it.
+    pub fn subclass_test(&mut self, cls: Operand, c: ClassId, id: u32) -> Operand {
+        let (mut fixed, all) = fixed_subtype_cids(self.ctx, c);
+        fixed.retain(|&x| x != i64::from(dartforge_runtime::layout::cid::NULL));
+        let ranges = cid_ranges(&fixed);
+        let closed = closed_class(self.ctx, c) || class_closed_by_modifier(self.ctx, c);
+        if fixed.is_empty() || ranges.len() > 2 {
+            return self.subclass_bitmap(cls, id);
+        }
+        let fast = self.cid_in_ranges(cls.clone(), &ranges);
+        if all && closed {
+            return fast;
+        }
+        let b_fast = self.current_block;
+        let b_slow = self.new_block();
+        let b_join = self.new_block();
+        self.terminate(Terminator::CondBranch { cond: fast, then_block: b_join, else_block: b_slow });
+        self.set_block(b_slow);
+        let slow = self.subclass_bitmap(cls, id);
+        let b_slow_end = self.current_block;
+        self.terminate(Terminator::Branch(b_join));
+        self.set_block(b_join);
+        self.emit(
+            Instruction::Phi {
+                incoming: vec![(b_fast, Operand::Constant(Constant::Bool(true))), (b_slow_end, slow)],
+                ty: Type::I1,
+            },
+            Type::I1,
+        )
+    }
+
+    /// `cls <: id` through the subtype bitmap of the runtime (`dartforge_is_subclass`).
+    fn subclass_bitmap(&mut self, cls: Operand, id: u32) -> Operand {
+        let sub = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_is_subclass".to_string(),
+                args: vec![(cls, Type::I64), (Operand::Constant(Constant::Int(i64::from(id))), Type::I64)],
+                ret_ty: Type::I8,
+            },
+            Type::I8,
+        );
+        self.emit(Instruction::ICmp(ICmpOp::Ne, sub, Operand::Constant(Constant::Int(0))), Type::I1)
+    }
+
+    /// `cls` is in some of the `ranges` of cids: `cls == low` for a single one,
+    /// `cls - low <u high - low + 1` for a run, joined by `or`.
+    fn cid_in_ranges(&mut self, cls: Operand, ranges: &[(i64, i64)]) -> Operand {
+        let mut result: Option<Operand> = None;
+        for &(low, high) in ranges {
+            let test = if low == high {
+                self.emit(Instruction::ICmp(ICmpOp::Eq, cls.clone(), Operand::Constant(Constant::Int(low))), Type::I1)
+            } else {
+                let shifted = self.emit(Instruction::Sub(cls.clone(), Operand::Constant(Constant::Int(low))), Type::I64);
+                self.emit(Instruction::ICmp(ICmpOp::Ult, shifted, Operand::Constant(Constant::Int(high - low + 1))), Type::I1)
+            };
+            result = Some(match result {
+                None => test,
+                Some(previous) => self.emit(Instruction::Or(previous, test), Type::I1),
+            });
+        }
+        result.unwrap_or(Operand::Constant(Constant::Bool(false)))
+    }
+
     /// `recv.<selector>(evaluated)` through the uniform convention; the result is
     /// `Ref`.
     pub fn call_by_selector(&mut self, recv: Operand, selector: String, evaluated: &[Evaluated]) -> Operand {
@@ -634,7 +753,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Some(dartforge_elements::model::Element::Class(c)) => Some(c),
             _ => None,
         });
-        let Some(id) = cid.and_then(|c| self.ctx.class_id_of(c)) else {
+        let Some((class, id)) = cid.and_then(|c| Some((c, self.ctx.class_id_of(c)?))) else {
             return without_class(self);
         };
         let _ = only_class;
@@ -649,20 +768,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Instruction::CallRuntime { name: "dartforge_value_class".to_string(), args: vec![(op, Type::Ref)], ret_ty: Type::I64 },
             Type::I64,
         );
-        let sub = self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_is_subclass".to_string(),
-                args: vec![(cls, Type::I64), (Operand::Constant(Constant::Int(i64::from(id))), Type::I64)],
-                ret_ty: Type::I8,
-            },
-            Type::I8,
-        );
-        let sub = self.emit(Instruction::ICmp(ICmpOp::Ne, sub, zero), Type::I1);
+        let sub = self.subclass_test(cls, class, id);
         // null is not a non-nullable `T`, even though `Null` is a subclass of
         // `Object` in the class graph.
         let non_null = self.emit(Instruction::LNot(null.clone()), Type::I1);
         let base = self.emit(Instruction::And(sub, non_null), Type::I64);
-        let base = self.emit(Instruction::ICmp(ICmpOp::Ne, base, Operand::Constant(Constant::Int(0))), Type::I1);
+        let base = self.emit(Instruction::ICmp(ICmpOp::Ne, base, zero), Type::I1);
         if !ast_ty.nullable {
             return Some(base);
         }
@@ -715,7 +826,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Some(n) => {
                 match crate::natives::native(&n).map(|x| x.state) {
                     Some(crate::natives::State::Runtime) => {}
-                    Some(crate::natives::State::Builtin) => return Some(self.embedded_native(&n, fid, args)),
+                    Some(crate::natives::State::Builtin) => return Some(self.embedded_native(&n, fid, this.as_ref(), args)),
                     Some(crate::natives::State::Pending) => {
                         return Some(self.unsupported(&format!("pending native `{n}` ({member})"), span));
                     }
@@ -956,9 +1067,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// A native that the lowering generates in place of the call
-    /// (`natives::State::Builtin`).
-    fn embedded_native(&mut self, name_str: &str, fid: usize, args: &[Operand]) -> Operand {
+    /// (`natives::State::Builtin`). `this` is the receiver of an instance
+    /// native, in whatever representation it arrived.
+    fn embedded_native(&mut self, name_str: &str, fid: usize, this: Option<&Operand>, args: &[Operand]) -> Operand {
         let ret = self.return_repr(fid);
+        if let Some(r) = self.embedded_numeric_native(name_str, this, args) {
+            return if ret == Type::Void { r } else { self.coerce(r, ret) };
+        }
         match name_str {
             // `unsafeCast<T>(v)`: the value itself, without a check.
             "Internal_unsafeCast" => {
@@ -978,6 +1093,111 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             _ => self.unsupported(&format!("embedded native `{name_str}`"), Span { start: 0, end: 0 }),
         }
+    }
+
+    /// The pure natives of `_Double` and `_IntegerImplementation`
+    /// (`runtime/src/natives_numbers.rs`, the VM's `runtime/lib/double.cc` and
+    /// `integers.cc`) as the HIR operation they compute: IEEE arithmetic and
+    /// comparisons on the `f64`, modular `i64` arithmetic. The `*FromInteger`
+    /// natives are called with swapped operands, as in the VM (`int operator
+    /// -(num other) => other._subFromInteger(this)`: the receiver of the native
+    /// is the right operand). Nothing here allocates, throws or runs Dart, so
+    /// the call site keeps no roots and no exception check. `None`: not one
+    /// of them.
+    fn embedded_numeric_native(&mut self, name_str: &str, this: Option<&Operand>, args: &[Operand]) -> Option<Operand> {
+        let receiver = |b: &mut Self, t: Type| b.coerce(this.cloned().unwrap_or(Operand::Constant(Constant::Null)), t);
+        let argument = |b: &mut Self, i: usize, t: Type| b.coerce(args.get(i).cloned().unwrap_or(Operand::Constant(Constant::Null)), t);
+        let bits = |b: &mut Self, x: Operand| b.emit(Instruction::Bitcast { op: x, to: Type::I64 }, Type::I64);
+        let int = |n: i64| Operand::Constant(Constant::Int(n));
+        Some(match name_str {
+            "Double_add" | "Double_sub" | "Double_mul" | "Double_div" => {
+                let (a, b) = (receiver(self, Type::F64), argument(self, 0, Type::F64));
+                match name_str {
+                    "Double_add" => self.emit(Instruction::FAdd(a, b), Type::F64),
+                    "Double_sub" => self.emit(Instruction::FSub(a, b), Type::F64),
+                    "Double_mul" => self.emit(Instruction::FMul(a, b), Type::F64),
+                    _ => self.emit(Instruction::FDiv(a, b), Type::F64),
+                }
+            }
+            // `_Double.fromInteger(int)`: a factory, the value is the argument.
+            "Double_doubleFromInteger" => {
+                let v = argument(self, 0, Type::I64);
+                self.emit(Instruction::IntToDouble(v), Type::F64)
+            }
+            "Double_equal" => {
+                let (a, b) = (receiver(self, Type::F64), argument(self, 0, Type::F64));
+                self.emit(Instruction::FCmp(FCmpOp::Eq, a, b), Type::I1)
+            }
+            // `this == other.toDouble()`.
+            "Double_equalToInteger" => {
+                let a = receiver(self, Type::F64);
+                let i = argument(self, 0, Type::I64);
+                let b = self.emit(Instruction::IntToDouble(i), Type::F64);
+                self.emit(Instruction::FCmp(FCmpOp::Eq, a, b), Type::I1)
+            }
+            "Double_greaterThan" => {
+                let (a, b) = (receiver(self, Type::F64), argument(self, 0, Type::F64));
+                self.emit(Instruction::FCmp(FCmpOp::Gt, a, b), Type::I1)
+            }
+            // `other.toDouble() > this` (swapped, like the `int` ones).
+            "Double_greaterThanFromInteger" => {
+                let a = receiver(self, Type::F64);
+                let i = argument(self, 0, Type::I64);
+                let b = self.emit(Instruction::IntToDouble(i), Type::F64);
+                self.emit(Instruction::FCmp(FCmpOp::Gt, b, a), Type::I1)
+            }
+            // `-this` for every value, NaN included: the sign bit (`fneg`).
+            "Double_flipSignBit" => {
+                let a = receiver(self, Type::F64);
+                self.emit(Instruction::FNeg(a), Type::F64)
+            }
+            "Double_getIsNaN" => {
+                let a = receiver(self, Type::F64);
+                let equal = self.emit(Instruction::FCmp(FCmpOp::Eq, a.clone(), a), Type::I1);
+                self.emit(Instruction::LNot(equal), Type::I1)
+            }
+            // Exponent all ones and zero mantissa.
+            "Double_getIsInfinite" => {
+                let a = receiver(self, Type::F64);
+                let b = bits(self, a);
+                let m = self.emit(Instruction::And(b, int(i64::MAX)), Type::I64);
+                self.emit(Instruction::ICmp(ICmpOp::Eq, m, int(0x7FF0_0000_0000_0000)), Type::I1)
+            }
+            // The sign bit, except for NaN (`-0.0` is negative).
+            "Double_getIsNegative" => {
+                let a = receiver(self, Type::F64);
+                let b = bits(self, a.clone());
+                let sign = self.emit(Instruction::ICmp(ICmpOp::Slt, b, int(0)), Type::I1);
+                let not_nan = self.emit(Instruction::FCmp(FCmpOp::Eq, a.clone(), a), Type::I1);
+                let s = self.emit(Instruction::ZExt { op: sign, from: Type::I1, to: Type::I64 }, Type::I64);
+                let n = self.emit(Instruction::ZExt { op: not_nan, from: Type::I1, to: Type::I64 }, Type::I64);
+                let e = self.emit(Instruction::And(s, n), Type::I64);
+                self.emit(Instruction::ICmp(ICmpOp::Ne, e, int(0)), Type::I1)
+            }
+            // `other op this`, with Dart's 64-bit wraparound.
+            "Integer_addFromInteger" | "Integer_subFromInteger" | "Integer_mulFromInteger"
+            | "Integer_bitAndFromInteger" | "Integer_bitOrFromInteger" | "Integer_bitXorFromInteger" => {
+                let (this_value, other) = (receiver(self, Type::I64), argument(self, 0, Type::I64));
+                match name_str {
+                    "Integer_addFromInteger" => self.emit(Instruction::Add(other, this_value), Type::I64),
+                    "Integer_subFromInteger" => self.emit(Instruction::Sub(other, this_value), Type::I64),
+                    "Integer_mulFromInteger" => self.emit(Instruction::Mul(other, this_value), Type::I64),
+                    "Integer_bitAndFromInteger" => self.emit(Instruction::And(other, this_value), Type::I64),
+                    "Integer_bitOrFromInteger" => self.emit(Instruction::Or(other, this_value), Type::I64),
+                    _ => self.emit(Instruction::Xor(other, this_value), Type::I64),
+                }
+            }
+            "Integer_equalToInteger" => {
+                let (a, b) = (receiver(self, Type::I64), argument(self, 0, Type::I64));
+                self.emit(Instruction::ICmp(ICmpOp::Eq, a, b), Type::I1)
+            }
+            // `other > this`.
+            "Integer_greaterThanFromInteger" => {
+                let (this_value, other) = (receiver(self, Type::I64), argument(self, 0, Type::I64));
+                self.emit(Instruction::ICmp(ICmpOp::Sgt, other, this_value), Type::I1)
+            }
+            _ => return None,
+        })
     }
 }
 
@@ -2309,22 +2529,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `Record`), through the class graph of the source SDK; null is not.
     pub fn is_core_instance(&mut self, v: Operand, name_str: &str) -> Operand {
         let zero = Operand::Constant(Constant::Int(0));
-        let Some(id) = self.ctx.sdk_class("core", name_str).and_then(|c| self.ctx.class_id_of(c)) else {
+        let Some((c, id)) = self.ctx.sdk_class("core", name_str).and_then(|c| Some((c, self.ctx.class_id_of(c)?))) else {
             return Operand::Constant(Constant::Bool(false));
         };
         let cls = self.emit(
             Instruction::CallRuntime { name: "dartforge_value_class".to_string(), args: vec![(v.clone(), Type::Ref)], ret_ty: Type::I64 },
             Type::I64,
         );
-        let sub = self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_is_subclass".to_string(),
-                args: vec![(cls, Type::I64), (Operand::Constant(Constant::Int(i64::from(id))), Type::I64)],
-                ret_ty: Type::I8,
-            },
-            Type::I8,
-        );
-        let sub = self.emit(Instruction::ICmp(ICmpOp::Ne, sub, zero.clone()), Type::I1);
+        let sub = self.subclass_test(cls, c, id);
         let non_null = self.emit(Instruction::ICmp(ICmpOp::Ne, v, zero.clone()), Type::I1);
         let r = self.emit(Instruction::And(sub, non_null), Type::I64);
         self.emit(Instruction::ICmp(ICmpOp::Ne, r, zero), Type::I1)

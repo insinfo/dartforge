@@ -577,7 +577,14 @@ pub fn lower_function(ctx: &Context, module: &mut Module, f_idx: usize) {
     let public = ctx.program.public(dartforge_elements::model::FunctionElementId(f_idx as u32)).0 as usize;
     let has = |name| [f_idx, public].into_iter().any(|f|
         crate::source::has_pragma(ctx.program, ctx.interner, f, name));
-    let policy = if has("vm:never-inline") { Some(crate::hir::InlinePolicy::Never) }
+    // `vm:never-inline` on a `vm:recognized asm-intrinsic` member (the
+    // operators of `_Double` and `_IntegerImplementation`) exists because the VM
+    // replaces the call by the intrinsic before its inliner runs; nothing
+    // replaces the body here, and honoring it only kept `_Double.*`, `<`, `==`…
+    // out of the HIR inliner and `noinline` in LLVM.
+    let asm_intrinsic = [f_idx, public].into_iter().any(|f|
+        crate::natives::recognized_kind(ctx.program, ctx.interner, &ctx.program.functions[f]).as_deref() == Some("asm-intrinsic"));
+    let policy = if has("vm:never-inline") && !asm_intrinsic { Some(crate::hir::InlinePolicy::Never) }
         else if has("vm:prefer-inline") { Some(crate::hir::InlinePolicy::Prefer) }
         else { None };
     if let Some(policy) = policy {

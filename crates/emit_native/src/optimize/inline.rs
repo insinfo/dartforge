@@ -20,15 +20,59 @@
 use super::mem2reg::compatible;
 use super::operands::*;
 use crate::hir::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Instructions of a function that gets copied.
 pub const BODY_LIMIT: usize = 40;
 /// Maximum size of the function receiving the copies.
 pub const CALLER_LIMIT: usize = 4000;
+/// A callee copied into an arm of a devirtualization `switch` (one `case` per
+/// class of the receiver, `lower/members.rs`) has at most this many
+/// instructions — unless that call is its only static call site, when the
+/// copy duplicates nothing. A megamorphic site copied every implementation:
+/// `RenderObjectElement.performRebuild` of dart_ui, one source line, was
+/// 22,160 B against 140 B in the VM's snapshot (137 arms).
+pub const ARM_BODY_LIMIT: usize = 12;
+/// Copies into one function: a safety ceiling on top of the growth budget.
+const COPIES_CEILING: usize = 256;
 
 fn size(f: &Function) -> usize {
     f.blocks.iter().map(|b| b.instructions.len() + 1).sum()
+}
+
+/// How far the copies may grow a function: twice its original size, with a
+/// floor of `2 * BODY_LIMIT` of growth so that a small wrapper still receives
+/// a callee or two of the largest copiable size. It replaces the former fixed
+/// budget of 64 copies per function, which let a large function multiply
+/// every small callee by every call site (docs/PLANO-TAMANHO-DESEMPENHO.md).
+pub fn growth_ceiling(original: usize) -> usize {
+    original + original.max(2 * BODY_LIMIT)
+}
+
+/// The arms of the devirtualization `switch`es of `func`: the successors of a
+/// `Switch` over `dartforge_value_class(recv)` (`lower/members.rs`, one
+/// `case` per implementing class).
+fn devirtualization_arms(func: &Function) -> HashSet<BlockId> {
+    let classes: HashSet<ValueId> = func
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .filter_map(|(v, i, _)| {
+            matches!(i, Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. }
+                if name == "dartforge_value_class")
+            .then_some(*v)
+        })
+        .collect();
+    let mut arms = HashSet::new();
+    for b in &func.blocks {
+        if let Terminator::Switch { val: Operand::Val(v), default, cases } = &b.terminator
+            && classes.contains(v)
+        {
+            arms.insert(*default);
+            arms.extend(cases.iter().map(|(_, d)| *d));
+        }
+    }
+    arms
 }
 
 /// Can the function be copied in place of the call?
@@ -73,36 +117,52 @@ pub fn copyable_with_policy(f: &Function, policy: Option<InlinePolicy>) -> bool 
 
 /// Copies, in `func`, the calls to functions of `copies` (with whether the function
 /// may throw). Returns whether anything changed.
-pub fn inlining(func: &mut Function, copies: &HashMap<String, (Function, bool)>) -> bool {
-    inlining_with_origins(func, copies, &HashMap::new(), &mut HashMap::new())
-}
-
+#[cfg(test)]
 pub(super) fn inlining_with_origins(
     func: &mut Function, copies: &HashMap<String, (Function, bool)>,
     sources: &HashMap<String, HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>>,
     sites: &mut HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>,
 ) -> bool {
-    inlining_with_metadata(func, copies, sources, sites, &HashMap::new(), &mut HashMap::new())
+    inlining_with_metadata(func, copies, sources, sites, &HashMap::new(), &mut HashMap::new(), &HashMap::new())
 }
 
 /// Remaps frame-site certificates with exactly the SSA substitution used by
 /// the copied allocation. Caller ownership alone is insufficient after inlining.
+///
+/// `call_sites`: how many static call sites each symbol has in the module
+/// (`optimize::static_call_sites`); empty means unknown, which only keeps a
+/// callee above [`ARM_BODY_LIMIT`] out of the arms of a devirtualization
+/// `switch`. The copies stop at [`growth_ceiling`] of the original size.
 pub(super) fn inlining_with_metadata(
     func: &mut Function, copies: &HashMap<String, (Function, bool)>,
     sources: &HashMap<String, HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>>,
     sites: &mut HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>,
     frame_sources: &HashMap<String, HashMap<ValueId, (String, usize)>>,
     frames: &mut HashMap<ValueId, (String, usize)>,
+    call_sites: &HashMap<String, usize>,
 ) -> bool {
     let mut changed = false;
-    let mut budget = 64;
-    while budget > 0 && size(func) < CALLER_LIMIT {
+    let ceiling = growth_ceiling(size(func)).min(CALLER_LIMIT);
+    let mut copied = 0;
+    while copied < COPIES_CEILING && size(func) < ceiling {
         let types = function_types(func);
+        let arms = devirtualization_arms(func);
+        let room = ceiling - size(func);
         let found = func.blocks.iter().enumerate().find_map(|(bi, b)| {
+            let in_arm = arms.contains(&b.id);
             b.instructions.iter().enumerate().find_map(|(ii, (_, inst, ty))| {
                 let Instruction::CallStatic { symbol, args, .. } = inst else { return None };
                 let (target, _) = copies.get(symbol)?;
                 if *symbol == func.symbol || target.params.len() != args.len() {
+                    return None;
+                }
+                // The budget: this copy fits in what is left of the growth; in an
+                // arm of a devirtualization `switch`, only a tiny callee or
+                // one with no other call site.
+                let body = size(target);
+                if body > room + 1
+                    || (in_arm && body > ARM_BODY_LIMIT && call_sites.get(symbol).copied() != Some(1))
+                {
                     return None;
                 }
                 let arguments_ok = target.params.iter().zip(args).all(|((_, _, tp), a)| {
@@ -122,7 +182,7 @@ pub(super) fn inlining_with_metadata(
         let Some((bi, ii)) = found else { break };
         copy(func, bi, ii, copies, sources, sites, frame_sources, frames);
         changed = true;
-        budget -= 1;
+        copied += 1;
     }
     changed
 }
@@ -366,7 +426,7 @@ mod frame_site_tests {
         let copies = HashMap::from([("start".into(), (target, true))]);
         let sources = HashMap::from([("start".into(), HashMap::from([(ValueId(0), (body.clone(), 6))]))]);
         let mut frames = HashMap::new();
-        assert!(inlining_with_metadata(&mut caller, &copies, &HashMap::new(), &mut HashMap::new(), &sources, &mut frames));
+        assert!(inlining_with_metadata(&mut caller, &copies, &HashMap::new(), &mut HashMap::new(), &sources, &mut frames, &HashMap::new()));
         assert_eq!(frames.len(), 2);
         assert!(!frames.contains_key(&ValueId(0)), "same CID and size do not certify the unrelated allocation");
         let allocations: Vec<_> = caller.blocks.iter().flat_map(|b| &b.instructions)

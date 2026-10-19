@@ -1,0 +1,1147 @@
+{
+  "baseline": "Reviewed SDK3.6.2 selected sources with DartForge native overlays; no version/path check substitutes these content hashes.",
+  "core_fingerprint": "92bfcfb55b3dab4d34ec01b0219dfd150c6daa970001720b84ab47527ca22f45",
+  "schema": 1,
+  "units": [
+    {
+      "library": "dart:_compact_hash",
+      "role": 1,
+      "source_blake3": "b90b7bf0a3a58417ae0bd816815b3735ba14b180f723b07c3a7a65862d505573"
+    },
+    {
+      "library": "dart:_http",
+      "role": 1,
+      "source_blake3": "72a2073f5dd53f9d469c24281d8ecececf6b3f67a80923ed815f13e948ad3343"
+    },
+    {
+      "library": "dart:_http",
+      "role": 2,
+      "source_blake3": "20e059d90cfc3d3c1e98d1219f1ff3a641073b6d366d46d7ccf8689c7baf8e7f"
+    },
+    {
+      "library": "dart:_http",
+      "role": 2,
+      "source_blake3": "611e67352ee98bedc9c659aca0b22b4aa8296f8569192446da0f25c84c02de2b"
+    },
+    {
+      "library": "dart:_http",
+      "role": 2,
+      "source_blake3": "64f96322bdaa9a904664b79bec75c495ad2376bfd627efc44a5c8bc71bd12607"
+    },
+    {
+      "library": "dart:_http",
+      "role": 2,
+      "source_blake3": "72d4fbc2d8fcd44e599ee4d9ba90f4a8a903cd19d0a307b2b9eab4ab1bb9df3a"
+    },
+    {
+      "library": "dart:_http",
+      "role": 2,
+      "source_blake3": "763a64a8d3e8a96f3d8ad852fd09c5db874bd8b2bcad1ffb5fb1e4479df74e91"
+    },
+    {
+      "library": "dart:_http",
+      "role": 2,
+      "source_blake3": "7b6f975ef9d3824184cf0650909f33ce2b4e459e31c9f6baa373fb23ba02a6f5"
+    },
+    {
+      "library": "dart:_http",
+      "role": 2,
+      "source_blake3": "a46ff1c5d29b25f810338598438f2ed0460e937607f4256f2f66b70219510164"
+    },
+    {
+      "library": "dart:_http",
+      "role": 2,
+      "source_blake3": "cad560b3c36353d9cccbf9d8851be70d85710adb36539f547a3ad2a830bc3691"
+    },
+    {
+      "library": "dart:_http",
+      "role": 2,
+      "source_blake3": "cd273a544debe20bf50cf82f7d2669a36f80c375f5848da32f3a3449c85aced5"
+    },
+    {
+      "library": "dart:_http",
+      "role": 2,
+      "source_blake3": "edae33ef4ab231f1048c1934fc87c91b23801af02e063c925a0c4104245ed2da"
+    },
+    {
+      "library": "dart:_http",
+      "role": 2,
+      "source_blake3": "f5d9bf54d7b921013b426ef18bea562ad24c275254e51d0faa7105e216bdadb3"
+    },
+    {
+      "library": "dart:_internal",
+      "role": 1,
+      "source_blake3": "04cc2083c580cd47983f9e3a1e1b46aecef64a9b3f91fc3195f700c24cabff19"
+    },
+    {
+      "library": "dart:_internal",
+      "role": 2,
+      "source_blake3": "03a24d0557dc46c44796cc4284a0aa9fa6bb8a318149f87b4d5f948e7a9f6bf4"
+    },
+    {
+      "library": "dart:_internal",
+      "role": 2,
+      "source_blake3": "05046412a6bf771fd51c380516cfd679cc90cd69229e5581f1f5caeb00342049"
+    },
+    {
+      "library": "dart:_internal",
+      "role": 2,
+      "source_blake3": "48f183029a3c769918b89fde9bcbfd3218bcae1022fa85594181ec57852c69d5"
+    },
+    {
+      "library": "dart:_internal",
+      "role": 2,
+      "source_blake3": "4c5b3757ce69b91875fd9098abb42d4390c1b89d422ff6dcc799cc8457573d72"
+    },
+    {
+      "library": "dart:_internal",
+      "role": 2,
+      "source_blake3": "64c2b912f0ac208cca2cb383debe92dcb9721c6b8888d5ee03721a0594d711ab"
+    },
+    {
+      "library": "dart:_internal",
+      "role": 2,
+      "source_blake3": "685a543a10f24d9e758781a5f299c40c79dae9e88e4f1ef7ab8ad2ec107c1e3d"
+    },
+    {
+      "library": "dart:_internal",
+      "role": 2,
+      "source_blake3": "68615fbf79f8ac1c2c6f6852e67f3c1a8d9d366ae6aa42170c46e119c4f2c1a3"
+    },
+    {
+      "library": "dart:_internal",
+      "role": 2,
+      "source_blake3": "77ff1139b17c775a203b8ac8db82b7297dc458ffb337476c22f1b3fff6215ce0"
+    },
+    {
+      "library": "dart:_internal",
+      "role": 2,
+      "source_blake3": "a567d52bab5a40128c58c808a9bbd57848137c241e21fa56d576da6a4e5fa3ad"
+    },
+    {
+      "library": "dart:_internal",
+      "role": 2,
+      "source_blake3": "c9f618e14215633bffb6d3910a7eef596b5f02561dfe5f3b330802e736d22938"
+    },
+    {
+      "library": "dart:_internal",
+      "role": 2,
+      "source_blake3": "f42f149273b4aed3c14dddc795e1d1755bef5024f9b547b37fac2449935be93c"
+    },
+    {
+      "library": "dart:_internal",
+      "role": 2,
+      "source_blake3": "fbc3bc4dc51d97264c69da22169cc011913f559491b639b5cc401df22d3530a0"
+    },
+    {
+      "library": "dart:_internal",
+      "role": 3,
+      "source_blake3": "35a934a991a01a99996bff7cc62ceceb833731fcc77659bd9fa657c005abaeba"
+    },
+    {
+      "library": "dart:_internal",
+      "role": 3,
+      "source_blake3": "543216a576473c74e89af49e1c4773559e892c8a51c6b1e1df9e99c58fbd1522"
+    },
+    {
+      "library": "dart:_internal",
+      "role": 3,
+      "source_blake3": "8a80d0aef989f86bfe6b2948b1ff80ff3946d91e08a04a31961ce135bef4d693"
+    },
+    {
+      "library": "dart:_internal",
+      "role": 3,
+      "source_blake3": "9bfb4644e68960e9c2444116b0145143c1e4f1ae776b553a1961799122d9ad97"
+    },
+    {
+      "library": "dart:async",
+      "role": 1,
+      "source_blake3": "f16873033c71d620e7371160b968fc9225d6ffa8ce898a2433eccfc2ca12cec4"
+    },
+    {
+      "library": "dart:async",
+      "role": 2,
+      "source_blake3": "0849f2e62b08b5bf4c19252f8c8b0e1288a9dc07f6ec808feca5e5ebb361339a"
+    },
+    {
+      "library": "dart:async",
+      "role": 2,
+      "source_blake3": "28378ae76ad5d1f360232d7bb5ffd397c315bdf211f04bc43c30faf64ec6a666"
+    },
+    {
+      "library": "dart:async",
+      "role": 2,
+      "source_blake3": "6f375650237dbf3868d70871591757627ee1651ae0ec3eb2ff8b9962eabe802c"
+    },
+    {
+      "library": "dart:async",
+      "role": 2,
+      "source_blake3": "7690cdf5b77485220112d2ae2d1158d4d96ec82c048d10b26e0cffe8eabdcf66"
+    },
+    {
+      "library": "dart:async",
+      "role": 2,
+      "source_blake3": "76bac00ab9bdfade152671b3d78aeaea1d7d7da821560078d803834dc89dbc7c"
+    },
+    {
+      "library": "dart:async",
+      "role": 2,
+      "source_blake3": "8d531ff57752b02da2f463ec3c84d4adebdcd9a51133bf7e98b76ff3321e97a3"
+    },
+    {
+      "library": "dart:async",
+      "role": 2,
+      "source_blake3": "8eb0782cb0e76c1c6f4dd6ab40122cef9b002824575b655cb318f69a65cb90d0"
+    },
+    {
+      "library": "dart:async",
+      "role": 2,
+      "source_blake3": "9c172aa3c5421e207f3f5baaf2dc378ea22a4560f3edae4033d20412eeb48441"
+    },
+    {
+      "library": "dart:async",
+      "role": 2,
+      "source_blake3": "a6e23a906b839880d58a43dd9094685a104b9c3ff02be9c695b6058c98e2ba8f"
+    },
+    {
+      "library": "dart:async",
+      "role": 2,
+      "source_blake3": "af0611b77e4bd4ea3ff964f6f942c38b59e907c5b9da80b2aa11fea5c32033a1"
+    },
+    {
+      "library": "dart:async",
+      "role": 2,
+      "source_blake3": "bfef7c4152bdef45353941bd382ff2534942a7dd85b85dc7e358ebec9fb54bc4"
+    },
+    {
+      "library": "dart:async",
+      "role": 2,
+      "source_blake3": "c18867358164bc6191cf1d171a82340e8e423c5083a737b25bed10e752828e13"
+    },
+    {
+      "library": "dart:async",
+      "role": 2,
+      "source_blake3": "c66833955ed3c49aec43563b1ea84fcc070aa7fd12cf077655b18e7d74e27f25"
+    },
+    {
+      "library": "dart:async",
+      "role": 2,
+      "source_blake3": "f0749d78a707e334c7bc39915a6e07e75674859554aa32771287ec5c7475a1e8"
+    },
+    {
+      "library": "dart:async",
+      "role": 3,
+      "source_blake3": "7e0e1ba7088fa65589cb596077211618dd9c88b15231a6ecc814938d7863d4a6"
+    },
+    {
+      "library": "dart:async",
+      "role": 3,
+      "source_blake3": "8df19dba6cbf92cc0aa230c9dba4885ef8e8f50f3ffa4c418a8b2d3045ff8f70"
+    },
+    {
+      "library": "dart:async",
+      "role": 3,
+      "source_blake3": "b556724bbb6b33a555427a370827c81a273dec22cd31d43a2b8c463fc11242d0"
+    },
+    {
+      "library": "dart:collection",
+      "role": 1,
+      "source_blake3": "43ef5d06f163494b4cc6763b0458cd5b80fa201493799dd442af258c63b51f62"
+    },
+    {
+      "library": "dart:collection",
+      "role": 2,
+      "source_blake3": "0ca21cbaf2992ca20238dff66721ccc156b65ddca5b0a97238f25917f6d723a6"
+    },
+    {
+      "library": "dart:collection",
+      "role": 2,
+      "source_blake3": "2ca0d678debb0a7e7119c41f3464502397f3524e72dc970ac074cc9612d63417"
+    },
+    {
+      "library": "dart:collection",
+      "role": 2,
+      "source_blake3": "2ea576435a7bbe63a801476521887b116cb80456a421bd3bcfdb78a3407ad336"
+    },
+    {
+      "library": "dart:collection",
+      "role": 2,
+      "source_blake3": "440227f2dac4ee95ef06b4a4d144841746b2465da94583d678df017207be8c1f"
+    },
+    {
+      "library": "dart:collection",
+      "role": 2,
+      "source_blake3": "499ff82663e581eebd5afe19b6ede876dccdd4e8bf69b384e106c9f62d34f6d6"
+    },
+    {
+      "library": "dart:collection",
+      "role": 2,
+      "source_blake3": "724d10dc3f81e812791f23bc026ef32c098d7b9b40c84f184348f2a036827e64"
+    },
+    {
+      "library": "dart:collection",
+      "role": 2,
+      "source_blake3": "7a18b3bb85b83f30666f2fa6ea6b539b0fd695102885a74f14da5ee245fa0700"
+    },
+    {
+      "library": "dart:collection",
+      "role": 2,
+      "source_blake3": "a57e7fa96528c4d762d5ef488183d85d7fcad62907124912059c78359d7e57ea"
+    },
+    {
+      "library": "dart:collection",
+      "role": 2,
+      "source_blake3": "add4c0cf7d7ca6d8d35e10bd5012a3f2d94250029b7aa7210e82f99193c7138c"
+    },
+    {
+      "library": "dart:collection",
+      "role": 2,
+      "source_blake3": "d2a62678833e7f1a88ef73644cbb382884c74b9ba148c267cc87c75bf7934b35"
+    },
+    {
+      "library": "dart:collection",
+      "role": 2,
+      "source_blake3": "d71ed97b2478664f7587fbca563eafb0227204bea879bfb778d87e2553c5ea2f"
+    },
+    {
+      "library": "dart:collection",
+      "role": 2,
+      "source_blake3": "dac66f3a23069b4bcb85fe720096b5888fe1e7ebd391ae0529ae2f805418d6aa"
+    },
+    {
+      "library": "dart:collection",
+      "role": 2,
+      "source_blake3": "fe3e04b40ecd70867b634362ea61a9998d0fc5990f5a6053da2f4563915c134d"
+    },
+    {
+      "library": "dart:collection",
+      "role": 3,
+      "source_blake3": "8b5521690ecf895dfa5fc49026959d55b56782b6ca49af9d0cc8086c42cbd718"
+    },
+    {
+      "library": "dart:collection",
+      "role": 3,
+      "source_blake3": "c81d049770b244b6ff339c149608fb1260ed356c40f8ad4cd2578c652697320d"
+    },
+    {
+      "library": "dart:convert",
+      "role": 1,
+      "source_blake3": "0fc61f3abb45cf705f003a7a609c4e8e6ec0575fadc6a406fc8a89e26d0f948d"
+    },
+    {
+      "library": "dart:convert",
+      "role": 2,
+      "source_blake3": "33dd62c05d403b8fee2b0ee7dfc1c3ddee83224dd261803f06df2464a51fcc23"
+    },
+    {
+      "library": "dart:convert",
+      "role": 2,
+      "source_blake3": "44f5127af69c854902c7513a875fc2150f01d0a0ea6538db1cd210924eef6e3d"
+    },
+    {
+      "library": "dart:convert",
+      "role": 2,
+      "source_blake3": "575a2f64564e6d3d023736292fc76d9930edf5bcc8521dabbdb77b7298b18b43"
+    },
+    {
+      "library": "dart:convert",
+      "role": 2,
+      "source_blake3": "5ad483eb3c61e2719ebb9bf0fd70259914f4881a1e5b2f3926e9581150f3a0f2"
+    },
+    {
+      "library": "dart:convert",
+      "role": 2,
+      "source_blake3": "6a9a4e100ba6cc7fee2edc00cd11b6f8baaf63afdc4b7867578a4c45fe695976"
+    },
+    {
+      "library": "dart:convert",
+      "role": 2,
+      "source_blake3": "7c9af76e712783fa62bc8739d47ccc132c9adbe03c00b47516038caba73ebf14"
+    },
+    {
+      "library": "dart:convert",
+      "role": 2,
+      "source_blake3": "862518f021823edf0c24270bc8c976eaf7d5d198756f0ff15cc3919d0b196560"
+    },
+    {
+      "library": "dart:convert",
+      "role": 2,
+      "source_blake3": "92857a522657771c1077510e77ad1b27dae2ad5fb85361580bdf67f596cca334"
+    },
+    {
+      "library": "dart:convert",
+      "role": 2,
+      "source_blake3": "93ee4a71559c7c0c1d917eee3ce7d1e6c3cb637723570519aeac3364514c57ac"
+    },
+    {
+      "library": "dart:convert",
+      "role": 2,
+      "source_blake3": "9fa83a4b80c4f4c22bcc18bf5ff09732b813a11868e716f92e50847cf2553564"
+    },
+    {
+      "library": "dart:convert",
+      "role": 2,
+      "source_blake3": "c066a17f0a8e73cb42c5fda6fbb565df3006d00630ab4b49f94e7b5ec7a8bb80"
+    },
+    {
+      "library": "dart:convert",
+      "role": 2,
+      "source_blake3": "d37ce8c3cbf6f865450e6b110ace76ca1be86e0571a1e945d16c3e999ee4d30b"
+    },
+    {
+      "library": "dart:convert",
+      "role": 2,
+      "source_blake3": "da506fbae7084da1e2ba956a27d368908aa6d9b24fb52aac92a8e3727a994d01"
+    },
+    {
+      "library": "dart:convert",
+      "role": 3,
+      "source_blake3": "c676b55b88fcef18c1a7547f2940a47a1817d825bfde16948684e39e5fd3117a"
+    },
+    {
+      "library": "dart:core",
+      "role": 1,
+      "source_blake3": "772272c8c671b07342205c96b3ceb63a3bb83026de6301bbcc2ad9c1fd0c8f3c"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "0576f1defdbb2f7851277094d0925bfb041445f8f8da53452fc6d48b2812ab99"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "07a3cc39d844feb1da81896ced54824b9db6065a8908c7956d6c5925ce8b9a73"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "0927294a3b28f0ad3c703b927a571fe2bed652407b867dda78963e373c5a804e"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "1456cfb6ca201ba098b436db17f3e7891d95bb8a76034e9829224e9e20cc4f03"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "1acb62adeb37702b2b97520f5063ccbc09f8ddf3322d9c6b261019fe3f0094bf"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "2310fbb7fbb72ab0b718468cae18adee81c4fac48924d11bfc2489b7885020b4"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "26af4b04b8b7e960a3b419e614c3c828c36ca9e33c6f498ed7780c3f41ea53fd"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "26f053e45e2b7396386802628ed3a8783b9538c270d58a709a629829c7ccb3ed"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "37a13841229136e2ea581648e32b423e9ad3c14e814e2c49a9a10348d68b48b7"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "53a4d3cf8c0a57473c3d001295548bf95b697479bf70966f56ce0685fc1f9e74"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "591edda77b3d385b3add7c197d25211ffb9a15d25b9211a0dfb0b71f2c82025c"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "59b63188850807e0ad6765889bfc918669563009fe6f1e0eaa6d1103087f230f"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "5e12dc4940bd27a87552eabdd5d95d0298128a67852436594ee5f685c08fb876"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "6085dde24b60abeca50ee7eb8b82a7ee26256e31d2b4ec01fca4511843b3225e"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "61837392219217ed83b38959b813b8b345ec1bd0def58d6b63a4f0e03ef47b14"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "64e33ab102710cd3555cc95644a5f038d709cec7940977b2fb29cc0cf08690a6"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "6681b88d7db8390c35b4428d54208eb958bdefde757f0395fcadbfbe812d0187"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "6a81321f6d3965f969342efcafa5c42514eaba16718d91e33b37b25cebca7097"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "6e8fac5b16e61af704917fb982e18da2f2f13bb807d6e5bad3628b8508727d59"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "7e3f09e9e295bb4a655851aa2063858d9b8aaf2fb37389f94235cea97d446220"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "8e17e048ed7508979a351c89b555ccc709ea27c47612186c876e676ba099cc71"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "8e22a8c0ac1d778c134cbcfe32c939568cf4eb81b3272cc688ab1741e3352e3c"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "918c01ad7edf931ca92f4e99d5ff519d66d4084251bed831b167e8d829e2abc4"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "9470d66d219090dc7e0fd72ff96e3919322259f005ce5155c356171c8c288bd1"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "94be465d2d7c57dcebeef47b128124c53ffcb80d336b977e1ef76b32d132a896"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "98be4c3fdb58a1b1bfeaaa1950f503e1578edbdafe53c5cc86783718cd204470"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "a1cf7a7ccf15495ad569ad9f73ca126feab43cac683938142ebd7f4bfbd3e234"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "a6db8cab4f461e361a31db0a9b46e8c436e492292c64ac933f942ef261bd70db"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "b6d3d046a26b12f529b2b136f60204e7594f58271f2fab327ba3f90efb9bf15c"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "c6783966a8244c5a125a86508053c3c3f08e82697958cff1de56619d0bb5c83e"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "ca1cf3e39da8273cb009f5f24f25c193927d8a07ea1ffd954ea4ba3ecd909aca"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "d0107770b39f6633f24ca6478226d11d485d1d91f98a9078133fbe87ee663f17"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "de17a0a349b5edd0118eed1d6e4b9762cf77290cccabf5b8b0d1f82418f97715"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "f3e1601563f2698a3dfcda155ed5dfed1ca949d36bf879a217cb391f5233cd39"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "f56dad31d3853872532667da05c2dc5052d1aa4c38316de7b695e6d3cac08d76"
+    },
+    {
+      "library": "dart:core",
+      "role": 2,
+      "source_blake3": "fb474c7cf01a5c6e5fc2e421bd5ac38f9e866464ff3251acb86c9291786caf52"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "1519d0b2643040cc6cdbf0acc66bd23888751029fa4198cf5b0cc643583d6a3c"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "1744bf9c1bc1e041f2369c946d93a6d45a548881bf4729bd6b4ce2462d2a5328"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "1a1a24dbacf20f3f65e61b11f8fb3ab6dd82f7cc48d33b8e5286c6802e31ff23"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "1d8195e40efcd5f61e6a1d843549abf3d8e1568ded84ab8da0321dbe075aeaaf"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "301080aa6de1fe5191a55a04dfa614e38e7a34b9bc8361c2d474b7982bb734cc"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "535c8921be2f6b90db983fb28c83c42669b06de8aa547c4ab76e42e2a81d8d71"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "5d4ab31adbbd57ccbad30b6e179a219bf7aba52280772171d8d7083f0368b611"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "6365f0390b9d8bfcc12abd28dba457516ca8dc4f814ed0d32f69d3d71abca1c2"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "6657704d1ea7b26f1c2c94bf3abe5904003ab0d8c36ac65c01fe5ef851baf4df"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "6968658504d5d968c06605219768fcc085972fabd2b3e6986bce03a00a48d732"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "6cbfb2b7387add05998645a2d7a1213e9e9da17c1c87578e26edc79ac0fb16df"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "7a187d91b56d05a49eb21e75475b7971e6c11017ff9f9211325e9343dcf72ae6"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "7f267047050bf68a90733e8fa56c95cf1a67d51fcea10e0c333ff481dd8ad787"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "86586044fd3e7212c6e7d3d411d61af8850c008a2710fbe07717f3f023969fb5"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "986d77a76e20a262ab1050a4e6ca44824e83e8e2ba7623e3318034dbffd07e86"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "9d63e0f2b21d2a7bee264fdbb2c8c6430b66b7e2ea3a28f3c519a381a9e2131c"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "a1eaa1562080a89add26249bf1b9af9b65ce6a89882c20bf2e58749bec913d9d"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "a7522c9a0c83f8cf4ea491244b2e63842234c923737b909e88d346064684e934"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "ae12039b733ea52074a82a712c2c980234863fb8ba79c0da335c3205bc17dc37"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "bd895051886139bfd14a6a313faf91c996573bfa1838d67184554f0aefdf65c2"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "c45afafbd8ff1c3a95abf7a8d14e53c9c161c08294b5ccb0d726c1823f81018e"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "c4af8b95cefc29c5ebf712203b48aab15f895e1a267de0085106404b02f55cab"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "c603aa8e85c7b65f61ae531463da1d65bd8d0f5c50d83fdc88f9f5856a7fd70e"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "c652bb0ceb2989ba900424547856aae4971c84961816534eb52765faaa3e8412"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "cc2c7df8bf73c0e7b76f8616a12823d6cfb231d64bd26e79c093c6293a2b2362"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "d030494ff0dd6ea053443b0ce784306640cf22edac2e39ff2b20a00f4a1dcbf6"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "d2fb8e08c9e64942ffd91a1c5d19ac519f3d74454f2bbbb8e636ded2d2d01072"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "d844cda02c6617f18de75ad6f036b2bfa5f7ba288dcb9c7eaec26e0c64339e3c"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "e25d22da27244168d0bbb851eea66dd433884bbb94ef0f13be6a06d3e3119173"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "e3ac36d1fb9e01e5f700a44641327c6c2a0f6929c70ab3bd4001e7eebfc14ad6"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "ed48fad24dd9dd7e73c0fbeefb92e06a749ac80e38772579dd4ac5849b4ec7d5"
+    },
+    {
+      "library": "dart:developer",
+      "role": 1,
+      "source_blake3": "5e70bc7063574dd451e265def353eccc7f0078b016fc843d6c2190e9627b0069"
+    },
+    {
+      "library": "dart:developer",
+      "role": 2,
+      "source_blake3": "2d65a9b0128b4f107f131bf49d4d03af7b12fb3ce62a40fd7f645ed89c440b04"
+    },
+    {
+      "library": "dart:developer",
+      "role": 2,
+      "source_blake3": "3cafc99028a78aebd2d3d05d6c2792951abb225dadc73ee24a1fefb540356b0f"
+    },
+    {
+      "library": "dart:developer",
+      "role": 2,
+      "source_blake3": "50e3aa9b746f45b39f2f377c00a030b99a294945042a56c7c411422cd2f2b479"
+    },
+    {
+      "library": "dart:developer",
+      "role": 2,
+      "source_blake3": "896d2dafffe10411bea8b1de60a2e182652d93c0b07bb95b4167cd5807cc15f0"
+    },
+    {
+      "library": "dart:developer",
+      "role": 2,
+      "source_blake3": "901ef82358f07f186cd756ffaa0d7558d878a1b9383ab8e6b400fc9180e34c59"
+    },
+    {
+      "library": "dart:developer",
+      "role": 3,
+      "source_blake3": "1c0fc0f27c9a23ccaf028b837fc68000c13d66a5751f775112df63e1b31c8d52"
+    },
+    {
+      "library": "dart:developer",
+      "role": 3,
+      "source_blake3": "a51b20c8db1e760e7b7a4bf85ae0d69e50e0196a621907c30e26ab9ce9c4d151"
+    },
+    {
+      "library": "dart:developer",
+      "role": 3,
+      "source_blake3": "f18da054fc2dd27f0e6e2510aae8b88dfc3d8230796f29fcad6e2a119749b9a1"
+    },
+    {
+      "library": "dart:ffi",
+      "role": 1,
+      "source_blake3": "4edee4594f97a9740938b4433a247934a9d855901f8331f2ff3d78fe2108f936"
+    },
+    {
+      "library": "dart:ffi",
+      "role": 2,
+      "source_blake3": "1b885e7bf0425e601de42ca4aae3bfba5145cbcfdf08e8ce0693012a2978d100"
+    },
+    {
+      "library": "dart:ffi",
+      "role": 2,
+      "source_blake3": "2efee8f8de0ebad95091011f1a4b0e22d27e7e9f87563fab51523b9cf0e95481"
+    },
+    {
+      "library": "dart:ffi",
+      "role": 2,
+      "source_blake3": "3de8c0950d1405e8869b20b00a8f42ffca8b33691785d11b92d74f6f28b55839"
+    },
+    {
+      "library": "dart:ffi",
+      "role": 2,
+      "source_blake3": "43bad10915a165a6bd24da44c352d971a49f00470ba93be1ac3d14abc49dfb62"
+    },
+    {
+      "library": "dart:ffi",
+      "role": 2,
+      "source_blake3": "6e9e42a4cf320ac3a8b91f929adb0108ce9c1f38126371033bc6f29fd384c6d8"
+    },
+    {
+      "library": "dart:ffi",
+      "role": 2,
+      "source_blake3": "7b3d8c68657ed0b2c377a73b1f7c290fdfe5c8757d2547858e1562ce6195eff5"
+    },
+    {
+      "library": "dart:ffi",
+      "role": 2,
+      "source_blake3": "c3a7821ac93549f0d669512988af46dc5562b191aa6542786e38ba739a320fd4"
+    },
+    {
+      "library": "dart:ffi",
+      "role": 2,
+      "source_blake3": "cd38fe40eced98025cafc4a4472aad5b3a1e016b4facb9a43eabba6ffd381184"
+    },
+    {
+      "library": "dart:ffi",
+      "role": 2,
+      "source_blake3": "ecd9e8237e6a2d43246736b4484e5d8287fde209e4a96751354b9cbaefaa57cb"
+    },
+    {
+      "library": "dart:ffi",
+      "role": 2,
+      "source_blake3": "fe0fc3ca39eca07ec5abc22791dfa01e35de150f74cb2cbc0135ccd89063dd42"
+    },
+    {
+      "library": "dart:ffi",
+      "role": 3,
+      "source_blake3": "a54b3a9a829578f25bb6c08d96437dd7697202cb5bac412ce8e4d37a93df40c4"
+    },
+    {
+      "library": "dart:ffi",
+      "role": 3,
+      "source_blake3": "a920228dfa9c6394d0bb8f16f13e43eb0a5200042bc64d9ec464345d5efe64d1"
+    },
+    {
+      "library": "dart:ffi",
+      "role": 3,
+      "source_blake3": "d407d6e2e3ab638b2275285730d254b80cbefb8dc8a46cb508514fd8cd32d135"
+    },
+    {
+      "library": "dart:ffi",
+      "role": 3,
+      "source_blake3": "e20156b696de9839e10bc68e2b8b298b47d4a94e05a890bbc1e16427833bf282"
+    },
+    {
+      "library": "dart:ffi",
+      "role": 3,
+      "source_blake3": "e6f4a42ef36d2b266bec0f45d40d3931ed0fdd31c8440ca2d9ea7f563272e720"
+    },
+    {
+      "library": "dart:ffi",
+      "role": 3,
+      "source_blake3": "fdde8408bb645ff427f2bd1c6eb0740087a8a20ce8c7a057865da781f5119d9f"
+    },
+    {
+      "library": "dart:io",
+      "role": 1,
+      "source_blake3": "bac85876e271f10813527bac64d01b8036a542e170c1c6e435821b228ec1e54b"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "03b683914c4ec46229722a72becdc16d6268c19775eb5b4631011ab0235ac860"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "0936f147fb88538b00bf2f23c81f53a6bef074fa3db161d16f8dc7e75dd2e71b"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "0c33c3656da4d84e11e32972dc4d740b0af1a704710df95855fadb5257b53cda"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "132780da85a36c30db56d58d1ca00ce6e80ac244b381326f68245d936fd0511f"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "18c65b9b7da87ea14aa15acbde778acffc06659a0ef317e935e8470008d72a61"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "1a0bfb561a99c313084e16b6f6700bf89491a409bb2f500b7304820f64415287"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "200603cb47bedf76f6a74d9bb6a5cbfec3a5e7fef78391a1567a8e79fa747b82"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "23a4f49dc2057151e56f2b0f7cd82791382d1ef1619d897f5699fb26de6b0abb"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "3395c0669ac734315828597a98906ff3d0275ab44ef9f7766b3a61992477f243"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "46fefd4458c5f042fdaaa4ca8aab5fff93a4c776073a0adecf62be3e872846ce"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "521deed842ea24aab529bd479191fa324a0ad59c416d486f6a8d9b636a8fd9f9"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "53d3bcb5f65a015d144d39001367c61afcb7d07ee084fc1654fd18784ce2a840"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "56a8a6a96f6c87c6358b8d40caff2612eb06c93d72217ecd78ec1a9be1dd419e"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "6b39fa5478163fce252012609c9c04a3106f1614411b13abfb8333659b05db94"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "7a8ee15b0c94fcd5a39a467147962b543f7b7cd5de6e2103bbf5018297c18df2"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "9cf124dbd046b8e15dee10310e404b62c895d12a955c0cfec076ed01c103c668"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "a02a7b63f51a501f701ab814553c49ea22797ca215da051c65182645c12895c0"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "af1137523c2bb339aad60465359204895dd887783c9f2b591f78e9a49d03594f"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "b028e8774a8a9f58db7412563a7b8dc927a5b00f056913d34ae0df9adf21c235"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "b68118881f7db6c19f45adc3a49a81ec43cbd8bc4c4dec359359c94200807c79"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "bf97dfd6899851c0c41f7b77e1fd549aee4c19c6eaf2401d6db9a9b460413ac6"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "cb0696eecdb773150fec2cc9f4402f25152a22f8b43d0cb93514409863d11843"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "e30178589e65bfde299898f69aa41508e79d5bf8fae5f775a1f5a1db7315683a"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "ec0f7fac829ef85c26e561af7244b01a8ef2d0a3d4f39bbbe43f9094c79a74c2"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "eeb54db8154b8d309fa398b9b4d7a9f8f01329d16d9a6a483c5f429c983744fc"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "f16c6c48c5670e69e0692e59b3ae163aa0b30d57c6d6c11f6aba19e71d210ec1"
+    },
+    {
+      "library": "dart:io",
+      "role": 2,
+      "source_blake3": "f6d4d0378a7f872913b8c1124b183f33422f64fad5b5ccd5300d4decedd7cfde"
+    },
+    {
+      "library": "dart:io",
+      "role": 3,
+      "source_blake3": "2ca2ed18757826fa76e5eb4ca1d15b77a31131c7ad03e498b420c00b70567996"
+    },
+    {
+      "library": "dart:io",
+      "role": 3,
+      "source_blake3": "2f40b081adb7652975aa80c1b89f4e706f1e98f24703cb4a96b1d48def8e6cba"
+    },
+    {
+      "library": "dart:io",
+      "role": 3,
+      "source_blake3": "330de0d7691a5ff6c8bd7e52c1814e0abc3355bc009e0d4dcc77528419c48e7c"
+    },
+    {
+      "library": "dart:io",
+      "role": 3,
+      "source_blake3": "36670208fd7697a3e4c2f5d37e256802e2dc689eb116f3da2dd2127077772381"
+    },
+    {
+      "library": "dart:io",
+      "role": 3,
+      "source_blake3": "528dc5e08da8efa2be08a825773384e2d3f98283224a63076fc0099740a5015d"
+    },
+    {
+      "library": "dart:io",
+      "role": 3,
+      "source_blake3": "6483ac3b41dd3e4080242860c55d458580f4cc7ba82c239b5c72012e8f0aff04"
+    },
+    {
+      "library": "dart:io",
+      "role": 3,
+      "source_blake3": "6558fde4e5376adbcb4a479625305bf17d889f0ae32038a1dbd83f7a3dc403ed"
+    },
+    {
+      "library": "dart:io",
+      "role": 3,
+      "source_blake3": "9aab3011e0938b7ff3cbb295ea570e4602d6ffb73ef5a441758cd19454192ad2"
+    },
+    {
+      "library": "dart:io",
+      "role": 3,
+      "source_blake3": "9c80739309e698ae62902dbfa600d9891fde6a04c7962b454c3e1628f938495f"
+    },
+    {
+      "library": "dart:io",
+      "role": 3,
+      "source_blake3": "e207aae00e73e2201cf5637de230f069b743b7ea68f54167e7a1e7458073501f"
+    },
+    {
+      "library": "dart:io",
+      "role": 3,
+      "source_blake3": "e2a49d37437991d861c2438a8fb6afe2d2de8c28e2828f11714b435c7b700d6e"
+    },
+    {
+      "library": "dart:io",
+      "role": 3,
+      "source_blake3": "e98575b3f7c20c93120e45b6fd8d33f9965b02ea9dfdd2581d1a5617f5131134"
+    },
+    {
+      "library": "dart:io",
+      "role": 3,
+      "source_blake3": "eacb651ea334e232452778e6e1185e8aa2ec3fe1109b00aa7f4ee5a37e6ee88e"
+    },
+    {
+      "library": "dart:io",
+      "role": 3,
+      "source_blake3": "ed26cab23380ee218df6e6d3f356db95d18feb11b0d898ae30a03354d943d117"
+    },
+    {
+      "library": "dart:isolate",
+      "role": 1,
+      "source_blake3": "4784bd2db88063cf25afbd6f1807ebe80a35f4282bd33641badbe5623d8b158d"
+    },
+    {
+      "library": "dart:isolate",
+      "role": 2,
+      "source_blake3": "c6730caf88ca0bbf9ec3c1d3bd98a9024ced4992d0b06348b6d82605edd5c956"
+    },
+    {
+      "library": "dart:isolate",
+      "role": 3,
+      "source_blake3": "36d8217678572b72478303ce1e1120e966147091b180e897583cc75792315508"
+    },
+    {
+      "library": "dart:math",
+      "role": 1,
+      "source_blake3": "fb206325e3e0d879e9f1be91c4cfa7846983073a512ec224e6c2b4b56731ccbd"
+    },
+    {
+      "library": "dart:math",
+      "role": 2,
+      "source_blake3": "1e782f3035e0d69660f7f7056941095939ff5447c81b0fd2d112126a7ae189d2"
+    },
+    {
+      "library": "dart:math",
+      "role": 2,
+      "source_blake3": "49c9607f112d79feefe7cc8c32d9632c5fa9841adbca7f45421844322f6d94df"
+    },
+    {
+      "library": "dart:math",
+      "role": 2,
+      "source_blake3": "a0505421e2eccb20dc41fd6bc371b31c2fcff8fe5f2639439d980a51479d83e8"
+    },
+    {
+      "library": "dart:math",
+      "role": 3,
+      "source_blake3": "5f8dceda83cd4a45504278528abce0e620c73cf98b6d4b6ce4c0564b4b9592c5"
+    },
+    {
+      "library": "dart:mirrors",
+      "role": 1,
+      "source_blake3": "7137dcca1b403048f8117498c34742e731826a86564861dabe7d97fcd47372b9"
+    },
+    {
+      "library": "dart:mirrors",
+      "role": 3,
+      "source_blake3": "68e3b1f2719bfc3496d411e8d2bf8fa0a8663d098fda2777b8ed90e87da478e7"
+    },
+    {
+      "library": "dart:nativewrappers",
+      "role": 1,
+      "source_blake3": "f02fbbb86130723f69498ac54c1d19341b31eb2842636653dac33d86976e502d"
+    },
+    {
+      "library": "dart:typed_data",
+      "role": 1,
+      "source_blake3": "1082c0b7f247a3dc6fd8d54eb091087c9e434f002d79d3f3be2b8b2364093b8f"
+    },
+    {
+      "library": "dart:typed_data",
+      "role": 3,
+      "source_blake3": "66ec90c01e321088bbd365180373a8b23954099bf1d0ab1972f4c783e292d4c9"
+    }
+  ]
+}

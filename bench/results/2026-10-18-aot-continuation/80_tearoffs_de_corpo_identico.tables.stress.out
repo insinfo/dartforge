@@ -1,0 +1,23 @@
+soma1/soma1: == true, identical true, hash igual
+soma1/soma1b: false
+soma1/soma1c: false
+soma1b/soma1c: false
+nome/nomeb: false
+nada/nadab: false
+identical soma1/soma1b: false
+dobro/dobro: == true, identical true, hash igual
+dobro/dobrob: false
+A.soma1/soma1: false
+A.soma1/soma1b: false
+a.m/a.m: == true, identical false, hash igual
+a.m/a.mb: false
+a.m/a2.m: false
+a.m/b.m: false
+ext mais/maisb: false 6 6
+tabela: 6 soma1 soma1b soma1c A.soma1 dobrob
+conjunto: 10
+unicas: 6 11,11,11,11,20,20
+indexOf: 1 5 6
+const: true false false
+const lista: false false true
+chamadas: 2 3 4 8 10 4 5 v:1 v:2

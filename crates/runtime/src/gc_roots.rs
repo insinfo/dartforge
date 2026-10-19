@@ -37,7 +37,10 @@ pub extern "C" fn dartforge_context() -> *const crate::heap::Context {
 /// The first `dartforge_context` of each thread also puts the address of the
 /// context in the `pthread` key slot that the production prologue reads directly
 /// (`heap::dartforge_context_slot`). The key is created once per process; the slot
-/// offset is published only after the key exists.
+/// offset is published only after the key exists. The prologue reads the slot
+/// without a null check (`sdk_module::context_in_tsd`), so the runtime calls
+/// `dartforge_context` before any generated code of a thread (`dartforge_init`,
+/// `run_isolate`) and a thread that cannot publish its context is fatal here.
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[allow(unsafe_code)]
 fn publish_in_tsd(c: &crate::heap::Context) {
@@ -52,14 +55,29 @@ fn publish_in_tsd(c: &crate::heap::Context) {
         // SAFETY: a local `pthread_key_t` (`unsigned long` on Darwin), no destructor.
         (unsafe { pthread_key_create(&mut key, None) } == 0).then_some(key)
     });
-    // Without a key (the process ran out of them), the slot offset stays 0 and the
-    // prologue always calls `dartforge_context`.
-    let Some(key) = key else { return };
+    // Without a key (the process ran out of them: 512 per process on Darwin) a
+    // prologue would read slot 0 (`pthread_self`) as the context; without the
+    // slot value it would read null. Neither happens in practice; both abort,
+    // before any Dart code of the thread.
+    let Some(key) = key else {
+        fatal_context("pthread_key_create failed: no thread-specific key left for the Dart context");
+    };
     // SAFETY: the key exists; the value is the address of this thread's context,
     // which does not change while the thread lives.
-    if unsafe { pthread_setspecific(key, c) } == 0 {
-        crate::heap::dartforge_context_slot.store(key * 8, Ordering::Release);
+    if unsafe { pthread_setspecific(key, c) } != 0 {
+        fatal_context("pthread_setspecific failed: the Dart context of this thread could not be published");
     }
+    crate::heap::dartforge_context_slot.store(key * 8, Ordering::Release);
+}
+
+/// Ends the process with `message` on stderr: the context of this thread could
+/// not be published for the generated prologue ([`publish_in_tsd`]).
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+fn fatal_context(message: &str) -> ! {
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
+    let _ = writeln!(std::io::stderr().lock(), "error: {message}");
+    std::process::abort()
 }
 
 /// Slack between the limit that generated code checks and the end of the thread's

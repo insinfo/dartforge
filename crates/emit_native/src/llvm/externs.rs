@@ -808,6 +808,15 @@ pub const EXTERNS: &[Extern] = &[
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
+        // The allocation with the static reference map (`emit_inline_allocation`).
+        decl: "declare i64 @dartforge_object_new_m(i64, i64, i64)",
+        effects: ALLOCATES_WITHOUT_THROWING,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_object_new_mt(i64, i64, i64, ptr)",
+        effects: ALLOCATES_WITHOUT_THROWING,
+    },
+    Extern {
         decl: "declare void @dartforge_register_table(i64, ptr)",
         effects: CONSERVATIVE,
     },

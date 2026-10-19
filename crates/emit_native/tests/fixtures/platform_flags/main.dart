@@ -41,3 +41,7 @@ void main() {
   print(conditionalReceiver(true));
   print(effects);
 }
+
+String operatingSystemName() => io.Platform.operatingSystem;
+String pathSeparator() => io.Platform.pathSeparator;
+String lineTerminator() => io.Platform.lineTerminator;
