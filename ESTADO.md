@@ -3,6 +3,20 @@
 ## Atualização de 19/10/2026
 
 
+- A reconciliação do inventário SDK informa agora o limite rejeitado: contagem
+  ou repetição de módulo, snapshot divergente, colisão de símbolo, CID inválido
+  ou colisão de classe. Nenhuma condição de admissão foi relaxada. O teste real
+  de produção identifica `dart:_internal`, classe nominal 0, em colisão com a
+  imagem local; o lowering insere o `Object` sintético 0 como pai universal.
+  Unificar essa identidade exige prova própria e continua pendente. Passaram
+  836 testes nativos e 10 de inventário antes do ajuste cosmético final da
+  mensagem; o teste dirigido final passou no código definitivo. Clippy/docs
+  estritos passam; fmt global e aprovação integral do workspace seguem pendentes.
+  A poda de backend ainda falha, preservando registro amplo. Não houve nova
+  execução nas VMs, medição de desempenho ou redução comprovada do explorador.
+  Evidências: `bench/results/2026-10-19-inventory-reconciliation/README.md`.
+
+
 - As funções internas geradas usam agora `df.prepare_rti` e `df.call_dart0`,
   separadas do namespace nativo reservado. O contrato fica em `dartforge-abi` e
   participa do fingerprint do cache do SDK. A recarga aceita o inicializador

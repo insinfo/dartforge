@@ -366,48 +366,92 @@ impl Inventory {
     }
 
     /// Reconcile with the actual graph inputs; never trust a stale path-only memo.
+    /// The error identifies the rejected boundary without granting partial facts.
     pub(crate) fn reconcile(
         &self,
         sdk: &[&Summary],
         local: &HashSet<String>,
         class_ids: &HashSet<u32>,
-    ) -> bool {
-        if sdk.len() != self.summaries.len()
-            || sdk
-                .iter()
-                .map(|s| s.module.as_str())
-                .collect::<HashSet<_>>()
-                .len()
-                != sdk.len()
-            || sdk
-                .iter()
-                .any(|s| !self.summaries.iter().any(|expected| expected == *s))
-        {
-            return false;
+    ) -> Result<(), String> {
+        if sdk.len() != self.summaries.len() {
+            return Err(format!(
+                "module count differs: selected {}, inventory {}",
+                sdk.len(),
+                self.summaries.len()
+            ));
+        }
+        let mut modules = HashSet::new();
+        for summary in sdk {
+            if !modules.insert(summary.module.as_str()) {
+                return Err(format!(
+                    "module {} is selected more than once",
+                    summary.module
+                ));
+            }
+        }
+        for summary in sdk {
+            if !self.summaries.iter().any(|expected| expected == *summary) {
+                return Err(format!(
+                    "module {} differs from the verified snapshot",
+                    summary.module
+                ));
+            }
         }
         let runtime: HashSet<_> = crate::llvm::externs::EXTERNS
             .iter()
             .map(|e| e.name())
             .collect();
-        if self
+        // Choose the first rejected name lexically, independent of hash order.
+        if let Some(name) = self
             .definitions
             .iter()
             .filter(|name| !name.contains('#'))
-            .any(|name| {
-                local.contains(name) || runtime.contains(name.as_str()) || name.starts_with("llvm.")
+            .filter(|name| {
+                local.contains(*name)
+                    || runtime.contains(name.as_str())
+                    || name.starts_with("llvm.")
             })
+            .min()
         {
-            return false;
+            let owner = if local.contains(name) {
+                "local image"
+            } else if runtime.contains(name.as_str()) {
+                "native runtime"
+            } else {
+                "LLVM intrinsic namespace"
+            };
+            return Err(format!("SDK definition {name} overlaps the {owner}"));
         }
-        sdk.iter().all(|s| {
-            s.tables
+        for summary in sdk {
+            for (kind, cid) in summary
+                .tables
                 .iter()
-                .all(|table| u32::try_from(table.cid).is_ok_and(|cid| !class_ids.contains(&cid)))
-                && s.nominal_classes
-                    .iter()
-                    .chain(&s.ambiguous_classes)
-                    .all(|cid| u32::try_from(*cid).is_ok_and(|cid| !class_ids.contains(&cid)))
-        })
+                .map(|table| ("table", table.cid))
+                .chain(
+                    summary
+                        .nominal_classes
+                        .iter()
+                        .map(|cid| ("nominal class", *cid)),
+                )
+                .chain(
+                    summary
+                        .ambiguous_classes
+                        .iter()
+                        .map(|cid| ("ambiguous class", *cid)),
+                )
+            {
+                let valid = u32::try_from(cid).map_err(|_| {
+                    format!("SDK {} {kind} has invalid class id {cid}", summary.module)
+                })?;
+                if class_ids.contains(&valid) {
+                    return Err(format!(
+                        "SDK {} {kind} {cid} overlaps a local class",
+                        summary.module
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
     /// Identity only: the table must come from this verified SDK snapshot.
     /// Reachable table bodies and allocations still need independent coverage.

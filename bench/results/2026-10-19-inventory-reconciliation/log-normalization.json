@@ -1,0 +1,18 @@
+{
+  "final-wording.log": {
+    "original_sha256": "08f6988de144744b7ca86efc9476c98755de6cc956347fbf388088122fa616d7",
+    "stored_sha256": "03e5afc807b37381527a94ab8c629fd402ac2ad32b3ef46a9b27f940ec7ece80"
+  },
+  "inventory-before-wording.log": {
+    "original_sha256": "a56bae20bc1f91dfe44f2a662c14e9b3663923cae7dbf3bb501c4351d68b9647",
+    "stored_sha256": "e2094cbae816ff7d2750788adbf74e1eb074d47c6bd84168c937b273bdaa5d03"
+  },
+  "native-before-wording.log": {
+    "original_sha256": "07ba9c9dd4898cf73823a682a903c194ef1f8d38c07319868451582fbc97e45f",
+    "stored_sha256": "d5a816e984f4eafac3005d01f866745a0a79d30716e782dbb37736f5e8fd8e5d"
+  },
+  "fmt-excerpt.log": {
+    "original_sha256": "2e9457f4b6980ab983804665a05e5e7a0af22ca645e1159ee599e35fc24f4e94",
+    "stored_sha256": "2e69de2bbe49721a18d9977e626c13b6ca838ab1d1cd091da7130666d951eedf"
+  }
+}

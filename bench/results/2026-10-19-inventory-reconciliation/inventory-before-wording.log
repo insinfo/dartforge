@@ -1,0 +1,18 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.64s
+     Running unittests src/lib.rs (target/impl-a/debug/deps/dartforge_emit_native-845e7f740af4002d)
+
+running 10 tests
+test pruning::allocation_inventory::imports::tables::tests::declaration_identity_requires_unique_cid_symbols_and_exact_virtual_body ... ok
+test pruning::allocation_inventory::imports::tests::verified_scalar_closure_requires_its_actual_abi_and_graph_snapshot ... ok
+test pruning::allocation_inventory::imports::tests::runtime_key_profile_and_manifest_bind_the_snapshot ... ok
+test pruning::allocation_inventory::imports::tests::reconciliation_reports_the_rejected_snapshot_symbol_or_class_boundary ... ok
+test pruning::allocation_inventory::imports::tests::local_native_bytes_are_distinct_from_managed_or_public_images ... ok
+test pruning::allocation_inventory::imports::tests::private_dependencies_and_recursive_scalar_components_are_checked ... ok
+test pruning::allocation_inventory::imports::tests::weak_or_ambiguous_definitions_and_runtime_interposition_are_not_authorized ... ok
+test pruning::allocation_inventory::imports::tests::allocation_coverage_does_not_imply_exposure_coverage ... ok
+test pruning::allocation_inventory::imports::tests::inconsistent_graph_claims_do_not_become_facts_even_with_a_matching_marker ... ok
+test pruning::allocation_inventory::imports::tests::actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup has been running for over 60 seconds
+test pruning::allocation_inventory::imports::tests::actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 826 filtered out; finished in 122.52s

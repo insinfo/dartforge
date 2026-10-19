@@ -35,15 +35,27 @@ fn verified_scalar_closure_requires_its_actual_abi_and_graph_snapshot() {
     assert!(!inventory.call(LEAF, &[], Type::I64));
     assert!(!inventory.call(LEAF, &[Type::F64], Type::I64));
     let summary = crate::pruning::summarize(&ir, MODULE, &[]);
-    assert!(inventory.reconcile(&[&summary], &HashSet::new(), &HashSet::new()));
+    assert!(
+        inventory
+            .reconcile(&[&summary], &HashSet::new(), &HashSet::new())
+            .is_ok()
+    );
     let mut changed = summary.clone();
     changed.definitions[0].refs.push(0);
-    assert!(!inventory.reconcile(&[&changed], &HashSet::new(), &HashSet::new()));
-    assert!(!inventory.reconcile(
-        &[&summary],
-        &HashSet::from([LEAF.to_string()]),
-        &HashSet::new()
-    ));
+    assert!(
+        inventory
+            .reconcile(&[&changed], &HashSet::new(), &HashSet::new())
+            .is_err()
+    );
+    assert!(
+        inventory
+            .reconcile(
+                &[&summary],
+                &HashSet::from([LEAF.to_string()]),
+                &HashSet::new()
+            )
+            .is_err()
+    );
     std::fs::write(dir.path().join("test.o"), b"changed object").unwrap();
     assert!(Inventory::load(dir.path(), "test-key", true, &names, &runtime).is_none());
 }
@@ -171,7 +183,10 @@ fn weak_or_ambiguous_definitions_and_runtime_interposition_are_not_authorized() 
     let (dir, names, runtime) = fixtures(&ir);
     let i = Inventory::load(dir.path(), "test-key", true, &names, &runtime).unwrap();
     let summary = crate::pruning::summarize(&ir, MODULE, &[]);
-    assert!(!i.reconcile(&[&summary], &HashSet::new(), &HashSet::new()));
+    assert!(
+        i.reconcile(&[&summary], &HashSet::new(), &HashSet::new())
+            .is_err()
+    );
 }
 
 #[test]
@@ -221,7 +236,11 @@ fn actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup() {
         .expect("selected SDK inventory must be readable");
     let summaries = crate::pruning::read_summaries(&sdk.summaries).unwrap();
     let refs: Vec<_> = summaries.iter().map(|s| s.as_ref()).collect();
-    assert!(inventory.reconcile(&refs, &HashSet::new(), &HashSet::new()));
+    assert!(
+        inventory
+            .reconcile(&refs, &HashSet::new(), &HashSet::new())
+            .is_ok()
+    );
     let (unique, known, pure) = inventory.counts();
     assert!(unique > 0 && known > 0 && pure > 0);
     let declarations = inventory.table_declarations.len();
@@ -245,4 +264,100 @@ fn actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup() {
         "{}",
         serde_json::json!({"key":sdk.key,"unique_definitions":unique,"allocation_closures":known,"reviewed_empty_closures":pure,"startup_complete":false,"table_declarations":declarations})
     );
+}
+
+#[test]
+fn reconciliation_reports_the_rejected_snapshot_symbol_or_class_boundary() {
+    let ir = format!("define i64 @{LEAF}() {{\n ret i64 1\n}}\n");
+    let (dir, names, runtime) = fixtures(&ir);
+    let inventory = Inventory::load(dir.path(), "test-key", true, &names, &runtime).unwrap();
+    let summary = crate::pruning::summarize(&ir, MODULE, &[]);
+    let empty = HashSet::new();
+    assert_eq!(
+        inventory
+            .reconcile(&[], &empty, &HashSet::new())
+            .unwrap_err(),
+        "module count differs: selected 0, inventory 1"
+    );
+    let mut duplicate = inventory.clone();
+    duplicate.summaries.push(summary.clone());
+    assert_eq!(
+        duplicate
+            .reconcile(&[&summary, &summary], &empty, &HashSet::new())
+            .unwrap_err(),
+        "module dart:test is selected more than once"
+    );
+    let mut changed = summary.clone();
+    changed.definitions[0].refs.push(0);
+    assert_eq!(
+        inventory
+            .reconcile(&[&changed], &empty, &HashSet::new())
+            .unwrap_err(),
+        "module dart:test differs from the verified snapshot"
+    );
+    assert_eq!(
+        inventory
+            .reconcile(&[&summary], &HashSet::from([LEAF.into()]), &HashSet::new())
+            .unwrap_err(),
+        format!("SDK definition {LEAF} overlaps the local image")
+    );
+    for (symbol, owner) in [
+        ("dartforge_object_get", "native runtime"),
+        ("llvm.unreviewed", "LLVM intrinsic namespace"),
+    ] {
+        let mut reserved = inventory.clone();
+        reserved.definitions.insert(symbol.into());
+        assert_eq!(
+            reserved
+                .reconcile(&[&summary], &empty, &HashSet::new())
+                .unwrap_err(),
+            format!("SDK definition {symbol} overlaps the {owner}")
+        );
+    }
+    for kind in ["table", "nominal class", "ambiguous class"] {
+        for cid in [7, -1, i64::from(u32::MAX) + 1] {
+            let mut selected = summary.clone();
+            match kind {
+                "table" => selected.tables.push(crate::pruning::SummarizedTable {
+                    node: 0,
+                    cid,
+                    pairs: vec![],
+                }),
+                "nominal class" => selected.nominal_classes.push(cid),
+                _ => selected.ambiguous_classes.push(cid),
+            }
+            let mut bound = inventory.clone();
+            bound.summaries = vec![selected.clone()];
+            let reason = bound
+                .reconcile(&[&selected], &empty, &HashSet::from([7]))
+                .unwrap_err();
+            assert_eq!(
+                reason,
+                if cid == 7 {
+                    format!("SDK dart:test {kind} 7 overlaps a local class")
+                } else {
+                    format!("SDK dart:test {kind} has invalid class id {cid}")
+                }
+            );
+            if cid == 7 {
+                assert!(
+                    bound
+                        .reconcile(&[&selected], &empty, &HashSet::from([8]))
+                        .is_ok()
+                );
+            }
+        }
+    }
+    let mut deterministic = inventory.clone();
+    deterministic
+        .definitions
+        .extend(["llvm.z".into(), "llvm.a".into()]);
+    for _ in 0..8 {
+        assert_eq!(
+            deterministic
+                .reconcile(&[&summary], &empty, &HashSet::new())
+                .unwrap_err(),
+            "SDK definition llvm.a overlaps the LLVM intrinsic namespace"
+        );
+    }
 }
