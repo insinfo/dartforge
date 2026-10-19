@@ -897,6 +897,46 @@ fn local_calls_retain_their_transitive_allocations_and_runtime_abi_is_checked() 
 }
 
 #[test]
+fn broad_fallback_does_not_reuse_roots_from_a_previous_class_certificate() {
+    for missing_root in [false, true] {
+        let mut module = fixture();
+        assert!(narrow_enabled(&mut module, &[]).is_some());
+        if missing_root {
+            module.source_roots.push("df.missing.root".into());
+        } else {
+            module.arc_fixed_ancestry = false;
+        }
+        // Keep the complete HIR: a certificate is being invalidated before
+        // destructive pruning, not an attempt to reconstruct removed bodies.
+        let mut fresh = module.clone();
+        fresh.closed_class_tables = None;
+        super::super::prune_hir(&mut fresh, &[]);
+        super::super::prune_hir(&mut module, &[]);
+        assert!(module.closed_class_tables.is_none());
+        let symbols = |module: &Module| {
+            module
+                .functions
+                .iter()
+                .map(|f| f.symbol.clone())
+                .collect::<HashSet<_>>()
+        };
+        assert_eq!(
+            symbols(&module),
+            symbols(&fresh),
+            "missing root: {missing_root}"
+        );
+        for class in &module.classes {
+            assert!(
+                module
+                    .functions
+                    .iter()
+                    .any(|f| Some(&f.symbol) == class.to_string_symbol.as_ref())
+            );
+        }
+    }
+}
+
+#[test]
 fn failed_reaudit_discards_the_tentative_and_previous_active_sets() {
     let mut module = fixture();
     assert!(narrow_enabled(&mut module, &[]).is_some());

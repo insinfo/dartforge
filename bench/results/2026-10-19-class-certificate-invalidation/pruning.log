@@ -1,0 +1,20 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running unittests src/lib.rs (target/impl-a/debug/deps/dartforge_emit_native-845e7f740af4002d)
+
+running 14 tests
+test pruning::tests::cited_reads_plain_and_quoted_names ... ok
+test pruning::tests::locals_carry_module_prefix ... ok
+test pruning::tests::compact_call_reads_selector_from_descriptor ... ok
+test pruning::tests::program_table_rewritten_with_only_live_pairs ... ok
+test pruning::tests::root_selector_keeps_the_pair ... ok
+test pruning::tests::report_tells_the_cause ... ok
+test pruning::tests::only_the_called_selector_pair_stays ... ok
+test pruning::tests::typed_selector_also_calls_untyped ... ok
+test pruning::tests::declared_startup_registration_registers_every_assembled_table ... ok
+test pruning::tests::summary_round_trip ... ok
+test pruning::tests::hir_pruning_sees_selector_called_by_sdk ... ok
+test pruning::tests::hir_pruning_removes_unreachable ... ok
+test pruning::tests::dead_program_definitions_leave_the_ir ... ok
+test pruning::tests::without_pruning_all_live_table_pairs ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 844 filtered out; finished in 0.00s

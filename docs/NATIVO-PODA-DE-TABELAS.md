@@ -342,6 +342,13 @@ símbolo alcançável, corpo/ABI, instrução ou endereço de função exposto.
 O diagnóstico identifica funções, símbolos e instruções quando disponíveis.
 Ele não muda a decisão de poda: qualquer rejeição descarta o conjunto temporário
 de classes e mantém o registro amplo. Sem a opção de trace, a rejeição é silenciosa.
+
+Ao iniciar uma nova poda HIR, o certificado anterior é descartado **antes** de
+construir o grafo de fallback e calcular as assinaturas FFI vivas. Assim, uma
+prova recusada ou a opção experimental desligada usa as raízes amplas do HIR
+atual, sem herdar raízes reduzidas da análise anterior. Isso não reconstrói
+corpos já removidos: mudanças semânticas após uma poda destrutiva exigem o HIR
+completo novamente.
 A primeira fronteira pode ocultar outras; resolver uma mensagem não prova que
 as etapas seguintes estejam cobertas.
 

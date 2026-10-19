@@ -1,0 +1,22 @@
+{
+  "before.log": {
+    "original_sha256": "bfc82bf6c34a42759716f5f6acdf60d659be12ba0329b52d9a02764aa0a983f1",
+    "stored_sha256": "bfc82bf6c34a42759716f5f6acdf60d659be12ba0329b52d9a02764aa0a983f1"
+  },
+  "enabled.log": {
+    "original_sha256": "1b3ecf7f0426187fd0fc20021b6d22a8dc6d45f1883f080d81da05adbeec377a",
+    "stored_sha256": "d4783eccc0ac310022f135876f0f4959372c49084c1b214e44c2c299efef24d7"
+  },
+  "disabled.log": {
+    "original_sha256": "0f619ec040494492ff7357d375d511b42ad9f0115c5fdff3623f5dd7336c04d0",
+    "stored_sha256": "cdf716dd9f0b052cda07b2bfad60618420f215bfb8505b458f590dcef7cf8c50"
+  },
+  "pruning.log": {
+    "original_sha256": "a8ac9bff4acfbce47c75d8ef23995bc3401dde990aa87a5810fa706ea80da5c8",
+    "stored_sha256": "12cea54d3787f326a80bf8fe653b5f0424607a1c8cf4c29f1299f3f99b2c3437"
+  },
+  "pre-prune.log": {
+    "original_sha256": "edaaf39daf0eee7cbfb9a67934ca36ab6a6a0ee65e891a6693994e1cb28560c2",
+    "stored_sha256": "ce4d47f367c9b801caece40bec0398d312d79f66dcb6d7a42145e702e4c4dda0"
+  }
+}

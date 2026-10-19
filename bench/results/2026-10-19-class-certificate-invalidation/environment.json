@@ -1,0 +1,28 @@
+{
+  "base_revision": "84d88c27",
+  "host": "macOS ARM64",
+  "llvm": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+  "sdkroot": "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk",
+  "deployment_target": "14.0",
+  "target_dir": "target/impl-a",
+  "tests": [
+    {
+      "filter": "pruning::class_reachability",
+      "DARTFORGE_CLOSED_CLASS_REACHABILITY": "1",
+      "include_ignored": true
+    },
+    {
+      "filter": "broad_fallback_does_not_reuse_roots",
+      "DARTFORGE_CLOSED_CLASS_REACHABILITY": "0"
+    },
+    {
+      "filter": "pruning::tests",
+      "include_ignored": true
+    },
+    {
+      "filter": "optimize::pre_prune_tests",
+      "include_ignored": true
+    }
+  ],
+  "test_command": "cargo test --locked -p dartforge-emit-native --lib --target-dir target/impl-a FILTER -- --include-ignored"
+}

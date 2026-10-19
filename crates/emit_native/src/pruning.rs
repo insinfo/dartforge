@@ -1708,6 +1708,9 @@ pub struct HirPruning {
 /// decision the link assembly would take later (the same graph), without
 /// optimizing nor emitting what is going to leave.
 pub fn prune_hir(m: &mut crate::hir::Module, sdk: &[&Summary]) -> HirPruning {
+    // Build the broad fallback from the current HIR, never from a previous
+    // class certificate. Only a successful audit below may narrow its roots.
+    m.closed_class_tables = None;
     // The FFI trampolines and callbacks (one pair per native signature of the
     // whole type table) only stay through the signatures written in the
     // live recipes (§3.14). A live trampoline may reach new

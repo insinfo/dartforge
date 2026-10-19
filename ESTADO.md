@@ -3,6 +3,19 @@
 ## Atualização de 19/10/2026
 
 
+- Corrigida a invalidação do certificado de classes antes da construção do grafo
+  amplo da poda HIR. Antes, uma análise anterior podia reduzir as raízes do
+  fallback mesmo após a nova prova ser recusada. A regressão reproduziu a
+  remoção indevida de métodos e agora compara o resultado com HIR completo sem
+  certificado, com a opção experimental ligada/desligada. Passaram 48 testes da
+  prova de classes, 14 gerais de poda, 3 de otimização anterior à poda e o teste
+  dirigido com a opção desligada; Clippy/docs estritos passam. Fmt global,
+  aprovação integral, certificação do registro SDK e poda completa continuam
+  pendentes. Isso não recupera corpos removidos por poda anterior nem comprova
+  ganho de tamanho/desempenho. Evidências:
+  `bench/results/2026-10-19-class-certificate-invalidation/README.md`.
+
+
 - O inventário versão 2 conserva operandos tipados e reconhece argumentos LLVM
   entre aspas, com escapes/delimitadores e comentários. Os 15 corpos de startup
   do SDK mantêm o mesmo digest; cada um agora registra a chamada

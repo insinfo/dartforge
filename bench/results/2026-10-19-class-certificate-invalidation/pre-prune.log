@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/impl-a/debug/deps/dartforge_emit_native-845e7f740af4002d)
+
+running 3 tests
+test optimize::pre_prune_tests::early_cfg_keeps_unknown_condition_and_throwing_producer ... ok
+test optimize::pre_prune_tests::early_cfg_removes_dead_roots_preserves_effects_and_phi ... ok
+test optimize::pre_prune_tests::ordinary_dart_dead_constructor_and_selector_leave_hir_summary ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 855 filtered out; finished in 0.64s

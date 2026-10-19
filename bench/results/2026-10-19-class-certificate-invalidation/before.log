@@ -1,0 +1,21 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.79s
+     Running unittests src/lib.rs (target/impl-a/debug/deps/dartforge_emit_native-845e7f740af4002d)
+
+running 1 test
+
+thread 'pruning::class_reachability::tests::broad_fallback_does_not_reuse_roots_from_a_previous_class_certificate' (2161998) panicked at crates/emit_native/src/pruning/class_reachability/tests.rs:919:9:
+assertion `left == right` failed: missing root: false
+  left: {"df.test.main", "df.Used.toString$c", "df.Used.toString", "df.Used.method"}
+ right: {"df.Used.toString", "df.Unused.toString", "df.Unused.method", "df.test.main", "df.Used.method", "df.Nested.toString", "df.Unused.toString$c", "df.Nested.method", "df.Used.toString$c", "df.Nested.toString$c"}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test pruning::class_reachability::tests::broad_fallback_does_not_reuse_roots_from_a_previous_class_certificate ... FAILED
+
+failures:
+
+failures:
+    pruning::class_reachability::tests::broad_fallback_does_not_reuse_roots_from_a_previous_class_certificate
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 857 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`
