@@ -1,0 +1,3 @@
+    Blocking waiting for file lock on build directory
+    Checking dartforge-frontend v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/frontend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 30.98s

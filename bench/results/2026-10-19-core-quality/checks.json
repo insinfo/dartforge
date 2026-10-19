@@ -1,0 +1,104 @@
+{
+  "recorded_at": "2026-10-19T05:52:23.363512-03:00",
+  "base_revision": "3c79b2ce2d8ce296cf57879484084e4d77b470fd",
+  "platform": "macOS ARM64",
+  "rust_toolchain": "1.98.1",
+  "reviewed_source_sha256": {
+    "Cargo.lock": "8a3e47aabff9fc016fbcdb99c65de1616becd435db18927f96419e5d4943c7df",
+    "crates/frontend/Cargo.toml": "824000a15979eb5752b882dc8c9d55007b54e9dfc0d40214b454463af2c4ff4e",
+    "crates/frontend/src/doc_references.rs": "a41d0c2b52b9af2ab7d7285970ed2d7dc2559d08d3b6cea6ce057cd68f1e43b9",
+    "crates/frontend/src/grouping.rs": "d15b684973e92ea529585ac9e53b12c65019c0f86ac21431e78d0f1410afa958",
+    "crates/frontend/src/parser/declarations.rs": "217fa079209eaf43de595a596aa156e9a5a4334dc4d6181395ac6ed9ec45170f",
+    "crates/frontend/src/parser/expressions.rs": "9c0f14fea0c2d1ead95fa59aa978d68b7fc9b1f5a8c66315db7ef416594eb7a4",
+    "crates/frontend/src/parser/mod.rs": "ad1e4cd52f11de175153075657f7eed483019ea305137dc387f1da76fb3af0c4",
+    "crates/frontend/tests/corpus.rs": "dbfd3d5e91ef59ec84f989932bf93fd67d56bd758fe309a04e26ffa76daef3f1",
+    "crates/runtime/build.rs": "58661a8d613e5bd2b67b455cd3efae0ed045c646bbf7ba09de26a7f432e310d9",
+    "crates/runtime/src/heap.rs": "bae3cb636577951a14cbc8dc7e2f76e7a722b44c8d979ec4fa7a24459a431bda",
+    "crates/runtime/src/layout.rs": "f4bbe03570d1c0ca0f93093a08aa896c754eb205395cb588cb1ea1ff86a60ccf",
+    "crates/runtime/src/space.rs": "900fd6a407ebb880bc2a71dee74355ac2486913eddac15dfd83e7a502ae626cc",
+    "crates/runtime/src/text.rs": "43ce89c11c67e7fbe39ea42142430851dd768fb272008b5452b005d581ffb364"
+  },
+  "core_clippy": {
+    "command": "cargo clippy --locked -p dartforge-frontend -p dartforge-runtime --all-targets -- -D warnings",
+    "exit_code": 0,
+    "resolved_diagnostics": 18
+  },
+  "core_tests": {
+    "command": "cargo test --locked -p dartforge-frontend -p dartforge-runtime -- --include-ignored --nocapture",
+    "environment": {
+      "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+    },
+    "exit_code": 0,
+    "passed": 672,
+    "failed": 0,
+    "ignored": 0,
+    "includes_doctests": true
+  },
+  "external_corpora": {
+    "sdk_version": "3.6.2",
+    "sdk_accepted": 426,
+    "sdk_total": 426,
+    "sdk_lexed": 426,
+    "pub_accepted": 367,
+    "pub_total": 367,
+    "pub_packages": {
+      "pdf": "3.13.1",
+      "http": "1.6.0",
+      "collection": "1.19.1",
+      "intl": "0.20.3"
+    },
+    "archive_sha256": {
+      "collection-1.19.1.tar.gz": "2f5709ae4d3d59dd8f7cd309b4e023046b57d8a6c82130785d2b0e5868084e76",
+      "http-1.6.0.tar.gz": "87721a4a50b19c7f1d49001e51409bddc46303966ce89a65af4f4e6004896412",
+      "intl-0.20.3.tar.gz": "1ca20c894b1717686a2319b8548763d812bc0aabdac580420a44c5178c57a867",
+      "pdf-3.13.1.tar.gz": "6e40827f370d196e97c6611724d923a3d86c431ce8e2ce1e59edd03a67a1a6e6"
+    },
+    "scope": "Every .dart source recursively, including examples and tests; syntax acceptance, not semantic equivalence to the Dart VM."
+  },
+  "missing_sdk_negative": {
+    "command": "cargo test --locked -p dartforge-frontend --test corpus whole_sdk_lib_lexes -- --ignored --nocapture",
+    "environment": {
+      "DARTFORGE_SDK_LIB": "/tmp/dartforge-intentionally-missing-sdk"
+    },
+    "exit_code": 101,
+    "expected_failure": true,
+    "error_kind": "NotFound"
+  },
+  "native_suite": {
+    "command": "cargo test --locked -p dartforge-emit-native --lib --target-dir target/impl-a",
+    "environment": {
+      "SDKROOT": "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk",
+      "DARTFORGE_LLVM_DIR": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+      "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+      "DARTFORGE_TEST_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+    },
+    "exit_code": 0,
+    "passed": 777,
+    "failed": 0,
+    "ignored": 9,
+    "includes_ignored": false
+  },
+  "required_workspace_checks": {
+    "format": {
+      "command": "cargo fmt --all -- --check",
+      "exit_code": 1,
+      "result": "Existing workspace-wide formatting differences remain."
+    },
+    "clippy": {
+      "command": "cargo clippy --locked --workspace --all-targets -- -D warnings",
+      "exit_code": 101,
+      "result": "Remaining failures: type_complexity in llvm/check_rs4gc.rs and items_after_test_module in sass/color/mod.rs. Later crates may have further diagnostics."
+    },
+    "tests": {
+      "command": "cargo test --locked --workspace -- --include-ignored",
+      "exit_code": 130,
+      "result": "Confirmed Apple LLVM 21 LTO reader rejecting LLVM 22 bitcode while linking dartforge-llvm. Remaining jobs were interrupted after link failure; workspace tests did not pass."
+    },
+    "docs": {
+      "command": "cargo doc --locked --workspace --no-deps --document-private-items",
+      "exit_code": 0,
+      "result": "Documentation generated with existing warnings."
+    }
+  },
+  "performance_claim": null
+}

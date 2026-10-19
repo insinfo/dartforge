@@ -464,6 +464,7 @@ dependencies = [
  "dartforge-instrument",
  "dartforge-intern",
  "serde",
+ "tempfile",
 ]
 
 [[package]]

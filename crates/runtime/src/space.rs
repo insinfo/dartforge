@@ -1691,7 +1691,7 @@ impl ObjectSpace {
                                 }
                             }
                             if card_young {
-                                still |= m & m.wrapping_neg();
+                                still |= m.isolate_lowest_one();
                             }
                             work += until.saturating_sub(of);
                             m &= m - 1;
@@ -2115,8 +2115,7 @@ impl ObjectSpace {
         let mut s = String::new();
         let (mut total_pages, mut total_occupied) = (0, 0);
         let mut line_list = Vec::new();
-        for c in 1..N_CLASSES {
-            let k = class_pages[c];
+        for (c, &k) in class_pages.iter().enumerate().skip(1) {
             if k == 0 {
                 continue;
             }

@@ -1,0 +1,19 @@
+   Compiling dartforge-frontend v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/frontend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.39s
+     Running tests/corpus.rs (target/debug/deps/corpus-fd08b710ab8b6357)
+
+running 1 test
+
+thread 'whole_sdk_lib_lexes' (1067228) panicked at crates/frontend/tests/corpus.rs:173:47:
+called `Result::unwrap()` on an `Err` value: Custom { kind: NotFound, error: "/tmp/dartforge-intentionally-missing-sdk: No such file or directory (os error 2)" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test whole_sdk_lib_lexes ... FAILED
+
+failures:
+
+failures:
+    whole_sdk_lib_lexes
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p dartforge-frontend --test corpus`

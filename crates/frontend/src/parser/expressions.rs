@@ -1377,11 +1377,11 @@ impl<'s, 'i> Parser<'s, 'i> {
                     } else {
                         Some(self.pos + 1)
                     };
-                    let literal = match (class, after.map(|d| self.kind_of(d))) {
-                        ("Map" | "Set", Some(Kind::Op(Op::LBrace))) => true,
-                        ("List", Some(Kind::Op(Op::LBracket))) => true,
-                        _ => false,
-                    };
+                    let literal = matches!(
+                        (class, after.map(|d| self.kind_of(d))),
+                        ("Map" | "Set", Some(Kind::Op(Op::LBrace)))
+                            | ("List", Some(Kind::Op(Op::LBracket)))
+                    );
                     if literal {
                         let name = self.advance().span;
                         let lowercase = class.to_lowercase();

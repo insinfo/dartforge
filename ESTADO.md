@@ -2,6 +2,18 @@
 
 ## Atualização de 19/10/2026
 
+- Frontend e runtime passam no Clippy com `--all-targets -- -D warnings`, após
+  correção de 18 diagnósticos sem supressões. A coleta do corpus agora propaga
+  erros de leitura e exige arquivos Dart: o teste do lexer deixava um SDK
+  ausente passar e ignorava fontes ilegíveis. Três regressões cobrem entradas
+  ausentes/vazias, UTF-8 inválido e contagem de arquivos rejeitados em subpastas;
+  a execução externa com SDK ausente também falhou como esperado. Suíte dos
+  dois pacotes, incluindo ignorados e doctests: 672 passaram. Aceitação do SDK
+  3.6.2: 426/426 arquivos; corpus pdf/http/collection/intl: 367/367. Emissor
+  nativo: 777 passaram, zero falhas, nove ignorados. O workspace ainda falha no
+  Clippy em outros crates e no link padrão Apple/LLVM 22; formatação geral
+  permanece pendente. Documentação compilou com avisos. Comandos, versões e
+  limites: `bench/results/2026-10-19-core-quality/checks.json`.
 - `scripts/cargo-macos-llvm.py` monta/testa o compilador Rust no macOS com o
   `ld64.lld` do LLVM selecionado e verifica o SDK antes de iniciar o Cargo.
   Contorna a incompatibilidade entre o linker Apple e o bitcode LLVM 22 sem

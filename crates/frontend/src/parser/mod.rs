@@ -192,10 +192,10 @@ fn recoverable_scanner_errors(source: &str, tokens: &[Token]) -> Vec<Diagnostic>
                     }
                 }
             }
-            Kind::Int => {
-                if (lexeme.starts_with("0x") || lexeme.starts_with("0X")) && !lexeme[2..].bytes().any(|b| b.is_ascii_hexdigit()) {
-                    output.push(Diagnostic::with_code(dartforge_diagnostics::codes::scanner::MISSING_HEX_DIGIT, one(t.span.end - 1), Vec::<&str>::new()));
-                }
+            Kind::Int
+                if (lexeme.starts_with("0x") || lexeme.starts_with("0X")) && !lexeme[2..].bytes().any(|b| b.is_ascii_hexdigit()) =>
+            {
+                output.push(Diagnostic::with_code(dartforge_diagnostics::codes::scanner::MISSING_HEX_DIGIT, one(t.span.end - 1), Vec::<&str>::new()));
             }
             _ => {}
         }
@@ -861,12 +861,12 @@ impl<'s, 'i> Parser<'s, 'i> {
         if end_offset <= start_offset {
             return;
         }
-        if let Some(last) = self.skipped.last_mut() {
-            if start_offset <= last.end && last.start <= end_offset {
-                last.start = last.start.min(start_offset);
-                last.end = last.end.max(end_offset);
-                return;
-            }
+        if let Some(last) = self.skipped.last_mut()
+            && start_offset <= last.end && last.start <= end_offset
+        {
+            last.start = last.start.min(start_offset);
+            last.end = last.end.max(end_offset);
+            return;
         }
         self.skipped.push(Span { start: start_offset, end: end_offset });
     }

@@ -58,8 +58,8 @@ fn lines_<'a>(source: &'a str, tokens: &[Span]) -> Vec<(usize, &'a str)> {
     if source[first.start..].starts_with("///") {
         for s in tokens {
             let (start_offset, lexeme) = lexeme_of(s);
-            if lexeme.starts_with("///") {
-                v.push((start_offset + 3, &lexeme[3..]));
+            if let Some(content) = lexeme.strip_prefix("///") {
+                v.push((start_offset + 3, content));
             }
         }
         return v;

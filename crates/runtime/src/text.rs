@@ -504,10 +504,7 @@ impl<'a> TextRef<'a> {
             let first = b[0];
             let mut i = since;
             while i <= maximum {
-                match a[i..=maximum].iter().position(|&x| x == first) {
-                    None => return None,
-                    Some(k) => i += k,
-                }
+                i += a[i..=maximum].iter().position(|&x| x == first)?;
                 if a[i..i + m] == *b {
                     return Some(i);
                 }
@@ -994,8 +991,8 @@ impl Heap {
 /// written in the header: `(images already walked, hash → blocks)`. Built on demand
 /// (the first canonicalization after a new image), reading only the header words —
 /// the hash comes precomputed by the emitter.
-static STRING_STATICS: std::sync::RwLock<Option<(usize, std::collections::HashMap<u32, Vec<usize>>)>> =
-    std::sync::RwLock::new(None);
+type StaticStringIndex = (usize, std::collections::HashMap<u32, Vec<usize>>);
+static STRING_STATICS: std::sync::RwLock<Option<StaticStringIndex>> = std::sync::RwLock::new(None);
 
 /// The view of a static string block (`PERMANENT`, from an image).
 ///

@@ -1,0 +1,38 @@
+Final lines from the initial run, before the corpus harness fix.
+
+test text::tests::plain_utf8_comes_out_without_copy ... ok
+test parser::types::tests::variance_and_type_parameter_recovery ... ok
+test parser::types::tests::depth_limited ... ok
+test parser::statements::tests::depth_limit ... ok
+test parser::expressions::tests::depth_limited ... ok
+
+test result: ok. 202 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/corpus.rs (target/debug/deps/corpus-a3e5725774e29af1)
+
+running 3 tests
+test whole_sdk_lib_lexes ... ok
+test whole_sdk_lib_is_accepted ... FAILED
+test whole_pub_corpus_is_accepted ... FAILED
+
+failures:
+
+---- whole_sdk_lib_is_accepted stdout ----
+
+thread 'whole_sdk_lib_is_accepted' (1050011) panicked at crates/frontend/tests/corpus.rs:92:5:
+SDK not found at C:/tools/dartsdk-3.6.2/lib
+
+---- whole_pub_corpus_is_accepted stdout ----
+
+thread 'whole_pub_corpus_is_accepted' (1050010) panicked at crates/frontend/tests/corpus.rs:110:5:
+corpus not found at /Volumes/ssd_dock/MyRustProjects/dartforge/crates/frontend/../../references/pub
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    whole_pub_corpus_is_accepted
+    whole_sdk_lib_is_accepted
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p dartforge-frontend --test corpus`

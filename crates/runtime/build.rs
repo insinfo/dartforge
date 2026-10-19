@@ -435,70 +435,6 @@ pub const CONTRACTS: &[Contract] = &[
     output
 }
 
-#[cfg(test)]
-mod ownership_tests {
-    use super::*;
-
-    #[test]
-    fn table_rejects_incomplete_duplicate_and_invalid_contracts() {
-        let root = std::env::temp_dir().join(format!("dartforge-ownership-{}", std::process::id()));
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("effects.tsv"), "dartforge_arc_retain\t0\t0\t0\n").unwrap();
-        let good = "dartforge_arc_retain\tref:borrow\tvoid:scalar\t1\t0\tnormal\n";
-        let names = vec!["dartforge_arc_retain".to_string()];
-        for bad in [
-            String::new(),
-            format!("{good}{good}"),
-            good.replace("ref:borrow", "ref:inventado"),
-            good.replace("\t1\t0", "\t2\t0"),
-            good.replace("arc_retain", "arc_ausente"),
-            good.replace("normal", "inventado"),
-            good.replace("ref:borrow", "ref:consume-success"),
-            good.replace("void:scalar", "ref:borrow(1)"),
-            good.replace("ref:borrow", "i64:scalar")
-                .replace("void:scalar", "ref:borrow(0)"),
-        ] {
-            std::fs::write(root.join("ownership.tsv"), bad).unwrap();
-            assert!(std::panic::catch_unwind(|| ownership_table(&root, &names)).is_err());
-        }
-        std::fs::write(root.join("ownership.tsv"), good).unwrap();
-        assert!(ownership_table(&root, &names).contains("const _: unsafe extern \"C\" fn(i64) -> () = crate::abi::dartforge_arc_retain;"));
-        std::fs::write(root.join("effects.tsv"), "dartforge_arc_retain\t1\t1\t1\n").unwrap();
-        assert!(std::panic::catch_unwind(|| ownership_table(&root, &names)).is_err());
-        std::fs::write(root.join("effects.tsv"), "dartforge_arc_retain\t1\t1\t0\n").unwrap();
-        for mode in ["consume-success", "consume-error", "consume"] {
-            std::fs::write(
-                root.join("ownership.tsv"),
-                good.replace("ref:borrow", &format!("ref:{mode}"))
-                    .replace("normal", "pending"),
-            )
-            .unwrap();
-            let generated = ownership_table(&root, &names);
-            assert!(generated.contains("may_fail: true"));
-        }
-        std::fs::write(root.join("effects.tsv"), "dartforge_arc_retain\t1\t1\t1\n").unwrap();
-        let reentry = good.replace("normal", "pending-dart").replace("\t1\t0\t", "\t1\t1\t");
-        std::fs::write(root.join("ownership.tsv"), &reentry).unwrap();
-        assert!(ownership_table(&root, &names).contains("calls_dart: true"));
-        std::fs::write(root.join("ownership.tsv"), reentry.replace("\t1\t1\t", "\t1\t0\t")).unwrap();
-        assert!(std::panic::catch_unwind(|| ownership_table(&root, &names)).is_err());
-        std::fs::write(root.join("ownership.tsv"), &reentry).unwrap();
-        std::fs::write(root.join("effects.tsv"), "dartforge_arc_retain\t1\t1\t0\n").unwrap();
-        assert!(std::panic::catch_unwind(|| ownership_table(&root, &names)).is_err());
-        // The callback has its own Rust representation: do not accept a generic
-        // integer or pointer in place of the function that returns the static table.
-        let factory = "dartforge_arc_object_owned_t_v1".to_string();
-        std::fs::write(root.join("effects.tsv"), format!("{factory}\t1\t0\t0\n")).unwrap();
-        std::fs::write(root.join("ownership.tsv"), format!("{factory}\ti64:native,i64:scalar,table:native\tref:owned\t0\t1\tnormal\n")).unwrap();
-        let generated = ownership_table(&root, &[factory]);
-        assert!(generated.contains("const _: unsafe extern \"C\" fn(i64, i64, extern \"C\" fn() -> *const i64) -> i64 = crate::abi::dartforge_arc_object_owned_t_v1;"));
-        assert!(generated.contains("ParamMode::StaticTable"));
-        std::fs::remove_file(root.join("ownership.tsv")).unwrap();
-        std::fs::remove_file(root.join("effects.tsv")).unwrap();
-        std::fs::remove_dir(root).unwrap();
-    }
-}
-
 /// The extern effects table (`effects.tsv`, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
 /// §13.8) as code for the emitter: `(name, collects, throws, runs Dart)`, in
 /// alphabetical order.
@@ -617,4 +553,68 @@ fn exported_names(text: &str) -> Vec<String> {
         }
     }
     names
+}
+
+#[cfg(test)]
+mod ownership_tests {
+    use super::*;
+
+    #[test]
+    fn table_rejects_incomplete_duplicate_and_invalid_contracts() {
+        let root = std::env::temp_dir().join(format!("dartforge-ownership-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("effects.tsv"), "dartforge_arc_retain\t0\t0\t0\n").unwrap();
+        let good = "dartforge_arc_retain\tref:borrow\tvoid:scalar\t1\t0\tnormal\n";
+        let names = vec!["dartforge_arc_retain".to_string()];
+        for bad in [
+            String::new(),
+            format!("{good}{good}"),
+            good.replace("ref:borrow", "ref:inventado"),
+            good.replace("\t1\t0", "\t2\t0"),
+            good.replace("arc_retain", "arc_ausente"),
+            good.replace("normal", "inventado"),
+            good.replace("ref:borrow", "ref:consume-success"),
+            good.replace("void:scalar", "ref:borrow(1)"),
+            good.replace("ref:borrow", "i64:scalar")
+                .replace("void:scalar", "ref:borrow(0)"),
+        ] {
+            std::fs::write(root.join("ownership.tsv"), bad).unwrap();
+            assert!(std::panic::catch_unwind(|| ownership_table(&root, &names)).is_err());
+        }
+        std::fs::write(root.join("ownership.tsv"), good).unwrap();
+        assert!(ownership_table(&root, &names).contains("const _: unsafe extern \"C\" fn(i64) -> () = crate::abi::dartforge_arc_retain;"));
+        std::fs::write(root.join("effects.tsv"), "dartforge_arc_retain\t1\t1\t1\n").unwrap();
+        assert!(std::panic::catch_unwind(|| ownership_table(&root, &names)).is_err());
+        std::fs::write(root.join("effects.tsv"), "dartforge_arc_retain\t1\t1\t0\n").unwrap();
+        for mode in ["consume-success", "consume-error", "consume"] {
+            std::fs::write(
+                root.join("ownership.tsv"),
+                good.replace("ref:borrow", &format!("ref:{mode}"))
+                    .replace("normal", "pending"),
+            )
+            .unwrap();
+            let generated = ownership_table(&root, &names);
+            assert!(generated.contains("may_fail: true"));
+        }
+        std::fs::write(root.join("effects.tsv"), "dartforge_arc_retain\t1\t1\t1\n").unwrap();
+        let reentry = good.replace("normal", "pending-dart").replace("\t1\t0\t", "\t1\t1\t");
+        std::fs::write(root.join("ownership.tsv"), &reentry).unwrap();
+        assert!(ownership_table(&root, &names).contains("calls_dart: true"));
+        std::fs::write(root.join("ownership.tsv"), reentry.replace("\t1\t1\t", "\t1\t0\t")).unwrap();
+        assert!(std::panic::catch_unwind(|| ownership_table(&root, &names)).is_err());
+        std::fs::write(root.join("ownership.tsv"), &reentry).unwrap();
+        std::fs::write(root.join("effects.tsv"), "dartforge_arc_retain\t1\t1\t0\n").unwrap();
+        assert!(std::panic::catch_unwind(|| ownership_table(&root, &names)).is_err());
+        // The callback has its own Rust representation: do not accept a generic
+        // integer or pointer in place of the function that returns the static table.
+        let factory = "dartforge_arc_object_owned_t_v1".to_string();
+        std::fs::write(root.join("effects.tsv"), format!("{factory}\t1\t0\t0\n")).unwrap();
+        std::fs::write(root.join("ownership.tsv"), format!("{factory}\ti64:native,i64:scalar,table:native\tref:owned\t0\t1\tnormal\n")).unwrap();
+        let generated = ownership_table(&root, &[factory]);
+        assert!(generated.contains("const _: unsafe extern \"C\" fn(i64, i64, extern \"C\" fn() -> *const i64) -> i64 = crate::abi::dartforge_arc_object_owned_t_v1;"));
+        assert!(generated.contains("ParamMode::StaticTable"));
+        std::fs::remove_file(root.join("ownership.tsv")).unwrap();
+        std::fs::remove_file(root.join("effects.tsv")).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
 }

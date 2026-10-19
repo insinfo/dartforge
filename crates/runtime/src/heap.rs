@@ -1490,7 +1490,7 @@ impl Schedule {
         x ^= x << 25;
         x ^= x >> 27;
         self.state.set(x);
-        let yes = x.wrapping_mul(0x2545_F491_4F6C_DD1D) % self.rate == 0;
+        let yes = x.wrapping_mul(0x2545_F491_4F6C_DD1D).is_multiple_of(self.rate);
         self.pending.set(yes);
         yes
     }
@@ -3512,7 +3512,7 @@ impl Heap {
         if minor
             && self.verify
             && (!self.stress
-                || self.minors_since_full % (self.work_in_full / WORK_PER_MINOR_UNDER_STRESS).max(1) as u64 == 0)
+                || self.minors_since_full.is_multiple_of((self.work_in_full / WORK_PER_MINOR_UNDER_STRESS).max(1) as u64))
         {
             self.verify_minor_collection();
         }

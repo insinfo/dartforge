@@ -1,0 +1,31 @@
+Selected Cargo result lines; command and environment are recorded in checks.json.
+
+     Running unittests src/lib.rs (target/debug/deps/dartforge_frontend-185bc3cb27b32ac6)
+test result: ok. 202 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+     Running tests/corpus.rs (target/debug/deps/corpus-cf792f5c5029a6d7)
+SDK lexer: 426 files
+Pub corpus acceptance: 367/367
+SDK acceptance: 426/426
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.03s
+     Running tests/recovery.rs (target/debug/deps/recovery-abd590fe1053dcef)
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/reference.rs (target/debug/deps/reference-65f765989b089b78)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/versions.rs (target/debug/deps/versions-1c3c9e2e1eb163e8)
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (target/debug/deps/dartforge_runtime-f31944c2d89e7921)
+test result: ok. 320 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s
+     Running tests/allocator.rs (target/debug/deps/allocator-a21ec3e135661ca3)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/arc_uniform_closure.rs (target/debug/deps/arc_uniform_closure-16f38ff92ae3fb83)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/dart_ports.rs (target/debug/deps/dart_ports-b172408dd593f068)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/ownership.rs (target/debug/deps/ownership-41f4443e6c3858f6)
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/single_source.rs (target/debug/deps/single_source-bfb425a2b7a5ef68)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+     Running tests/types_and_events.rs (target/debug/deps/types_and_events-cdbd698b2af009ef)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 87 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s

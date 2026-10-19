@@ -197,9 +197,9 @@ fn steps(source: &str, tokens: &[Token]) -> Vec<Step> {
                     let equals_ = following.filter(|x| source[x.span.start..x.span.end].starts_with('='));
                     p.first = if equals_.is_some() { GroupEffect::Nothing } else { GroupEffect::Greater(n as u8) };
                     output.push(p);
-                    for k in i + 1..=last {
+                    for token in &tokens[i + 1..=last] {
                         output.push(Step { trivia: 0, calls: 0, first: GroupEffect::Nothing, second: GroupEffect::Nothing });
-                        previous_end = tokens[k].span.end;
+                        previous_end = token.span.end;
                     }
                     i = last + 1;
                     if let Some(x) = equals_ {

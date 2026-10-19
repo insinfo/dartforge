@@ -553,7 +553,7 @@ mod layout_tests {
         let mut previous = 0;
         for w in 0..=LARGEST_MEDIUM {
             let c = size_class(w).expect("body class up to the largest medium one");
-            assert!(c >= 1 && c < N_CLASSES, "class {c} of {w} words out of range");
+            assert!((1..N_CLASSES).contains(&c), "class {c} of {w} words out of range");
             assert!(c >= previous, "size_class is not monotonic at {w}");
             assert!(class_words(c) >= w, "class {c} does not fit {w} words");
             // The smallest class that fits: the previous one does not fit.

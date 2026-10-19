@@ -522,18 +522,17 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// declaration (`final`/`const`/`var`/`void`; `this`/`new` open a member in
     /// 3.13).
     fn starts_member(&self) -> bool {
-        match self.kind() {
-            Kind::Ident | Kind::Op(Op::At) => true,
-            Kind::Keyword(
+        matches!(
+            self.kind(),
+            Kind::Ident | Kind::Op(Op::At) | Kind::Keyword(
                 Keyword::Final
                 | Keyword::Const
                 | Keyword::Var
                 | Keyword::Void
                 | Keyword::This
                 | Keyword::New,
-            ) => true,
-            _ => false,
-        }
+            )
+        )
     }
 
     // -----------------------------------------------------------------------
@@ -3009,14 +3008,14 @@ impl<'s, 'i> Parser<'s, 'i> {
                 FunctionOrVariables::Variables(list) => {
                     // fasta `AstBuilder._endClassFields`: the restriction no longer applies
                     // with the augmentations experiment.
-                    if mods.static_ && !self.features.has(Feature::Augmentations) {
-                        if let Some(span) = mods.abstract_span {
-                            self.diagnostics.push(Diagnostic::with_code(
-                                codes::parser::ABSTRACT_STATIC_FIELD,
-                                span,
-                                std::iter::empty::<&str>(),
-                            ));
-                        }
+                    if mods.static_ && !self.features.has(Feature::Augmentations)
+                        && let Some(span) = mods.abstract_span
+                    {
+                        self.diagnostics.push(Diagnostic::with_code(
+                            codes::parser::ABSTRACT_STATIC_FIELD,
+                            span,
+                            std::iter::empty::<&str>(),
+                        ));
                     }
                     MemberKind::Field(list)
                 }
@@ -3450,14 +3449,13 @@ impl<'s, 'i> Parser<'s, 'i> {
                     FunctionBody::Expression(_) => Some(Op::Arrow),
                     FunctionBody::Empty | FunctionBody::Native(_) => None,
                 };
-                if let Some(op) = delimiter {
-                    if let Some(span) = self.tokens[body_start..self.pos]
+                if let Some(op) = delimiter
+                    && let Some(span) = self.tokens[body_start..self.pos]
                         .iter()
                         .find(|t| t.kind == Kind::Op(op))
                         .map(|t| t.span)
-                    {
-                        self.error_at(codes::parser::CONST_CONSTRUCTOR_WITH_BODY, span, &[]);
-                    }
+                {
+                    self.error_at(codes::parser::CONST_CONSTRUCTOR_WITH_BODY, span, &[]);
                 }
             }
             body
@@ -3465,10 +3463,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         // The SDK declares `external` constant factories (for example
         // `bool.fromEnvironment`); the ErrorVerifier only applies `constFactory` to
         // the branch without `externalKeyword`.
-        if factory && !mods.external && redirect.is_none() {
-            if let Some(span) = mods.const_span {
-                self.error_at(codes::parser::CONST_FACTORY, span, &[]);
-            }
+        if factory && !mods.external && redirect.is_none()
+            && let Some(span) = mods.const_span
+        {
+            self.error_at(codes::parser::CONST_FACTORY, span, &[]);
         }
         Ok(MemberKind::Constructor(Constructor {
             external: mods.external,
@@ -5305,7 +5303,8 @@ mod tests {
         #[test]
         fn augment_without_the_feature_follows_fasta_recovery() {
             use dartforge_diagnostics::codes::parser as c;
-            let cases_: [(&str, &[(dartforge_diagnostics::Code, usize, usize)]); 5] = [
+            type ExpectedDiagnostic = (dartforge_diagnostics::Code, usize, usize);
+            let cases_: [(&str, &[ExpectedDiagnostic]); 5] = [
                 ("augment class C {}", &[(c::EXPECTED_TOKEN, 0, 7), (c::MISSING_CONST_FINAL_VAR_OR_TYPE, 0, 7)]),
                 ("augment enum E { a }", &[(c::EXPECTED_TOKEN, 0, 7), (c::MISSING_CONST_FINAL_VAR_OR_TYPE, 0, 7)]),
                 ("augment mixin M {}", &[(c::EXPECTED_TOKEN, 0, 7), (c::MISSING_IDENTIFIER, 8, 13)]),
