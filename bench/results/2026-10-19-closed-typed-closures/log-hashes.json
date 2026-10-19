@@ -1,0 +1,44 @@
+{
+  "before.log": {
+    "local_full_log": "/tmp/forge-typed-closure-before.log",
+    "bytes": 8123,
+    "sha256": "c4c678b633e4d087502fbd5cd1b66b2e1b209ae8fc9d7e3181c46633ef22f8d3",
+    "exit": 101
+  },
+  "directed.log": {
+    "local_full_log": "/tmp/forge-typed-closure-captured-final.log",
+    "bytes": 10371,
+    "sha256": "653b39ff69cf03093dea6720fb4e98688c9f2bf69a0858b0908d3c5a90db8f46",
+    "exit": 0
+  },
+  "native.log": {
+    "local_full_log": "/tmp/forge-typed-closure-native-final.log",
+    "bytes": 92348,
+    "sha256": "3823360c62e9b1cb8d66646f29c2482ed862076c6a76bc26e2629bbf8399ccb1",
+    "exit": 0
+  },
+  "doctests.log": {
+    "local_full_log": "/tmp/forge-typed-closure-doc-final.log",
+    "bytes": 15322,
+    "sha256": "de61c2dc578b1af19440dd44376365dc252aebacf6b3bbc74ebc5ed92428b1d3",
+    "exit": 0
+  },
+  "production-before.log": {
+    "local_full_log": "/tmp/forge-platform-pruning-current.log",
+    "bytes": 8609,
+    "sha256": "8b86ce7ba82795c1f7f0a896d9992b3731b159ae50fc6086ad348d12da8c40c5",
+    "exit": 101
+  },
+  "production-after.log": {
+    "local_full_log": "/tmp/forge-platform-pruning-final.log",
+    "bytes": 8855,
+    "sha256": "006c9215190f83f5494d0b774db7bbb895cc97ef60f15b775f0ed94d70ab3e52",
+    "exit": 101
+  },
+  "clippy.log": {
+    "local_full_log": "/tmp/forge-typed-closure-clippy-complete.log",
+    "bytes": 29966,
+    "sha256": "d920ad30b6fd41cc2a3643f1a6f410ea3bd7b7516ef5803123d2d7bb038bd9d8",
+    "exit": 101
+  }
+}

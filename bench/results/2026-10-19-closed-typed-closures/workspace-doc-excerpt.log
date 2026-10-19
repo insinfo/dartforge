@@ -1,0 +1,41 @@
+   Compiling dartforge-llvm v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/llvm)
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+warning: unresolved link to `js_member_name`
+   --> crates/emit_js_production/src/properties.rs:219:39
+    |
+219 | /// the instances: the member name ([`js_member_name`]) and, for a program
+    |                                       ^^^^^^^^^^^^^^ no item named `js_member_name` in scope
+    |
+    = help: to escape `[` and `]` characters, add '\' before them like `\[` or `\]`
+    = note: `#[warn(rustdoc::broken_intra_doc_links)]` on by default
+
+warning: `dartforge-emit-js-production` (lib doc) generated 1 warning
+warning: unresolved link to `ler`
+   --> crates/ng_generator/src/component.rs:803:36
+    |
+803 | /// in the expression scope (see [`ler`]).
+    |                                    ^^^ no item named `ler` in scope
+    |
+    = help: to escape `[` and `]` characters, add '\' before them like `\[` or `\]`
+    = note: `#[warn(rustdoc::broken_intra_doc_links)]` on by default
+[... excerpt ...]
+
+warning: unresolved link to `crate::sdk_modulo::SOURCE_LIBRARIES`
+  --> crates/emit_native/src/natives.rs:30:27
+   |
+30 | //! [`SOURCE_LIBRARIES`]: crate::sdk_modulo::SOURCE_LIBRARIES
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no item named `sdk_modulo` in module `dartforge_emit_native`
+   |
+   = note: `#[warn(rustdoc::broken_intra_doc_links)]` on by default
+
+warning: public documentation for `with_context_in_tls` links to private item `context_in_tsd`
+    --> crates/emit_native/src/sdk_module.rs:1080:53
+     |
+1080 | /// publishes before any Dart code of the thread ([`context_in_tsd`]). The
+     |                                                     ^^^^^^^^^^^^^^ this item is private
+     |
+     = note: this link resolves only because you passed `--document-private-items`, but will break without
+
+warning: `dartforge-emit-native` (lib doc) generated 5 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 16.08s
+   Generated /Volumes/ssd_dock/MyRustProjects/dartforge/target/doc/dartforge_abi/index.html and 29 other files

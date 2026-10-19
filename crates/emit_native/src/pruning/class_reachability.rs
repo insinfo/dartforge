@@ -178,8 +178,8 @@ fn narrow_enabled(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
             continue;
         }
         let shape = super::receiver_provenance::Shape::new(function).ok()?;
-        let closure_receivers =
-            closures::receivers(function, &functions, &closure_targets, &shape)?;
+        let closure_proof =
+            closures::prove(function, &functions, &closure_targets, &shape)?;
         let stack_slots: HashMap<_, _> = function
             .blocks
             .iter()
@@ -201,11 +201,13 @@ fn narrow_enabled(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
                     Instruction::AllocObject { class_id, fields } => {
                         *result == Type::Ref && valid_allocation(*class_id, fields.len())
                     }
-                    Instruction::AllocClosure { .. } | Instruction::TearOff { .. } => {
-                        closure_receivers.contains(value)
+                    Instruction::AllocClosure { .. } | Instruction::AllocClosureTyped { .. }
+                    | Instruction::TearOff { .. } => {
+                        closure_proof.handles.contains(value)
                     }
+                    Instruction::TypedCall { .. } => closure_proof.calls.contains(value),
                     Instruction::CallClosure { closure, .. } => {
-                        matches!(closure, Operand::Val(id) if closure_receivers.contains(id))
+                        matches!(closure, Operand::Val(id) if closure_proof.handles.contains(id))
                     }
                     Instruction::CallRuntime { name, args, ret_ty }
                         if name == "dartforge_object_new" =>
@@ -315,8 +317,6 @@ fn narrow_enabled(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
                     | Instruction::CallInterface { .. }
                     | Instruction::CallDynamic { .. }
                     | Instruction::CallClosureForward { .. }
-                    | Instruction::TypedCall { .. }
-                    | Instruction::AllocClosureTyped { .. }
                     | Instruction::AllocList { .. }
                     | Instruction::AllocRecord { .. }
                     | Instruction::AllocCell { .. }
@@ -449,6 +449,7 @@ fn covered_runtime(symbol: &str) -> bool {
     matches!(
         symbol,
         "dartforge_object_new"
+            | "dartforge_value_class"
             | "dartforge_object_get"
             | "dartforge_object_set"
             | "dartforge_mark_constant"

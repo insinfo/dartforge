@@ -297,6 +297,251 @@ fn bounded_uniform_closures_keep_transitive_allocations_and_drop_unrelated_table
     }
 }
 
+fn typed_closure_fixture(runtime_reads: bool) -> Module {
+    let mut module = closure_fixture(false);
+    let typed = "df.test.create.typed";
+    let mut body = function(
+        typed,
+        vec![(
+            ValueId(1),
+            Instruction::AllocObject {
+                class_id: 302,
+                fields: vec![],
+            },
+            Type::Ref,
+        )],
+    );
+    body.params = vec![(ValueId(0), "environment".into(), Type::Ref)];
+    body.return_ty = Type::Ref;
+    body.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
+    module.functions.push(body);
+    let instructions = &mut module.functions[0].blocks[0].instructions;
+    instructions[1].1 = Instruction::AllocClosureTyped {
+        code_symbol: "df.test.create".into(),
+        env: Operand::Constant(Constant::Null),
+        typed: typed.into(),
+        abi: 6,
+        direct: false,
+    };
+    let read = |index, ty| {
+        if runtime_reads {
+            Instruction::CallRuntime {
+                name: "dartforge_object_get".into(),
+                args: vec![
+                    (Operand::Val(ValueId(1)), Type::Ref),
+                    (Operand::Constant(Constant::Int(index)), Type::I64),
+                ],
+                ret_ty: ty,
+            }
+        } else {
+            Instruction::GetField {
+                object: Operand::Val(ValueId(1)),
+                index: index as usize,
+            }
+        }
+    };
+    instructions[2] = (ValueId(2), read(2, Type::I64), Type::I64);
+    instructions.push((ValueId(3), read(1, Type::Ref), Type::Ref));
+    instructions.push((
+        ValueId(4),
+        Instruction::TypedCall {
+            target: Operand::Val(ValueId(2)),
+            args: vec![(Operand::Val(ValueId(3)), Type::Ref)],
+            ret: Type::Ref,
+        },
+        Type::Ref,
+    ));
+    module
+}
+
+#[test]
+fn local_typed_closure_entries_have_bounded_allocation_reachability() {
+    for runtime_reads in [false, true] {
+        let mut module = typed_closure_fixture(runtime_reads);
+        assert!(apply(&mut module), "runtime reads={runtime_reads}");
+        assert_eq!(
+            module.closed_class_tables.as_ref().unwrap(),
+            &HashSet::from([300, 302])
+        );
+        let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
+        assert!(ir.contains("define ptr @df.mt.Nested("));
+        assert!(!ir.contains("define ptr @df.mt.Unused("));
+    }
+}
+
+fn typed_scalar_argument(module: &mut Module, ty: Type, argument: Operand, abi: i64) {
+    module
+        .functions
+        .last_mut()
+        .unwrap()
+        .params
+        .push((ValueId(2), "argument".into(), ty));
+    if let Instruction::AllocClosureTyped { abi: value, .. } =
+        &mut module.functions[0].blocks[0].instructions[1].1
+    {
+        *value = abi;
+    }
+    if let Instruction::TypedCall { args, .. } =
+        &mut module.functions[0].blocks[0].instructions[4].1
+    {
+        args.push((argument, ty));
+    }
+}
+
+fn typed_scalar_result(module: &mut Module, ty: Type, value: Constant, abi: i64) {
+    let body = module.functions.last_mut().unwrap();
+    body.return_ty = ty;
+    body.blocks[0].instructions[0] = (ValueId(1), Instruction::Const(value), ty);
+    if let Instruction::AllocClosureTyped { abi: value, .. } =
+        &mut module.functions[0].blocks[0].instructions[1].1
+    {
+        *value = abi;
+    }
+    let call = &mut module.functions[0].blocks[0].instructions[4];
+    if let Instruction::TypedCall { ret, .. } = &mut call.1 {
+        *ret = ty;
+    }
+    call.2 = ty;
+}
+
+#[test]
+fn typed_scalar_representations_match_the_encoded_entry_abi() {
+    for (ty, argument, abi) in [
+        (Type::I64, Operand::Constant(Constant::Int(7)), 36),
+        (Type::F64, Operand::Constant(Constant::Double(2.5)), 41),
+        (Type::I1, Operand::Constant(Constant::Bool(true)), 46),
+    ] {
+        let mut module = typed_closure_fixture(true);
+        typed_scalar_argument(&mut module, ty, argument, abi);
+        assert!(apply(&mut module), "{ty:?}");
+    }
+    for (ty, value, abi) in [
+        (Type::I64, Constant::Int(7), 7),
+        (Type::F64, Constant::Double(2.5), 8),
+        (Type::I1, Constant::Bool(true), 9),
+    ] {
+        let mut module = typed_closure_fixture(false);
+        typed_scalar_result(&mut module, ty, value, abi);
+        assert!(apply(&mut module), "result {ty:?}");
+    }
+}
+
+#[test]
+fn typed_code_addresses_and_signatures_cannot_escape_or_be_forged() {
+    for variant in 0..16 {
+        let mut module = typed_closure_fixture(false);
+        match variant {
+            0 => {
+                if let Instruction::AllocClosureTyped { abi, .. } =
+                    &mut module.functions[0].blocks[0].instructions[1].1
+                {
+                    *abi = 7;
+                }
+            }
+            1 => module.functions.last_mut().unwrap().params[0].2 = Type::I64,
+            2 => module.functions.last_mut().unwrap().return_ty = Type::I64,
+            3 => {
+                if let Instruction::AllocClosureTyped { typed, .. } =
+                    &mut module.functions[0].blocks[0].instructions[1].1
+                {
+                    *typed = "df.missing.typed".into();
+                }
+            }
+            4 => {
+                if let Instruction::TypedCall { args, .. } =
+                    &mut module.functions[0].blocks[0].instructions[4].1
+                {
+                    args[0] = (Operand::Constant(Constant::Int(0)), Type::I64);
+                }
+            }
+            5 => {
+                if let Instruction::TypedCall { ret, .. } =
+                    &mut module.functions[0].blocks[0].instructions[4].1
+                {
+                    *ret = Type::I64;
+                }
+            }
+            6 => module.functions[0].blocks[0].instructions[2].2 = Type::Ref,
+            7 => {
+                if let Instruction::GetField { index, .. } =
+                    &mut module.functions[0].blocks[0].instructions[2].1
+                {
+                    *index = 0;
+                }
+            }
+            8 => {
+                if let Instruction::TypedCall { target, .. } =
+                    &mut module.functions[0].blocks[0].instructions[4].1
+                {
+                    *target = Operand::Constant(Constant::Int(42));
+                }
+            }
+            9 => module.functions[0].blocks[0].instructions.push((
+                ValueId(5),
+                Instruction::SetField {
+                    object: Operand::Val(ValueId(1)),
+                    index: 2,
+                    value: Operand::Constant(Constant::Int(0)),
+                },
+                Type::Void,
+            )),
+            10 => {
+                module.globals.push((0, Type::I64, "df.address".into()));
+                module.functions[0].blocks[0].instructions.push((
+                    ValueId(5),
+                    Instruction::StoreGlobal {
+                        symbol: "df.address".into(),
+                        val: Operand::Val(ValueId(2)),
+                        ty: Type::I64,
+                        root: None,
+                    },
+                    Type::Void,
+                ));
+            }
+            11 => {
+                if let Instruction::TypedCall { args, .. } =
+                    &mut module.functions[0].blocks[0].instructions[4].1
+                {
+                    args[0] = (Operand::Val(ValueId(1)), Type::Ref);
+                }
+            }
+            12 => module.functions[0].blocks[0].instructions.push((
+                ValueId(5),
+                Instruction::GetField {
+                    object: Operand::Val(ValueId(2)),
+                    index: 1,
+                },
+                Type::Ref,
+            )),
+            13 => {
+                module.functions.last_mut().unwrap().params.push((
+                    ValueId(2),
+                    "unsupported".into(),
+                    Type::Ptr,
+                ));
+            }
+            14 => {
+                let call = &mut module.functions[0].blocks[0].instructions[4];
+                if let Instruction::TypedCall { ret, .. } = &mut call.1 {
+                    *ret = Type::I64;
+                }
+                call.2 = Type::I64;
+            }
+            _ => {
+                for index in 0..13 {
+                    module.functions.last_mut().unwrap().params.push((
+                        ValueId(index + 2),
+                        format!("arg{index}"),
+                        Type::I64,
+                    ));
+                }
+            }
+        }
+        assert!(!apply(&mut module), "typed variant {variant}");
+        assert!(module.closed_class_tables.is_none());
+    }
+}
+
 #[test]
 fn escaped_mutated_unresolved_or_mismatched_closures_keep_wide_registration() {
     for variant in 0..16 {
@@ -852,6 +1097,92 @@ fn compiled_closed_selector_matches_eager_registration() {
         .unwrap()
         .join()
         .unwrap();
+}
+
+#[test]
+#[ignore = "requires Clang and the native runtime"]
+fn compiled_typed_closures_preserve_dispatch_and_stress_gc() {
+    std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+        let directory = tempfile::tempdir().unwrap();
+        for runtime_reads in [false, true] {
+            for scalar in 0..8 {
+                let mut source = typed_closure_fixture(runtime_reads);
+                match scalar {
+                    1 => typed_scalar_argument(&mut source, Type::I64, Operand::Constant(Constant::Int(7)), 36),
+                    2 => typed_scalar_argument(&mut source, Type::F64, Operand::Constant(Constant::Double(2.5)), 41),
+                    3 => typed_scalar_argument(&mut source, Type::I1, Operand::Constant(Constant::Bool(true)), 46),
+                    4 => typed_scalar_result(&mut source, Type::I64, Constant::Int(7), 7),
+                    5 => typed_scalar_result(&mut source, Type::F64, Constant::Double(2.5), 8),
+                    6 => typed_scalar_result(&mut source, Type::I1, Constant::Bool(true), 9),
+                    7 => {
+                        if let Instruction::AllocClosureTyped { env, direct, .. } =
+                            &mut source.functions[0].blocks[0].instructions[1].1 {
+                            *env = Operand::Val(ValueId(0));
+                            *direct = true;
+                        }
+                        source.functions.last_mut().unwrap().blocks[0].terminator =
+                            Terminator::Return(Some(Operand::Val(ValueId(0))));
+                    }
+                    _ => (),
+                }
+                source.functions[0].blocks[0].instructions.extend([
+                    (ValueId(10), Instruction::CallRuntime { name: "dartforge_value_class".into(),
+                        args: vec![(Operand::Val(ValueId(1)), Type::Ref)], ret_ty: Type::I64 }, Type::I64),
+                    (ValueId(11), Instruction::CallRuntime { name: "dartforge_object_get".into(),
+                        args: vec![(Operand::Val(ValueId(1)), Type::Ref), (Operand::Constant(Constant::Int(3)), Type::I64)],
+                        ret_ty: Type::I64 }, Type::I64),
+                ]);
+                source.runtime_cids = dartforge_runtime::layout::cid::SDK_CLASSES.iter()
+                    .map(|(cid, _, _)| i64::from(*cid)).collect();
+                if scalar < 4 || scalar == 7 {
+                source.functions[0].blocks[0].instructions.extend([
+                    (ValueId(5), Instruction::CallSelector {
+                        selector: "c:used".into(), recv: Operand::Val(ValueId(4)),
+                        args: vec![], names: vec![], tuple_types: Operand::Constant(Constant::Null),
+                    }, Type::Ref),
+                    (ValueId(6), Instruction::ICmp(ICmpOp::Eq, Operand::Val(ValueId(5)),
+                        Operand::Constant(Constant::Null)), Type::I1),
+                ]);
+                } else {
+                    let comparison = match scalar {
+                        4 => Instruction::ICmp(ICmpOp::Eq, Operand::Val(ValueId(4)), Operand::Constant(Constant::Int(7))),
+                        5 => Instruction::FCmp(FCmpOp::Eq, Operand::Val(ValueId(4)), Operand::Constant(Constant::Double(2.5))),
+                        _ => Instruction::ICmp(ICmpOp::Eq, Operand::Val(ValueId(4)), Operand::Constant(Constant::Bool(true))),
+                    };
+                    source.functions[0].blocks[0].instructions.push((ValueId(6), comparison, Type::I1));
+                }
+                source.functions[0].blocks[0].terminator = Terminator::CondBranch {
+                    cond: Operand::Val(ValueId(6)), then_block: BlockId(1), else_block: BlockId(2),
+                };
+                source.functions[0].blocks.extend([
+                    BasicBlock { id: BlockId(1), instructions: vec![], terminator: Terminator::Return(None) },
+                    BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Throw(Operand::Constant(Constant::Null)) },
+                ]);
+                for closed in [false, true] {
+                    let mut module = source.clone();
+                    if closed { assert!(apply(&mut module)); }
+                    let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
+                    assert!(ir.contains("define ptr @df.mt.Nested("));
+                    assert_eq!(ir.contains("define ptr @df.mt.Unused("), !closed);
+                    // This ABI fixture imports no SDK; use the runtime-owned main.
+                    let wrapper = "define i32 @main() {\n  %r = call i32 @dartforge_init(ptr @dartforge_entry, ptr @dartforge_dispatch_toString)\n  ret i32 %r\n}\n";
+                    assert_eq!(ir.matches(wrapper).count(), 1);
+                    let executable = directory.path().join(crate::target::executable_name(
+                        &format!("typed-{runtime_reads}-{scalar}-{closed}")));
+                    crate::driver::compile_and_link(&ir.replacen(wrapper, "", 1), &executable,
+                        &crate::driver::NativeDriverOptions::default()).unwrap();
+                    for stress in [false, true] {
+                        let mut command = std::process::Command::new(&executable);
+                        if stress { command.env("DARTFORGE_GC_STRESS", "1"); }
+                        let output = command.output().unwrap();
+                        assert!(output.status.success(), "reads={runtime_reads}, scalar={scalar}, closed={closed}, stress={stress}: {}",
+                            String::from_utf8_lossy(&output.stderr));
+                        assert!(output.stdout.is_empty() && output.stderr.is_empty());
+                    }
+                }
+            }
+        }
+    }).unwrap().join().unwrap();
 }
 
 #[test]

@@ -1,0 +1,70 @@
+Cargo LLVM linker: /Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/ld64.lld; SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+
+warning: `dartforge-emit-native` (build script) generated 1 warning
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+warning: method `identity` is never used
+   --> crates/emit_native/src/hir.rs:256:19
+    |
+254 | impl FieldDeclaration {
+    | --------------------- method in this implementation
+255 |     /// Semantic identity excludes flags and layout premises, which a proof must reconcile.
+256 |     pub(crate) fn identity(&self) -> (&str, &str, &str) {
+    |                   ^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib) generated 1 warning
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/liblibz_sys-032d16bd0c4624ad.rlib(f0389296f42960e9-deflate.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/liblibz_sys-032d16bd0c4624ad.rlib(f0389296f42960e9-adler32.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/liblibz_sys-032d16bd0c4624ad.rlib(f0389296f42960e9-crc32.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/liblibz_sys-032d16bd0c4624ad.rlib(f0389296f42960e9-inflate.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/liblibz_sys-032d16bd0c4624ad.rlib(f0389296f42960e9-inffast.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/liblibz_sys-032d16bd0c4624ad.rlib(f0389296f42960e9-inftrees.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/liblibz_sys-032d16bd0c4624ad.rlib(f0389296f42960e9-trees.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/liblibz_sys-032d16bd0c4624ad.rlib(f0389296f42960e9-zutil.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(25ac62e5b3c53843-curve25519.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(0bbbd18bda93c05b-aes_nohw.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(00c879ee3285a50d-montgomery.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(00c879ee3285a50d-montgomery_inv.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(a0330e891e733f4e-gfp_p384.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(a0330e891e733f4e-ecp_nistz.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(aaa1ba3e455ee2e1-limbs.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(a4019cc0736b0423-mem.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(d5a9841f3dc6e253-poly1305.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(a0330e891e733f4e-p256-nistz.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(c322a0bcc369f531-chacha-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(c322a0bcc369f531-chacha20_poly1305_armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(c322a0bcc369f531-aesv8-armx-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(c322a0bcc369f531-aesv8-gcm-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(c322a0bcc369f531-ghash-neon-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(c322a0bcc369f531-ghashv8-armx-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(c322a0bcc369f531-vpaes-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(c322a0bcc369f531-armv8-mont-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(c322a0bcc369f531-p256-armv8-asm-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(c322a0bcc369f531-sha512-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-ef1cb4617f6d1858.rlib(c322a0bcc369f531-sha256-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+
+warning: `dartforge-emit-native` (bin "differential") generated 1 warning
+warning: `dartforge-emit-native` (test "production_profile") generated 1 warning (1 duplicate)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.64s
+     Running tests/production_profile.rs (target/impl-a/debug/deps/production_profile-0a3d5ceb95ae9f1b)
+
+running 1 test
+test platform_constant_prunes_the_other_backends has been running for over 60 seconds
+
+thread 'platform_constant_prunes_the_other_backends' (1605611) panicked at crates/emit_native/tests/production_profile.rs:108:9:
+WindowsBackend bodies should have left the IR
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test platform_constant_prunes_the_other_backends ... FAILED
+
+failures:
+
+failures:
+    platform_constant_prunes_the_other_backends
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 113.12s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --test production_profile`

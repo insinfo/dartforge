@@ -2,6 +2,25 @@
 
 ## Atualização de 19/10/2026
 
+- A análise experimental de tabelas fechadas admite entradas tipadas de closures
+  locais com ABI conferida, contexto `Ref` e até 12 argumentos representáveis.
+  A leitura direta do campo de código precisa vir de um handle local protegido;
+  o endereço só pode servir à chamada com assinatura exata. Mutação, escape,
+  endereço forjado ou lido como objeto continuam recusados. As leituras de classe
+  e ABI usadas pelo lowering também são cobertas. O teste positivo falhava antes;
+  passaram os 25 casos dirigidos, incluindo 16 recusas e a comparação em 32
+  binários/64 execuções com registro amplo/reduzido e GC normal/forçado, argumentos
+  e retornos escalares e contexto capturado. A fixture não importa SDK.
+  Passaram 822 testes unitários nativos com `--include-ignored` e 121 doctests;
+  os 25 casos dirigidos foram repetidos após a última expansão da matriz.
+  Clippy mantém 33/47 diagnósticos de lib/teste, sem novos nos arquivos alterados;
+  checks globais de fmt/Clippy/link continuam pendentes, com avisos na documentação.
+  A inicialização do SDK continua sem prova completa; o teste real de remoção
+  dos backends estrangeiros foi repetido e ainda falha, sem relaxar a exigência.
+  A opção permanece `DARTFORGE_CLOSED_CLASS_REACHABILITY=1`; não há nova alegação
+  de redução do explorador. Evidências e checks:
+  `bench/results/2026-10-19-closed-typed-closures/README.md`.
+
 - A configuração Cargo deixa de exportar um caminho absoluto de LLVM para
   Windows em todos os sistemas. O seletor usa o prefixo explícito ou procura
   `llvm-config` 22.1 no `PATH`, sem presumir `/usr/lib/llvm-22`; consulta a versão

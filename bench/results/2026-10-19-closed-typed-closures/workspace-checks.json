@@ -1,0 +1,26 @@
+{
+  "fmt": {
+    "exit": 1,
+    "local_full_log": "/tmp/forge-typed-closure-root/fmt.log",
+    "bytes": 15748062,
+    "sha256": "177d397da3b0deda5de60fcc7b734ea6c2814567af1ffbe86a674582d14eb209"
+  },
+  "clippy": {
+    "exit": 101,
+    "local_full_log": "/tmp/forge-typed-closure-root/clippy.log",
+    "bytes": 39999,
+    "sha256": "91d5b7556d639166694b3a6d56094d405954e2529a5f29ca1fab6128d79d1834"
+  },
+  "test": {
+    "exit": 101,
+    "local_full_log": "/tmp/forge-typed-closure-root/test.log",
+    "bytes": 472901,
+    "sha256": "16a33e2fc980e9fee5948db84b97fc722a5622f345c11397829ad083ec171e4e"
+  },
+  "doc": {
+    "exit": 0,
+    "local_full_log": "/tmp/forge-typed-closure-root/doc.log",
+    "bytes": 11872,
+    "sha256": "c04f652344bc2350352386d7b9bb45c84280e01bd8b9806c071e44d5eae4c403"
+  }
+}

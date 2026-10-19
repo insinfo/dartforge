@@ -364,9 +364,30 @@ definição SSA ou à leitura do contexto capturado. Escapes por argumentos,
 globais, retornos, aliases ou escritas mantêm o registro amplo. O receptor
 implícito da entrada também fica protegido: a assinatura uniforme, sozinha, não
 autoriza invocá-lo, pois o mesmo corpo pode ser alcançado por seletor ou chamada
-estática. Closures tipadas, encaminhadas e vindas do SDK continuam fora dessa
-prova. As alocações transitivas do corpo local ativam suas tabelas no mesmo
-grafo. O suporte não elimina as fronteiras ainda abertas da inicialização do SDK.
+estática. Closures encaminhadas e vindas do SDK continuam fora dessa prova.
+As alocações transitivas do corpo local ativam suas tabelas no mesmo grafo. O
+suporte não elimina as fronteiras ainda abertas da inicialização do SDK.
+
+Closures tipadas locais agora também podem fechar essa fronteira. As duas
+entradas precisam ter corpo no módulo: a uniforme continua exigindo
+`Ref(Ref, Ptr, Ptr)` e a tipada exige contexto `Ref`, até 12 argumentos nas
+representações `Ref`/`I64`/`F64`/`I1` e resultado em uma dessas representações.
+O código ABI armazenado na criação precisa coincidir com a assinatura do corpo.
+O endereço tipado só pode vir de uma leitura direta do campo de código do mesmo
+handle SSA, por `GetField` ou `dartforge_object_get`, e servir à chamada tipada;
+não pode ser armazenado, retornado, transformado ou passado como argumento.
+Cada chamada confere quantidade e representação dos argumentos e resultado.
+Leituras de contexto, código ABI e classe do handle são permitidas; escritas e
+escapes continuam recusados. O layout vem das constantes do runtime.
+
+A fixture tipada compara registro amplo/reduzido em 32 binários e 64 execuções
+com GC normal/forçado, incluindo argumentos e resultados `int`/`double`/`bool` e contexto capturado.
+O caso com resultado objeto verifica despacho por seletor sobre a classe criada
+pelo corpo tipado, preservando sua tabela e removendo a classe sem uso.
+Dezesseis variantes negativas cobrem ABI, assinatura, endereço forjado, mutação,
+leitura de ponteiro como objeto e escape. É uma fixture de ABI sem SDK, não
+certificação do aplicativo completo nem remoção dos backends estrangeiros.
+Evidências: `bench/results/2026-10-19-closed-typed-closures/README.md`.
 
 Tabelas das classes canônicas do runtime são protegidas independentemente do vetor
 opcional de registro do módulo: boxing, strings e exceções podem criar esses

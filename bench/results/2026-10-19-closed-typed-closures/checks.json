@@ -1,0 +1,12 @@
+{
+  "native_unit_tests": 822,
+  "native_doctests": 121,
+  "final_directed_tests": 25,
+  "new_typed_binaries": 32,
+  "new_typed_executions": 64,
+  "negative_variants": 16,
+  "production_pruning": "still failing; foreign backend bodies remain",
+  "mode": "opt-in",
+  "baseline": "363801f3",
+  "full_suite_matrix": "before final test-only captured-context expansion; all 25 affected cases repeated afterward"
+}
