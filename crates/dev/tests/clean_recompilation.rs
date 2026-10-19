@@ -131,7 +131,11 @@ fn files(root: &Path) -> BTreeMap<String, Vec<u8>> {
             if p.is_dir() {
                 collect(root, &p, out);
             } else {
-                let rel = p.strip_prefix(root).unwrap().to_string_lossy().replace('\\', "/");
+                let rel = p
+                    .strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/");
                 out.insert(rel, std::fs::read(&p).unwrap());
             }
         }
@@ -172,12 +176,23 @@ fn incremental_recompilation_equals_clean_compilation() {
 
     let a = files(&session_output);
     let b = files(&clean_output);
-    assert_eq!(a.keys().collect::<Vec<_>>(), b.keys().collect::<Vec<_>>(), "different sets of files");
+    assert_eq!(
+        a.keys().collect::<Vec<_>>(),
+        b.keys().collect::<Vec<_>>(),
+        "different sets of files"
+    );
     for (path, clean_bytes) in &b {
         let incremental = &a[path];
         if incremental != clean_bytes {
-            let (ti, tc) = (String::from_utf8_lossy(incremental), String::from_utf8_lossy(clean_bytes));
-            let line = ti.lines().zip(tc.lines()).position(|(x, y)| x != y).unwrap_or(0);
+            let (ti, tc) = (
+                String::from_utf8_lossy(incremental),
+                String::from_utf8_lossy(clean_bytes),
+            );
+            let line = ti
+                .lines()
+                .zip(tc.lines())
+                .position(|(x, y)| x != y)
+                .unwrap_or(0);
             panic!(
                 "{path}: the incremental recompilation diverges from the clean compilation at line {}:\n  incremental: {}\n  clean:       {}",
                 line + 1,
@@ -188,7 +203,121 @@ fn incremental_recompilation_equals_clean_compilation() {
     }
 
     // The test only holds if the final text has the constructors in source order.
-    let module = b.iter().find(|(c, _)| c.ends_with("main.js")).map(|(_, t)| String::from_utf8_lossy(t).into_owned()).expect("main module");
-    let pos = |s: &str| module.find(s).unwrap_or_else(|| panic!("`{s}` missing from the module"));
-    assert!(pos("_#alpha#tearOff") < pos("_#beta#tearOff") && pos("_#beta#tearOff") < pos("_#gamma#tearOff"), "tearoffs out of declaration order");
+    let module = b
+        .iter()
+        .find(|(c, _)| c.ends_with("main.js"))
+        .map(|(_, t)| String::from_utf8_lossy(t).into_owned())
+        .expect("main module");
+    let pos = |s: &str| {
+        module
+            .find(s)
+            .unwrap_or_else(|| panic!("`{s}` missing from the module"))
+    };
+    assert!(
+        pos("_#alpha#tearOff") < pos("_#beta#tearOff")
+            && pos("_#beta#tearOff") < pos("_#gamma#tearOff"),
+        "tearoffs out of declaration order"
+    );
+}
+
+#[test]
+fn rejected_revisions_preserve_output_and_fail_again_until_fixed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let sdk = simulated_sdk(tmp.path());
+    let main = tmp.path().join("main.dart");
+    let output = tmp.path().join("incremental");
+    std::fs::write(
+        &main,
+        "void main() { final int value = 42; print(value); }\n",
+    )
+    .unwrap();
+    let mut session = Session::new(&main, Some(&sdk), None, &output).unwrap();
+    session.compile().unwrap();
+    let last_good = files(&output);
+    assert!(!last_good.is_empty());
+
+    std::fs::write(&main, "void main() { final int value; print(value); }\n").unwrap();
+    session.file_changed(&main);
+    let first_error = session
+        .compile()
+        .expect_err("unassigned final must reject the revision");
+    assert!(first_error.contains("compilation error"), "{first_error}");
+    assert!(
+        files(&output) == last_good,
+        "rejected revision changed output"
+    );
+    let retry_error = session
+        .compile()
+        .expect_err("retrying unchanged invalid source must still fail");
+    assert!(retry_error.contains("compilation error"), "{retry_error}");
+    assert!(
+        files(&output) == last_good,
+        "rejected revision changed output"
+    );
+
+    std::fs::write(
+        &main,
+        "void main() { final int value = 43; print(value); }\n",
+    )
+    .unwrap();
+    session.file_changed(&main);
+    session.compile().expect("fixed revision");
+    let clean_output = tmp.path().join("clean");
+    let mut clean = Session::new(&main, Some(&sdk), None, &clean_output).unwrap();
+    clean.compile().unwrap();
+    assert!(
+        files(&output) == files(&clean_output),
+        "recovered output differs from clean compilation"
+    );
+    assert!(
+        files(&output) != last_good,
+        "fixed revision did not change output"
+    );
+}
+
+#[test]
+fn ordinary_type_warnings_remain_nonfatal_in_development() {
+    let tmp = tempfile::tempdir().unwrap();
+    let sdk = simulated_sdk(tmp.path());
+    let main = tmp.path().join("main.dart");
+    let output = tmp.path().join("warnings");
+    std::fs::write(&main, "void main() { int value = 'text'; print(value); }\n").unwrap();
+    let mut session = Session::new(&main, Some(&sdk), None, &output).unwrap();
+    let report = session
+        .compile()
+        .expect("ordinary type warnings remain warnings");
+    assert!(report.type_warnings > 0);
+    assert!(!files(&output).is_empty());
+}
+
+#[test]
+fn failed_output_write_is_retried_without_another_edit() {
+    let tmp = tempfile::tempdir().unwrap();
+    let sdk = simulated_sdk(tmp.path());
+    let main = tmp.path().join("main.dart");
+    let output = tmp.path().join("incremental");
+    std::fs::write(&main, "void main() { print(1); }\n").unwrap();
+    let mut session = Session::new(&main, Some(&sdk), None, &output).unwrap();
+    session.compile().unwrap();
+    let blocked = output.join("main.js");
+    assert!(blocked.is_file());
+    std::fs::remove_file(&blocked).unwrap();
+    std::fs::create_dir(&blocked).unwrap();
+    std::fs::write(&main, "void main() { print(2); }\n").unwrap();
+    session.file_changed(&main);
+    assert!(
+        session.compile().is_err(),
+        "directory must block the module write"
+    );
+    std::fs::remove_dir(&blocked).unwrap();
+    session
+        .compile()
+        .expect("retry after removing the I/O obstruction");
+    let clean_output = tmp.path().join("clean");
+    let mut clean = Session::new(&main, Some(&sdk), None, &clean_output).unwrap();
+    clean.compile().unwrap();
+    assert!(
+        files(&output) == files(&clean_output),
+        "recovered output differs from clean compilation"
+    );
 }

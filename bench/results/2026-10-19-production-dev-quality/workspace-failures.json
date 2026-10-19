@@ -1,0 +1,26 @@
+{
+  "fmt": {
+    "exit_code": 1,
+    "full_log_bytes": 15811066,
+    "full_log_sha256": "d91fec4a1696f7aa8445db18a646f16e356e587a2c419627a118237df799f697",
+    "excerpt": "workspace-fmt-excerpt.txt"
+  },
+  "clippy": {
+    "exit_code": 101,
+    "full_log_bytes": 126679,
+    "full_log_sha256": "6dc62b2995b42675ccf153c5c7e48f7c41dda7d7fa87ede468d6a8f5c689575e",
+    "excerpt": "workspace-clippy-excerpt.txt",
+    "reported_crate_failures": [
+      "error: could not compile `dartforge-parity` (lib) due to 12 previous errors",
+      "error: could not compile `dartforge-parity` (lib test) due to 12 previous errors",
+      "error: could not compile `dartforge-emit-native` (lib) due to 154 previous errors",
+      "error: could not compile `dartforge-emit-native` (lib test) due to 192 previous errors"
+    ]
+  },
+  "tests": {
+    "exit_code": 101,
+    "full_log_bytes": 1655648,
+    "full_log_sha256": "346edd4effcad5fecc17a1c107dfe88443039770df3fdd7c5283c1caab13d8b4",
+    "excerpt": "workspace-tests-excerpt.txt"
+  }
+}

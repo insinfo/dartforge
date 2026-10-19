@@ -172,11 +172,10 @@ fn definitions(modules: &[(String, String)], idents: &HashSet<&str>) -> Definiti
                     } else if assigns(rest) || rest.starts_with('[') {
                         d.names.insert(name);
                     }
-                } else if b.get(f) == Some(&b'[') {
-                    if let Some((_, k)) = entry_key(&t2[f..]) {
+                } else if b.get(f) == Some(&b'[')
+                    && let Some((_, k)) = entry_key(&t2[f..]) {
                         d.names.insert(format!("{ns}.{k}"));
                     }
-                }
             }
         }
     }
@@ -440,13 +439,12 @@ fn text_selectors(text: &str, reads: &mut HashSet<String>, writes: &mut HashSet<
                 while f < b.len() && b[f] != b'"' && b[f] != b'\n' {
                     f += 1;
                 }
-                if b.get(f + 1) == Some(&b']') {
-                    if let Some(n) = dartforge_emit_js::dart_name_of_private(&text[start..f]) {
+                if b.get(f + 1) == Some(&b']')
+                    && let Some(n) = dartforge_emit_js::dart_name_of_private(&text[start..f]) {
                         let e = access_after(b, f + 2);
                         record(n, e, reads, writes);
                         record(n, e, sym_reads, sym_writes);
                     }
-                }
                 i = f + 1;
             }
             // An operator of a program class: `a["+"](b)`.
@@ -643,12 +641,11 @@ fn resolve_reference(r: &str, libs: &HashMap<String, LibraryId>, program: &Progr
     for el in [b.getter, b.setter].into_iter().flatten() {
         // A non-interop extension type: the emitter never writes the class
         // (only the recipe, in the subtypes' rti rules).
-        if let Element::Class(c) = el {
-            if program.class(c).kind == dartforge_elements::model::ClassKind::ExtensionType {
+        if let Element::Class(c) = el
+            && program.class(c).kind == dartforge_elements::model::ClassKind::ExtensionType {
                 ok = true;
                 continue;
             }
-        }
         match (el, member) {
             (Element::Class(c), None) => {
                 f.classes.push(c);
@@ -664,21 +661,19 @@ fn resolve_reference(r: &str, libs: &HashMap<String, LibraryId>, program: &Progr
                 let ctor_name = if m == "new" { "" } else { m };
                 let mut found = None;
                 for cand in [m, m.strip_suffix('_').unwrap_or(m)] {
-                    if let Some(s) = interner.lookup(cand) {
-                        if let Some(&x) = class.static_members.get(&s) {
+                    if let Some(s) = interner.lookup(cand)
+                        && let Some(&x) = class.static_members.get(&s) {
                             found = Some(x);
                             break;
                         }
-                    }
                 }
                 if found.is_none() {
                     for cand in [ctor_name, ctor_name.strip_suffix('_').unwrap_or(ctor_name)] {
-                        if let Some(s) = interner.lookup(cand) {
-                            if let Some(&x) = class.constructors.get(&s) {
+                        if let Some(s) = interner.lookup(cand)
+                            && let Some(&x) = class.constructors.get(&s) {
                                 found = Some(x);
                                 break;
                             }
-                        }
                     }
                 }
                 if found.is_none() && ctor_name.is_empty() && class.constructors.is_empty() {

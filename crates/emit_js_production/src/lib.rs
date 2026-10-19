@@ -191,11 +191,10 @@ pub fn compile(
 fn roots(a: &dartforge_emit_js::Analysis<'_>, index: &sdk::SdkIndex) -> dartforge_world::Roots {
     use dartforge_elements::model::Element;
     let mut r = dartforge_world::Roots::default();
-    if let (Some(lib), Some(sym)) = (a.program.entry, a.interner.lookup("main")) {
-        if let Some(Element::Function(f)) = a.program.library(lib).declared.get(&sym).and_then(|b| b.getter) {
+    if let (Some(lib), Some(sym)) = (a.program.entry, a.interner.lookup("main"))
+        && let Some(Element::Function(f)) = a.program.library(lib).declared.get(&sym).and_then(|b| b.getter) {
             r.functions.push(f);
         }
-    }
     r.selectors = index.dynamic_selectors();
     r
 }

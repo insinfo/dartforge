@@ -281,9 +281,24 @@ impl Session {
     ///
     /// # Errors
     ///
-    /// Load diagnostics, a failure of a generation stage, an emission error
-    /// or a write error.
+    /// Load diagnostics, mandatory language or definite-assignment errors, a
+    /// failure of a generation stage, an emission error or a write error.
+    /// Mandatory errors leave the last successful emitted output on disk.
     pub fn compile(&mut self) -> Result<Report, String> {
+        let result = self.compile_attempt();
+        if result.is_err() {
+            // A failed attempt may have updated hashes, fragments or module text
+            // before reporting its error. None of that is a successful revision.
+            self.hashes.clear();
+            self.dependents.clear();
+            self.modules.clear();
+            self.fragments.borrow_mut().clear();
+        }
+        result
+    }
+
+    /// Performs one attempt; compile invalidates reusable state on any error.
+    fn compile_attempt(&mut self) -> Result<Report, String> {
         let mut rel = Report { first: self.first, ..Default::default() };
 
         let t = Instant::now();
@@ -407,6 +422,13 @@ impl Session {
             ),
         };
         rel.bodies = t.elapsed();
+        let mut compile_errors = outline_diags.iter().chain(body_diags.iter())
+            .filter(|diagnostic| dartforge_types::codes::is_compile_error(&diagnostic.message));
+        if let Some(first_error) = compile_errors.next() {
+            let message = format!("{} compilation error(s): {first_error}", 1 + compile_errors.count());
+            self.units.reclaim(program);
+            return Err(message);
+        }
         rel.type_warnings = outline_diags.len() + body_diags.len();
 
         let t = Instant::now();
@@ -505,13 +527,12 @@ impl Session {
                 || l.units.iter().any(|&u| {
                     program.unit(u).path.as_ref().is_some_and(|p| self.dirty.contains(p))
                 });
-            if !dirty {
-                if let Some(&old) = self.hashes.get(&l.uri) {
+            if !dirty
+                && let Some(&old) = self.hashes.get(&l.uri) {
                     ids.insert(l.uri.clone(), lib);
                     new_hashes.insert(l.uri.clone(), old);
                     continue;
                 }
-            }
             let h = library_hashes(program, lib);
             match self.hashes.get(&l.uri) {
                 Some(old) => {
@@ -575,11 +596,10 @@ impl Session {
         } else {
             let mut libs: Vec<LibraryId> = Vec::new();
             for uri in content_changed.iter().chain(api_changed.iter()).chain(invalidated.iter()) {
-                if let Some(&id) = ids.get(uri) {
-                    if !libs.contains(&id) {
+                if let Some(&id) = ids.get(uri)
+                    && !libs.contains(&id) {
                         libs.push(id);
                     }
-                }
             }
             Some(libs)
         };

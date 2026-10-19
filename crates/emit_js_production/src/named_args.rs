@@ -51,15 +51,13 @@ pub fn compute(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::Wor
     let i = a.interner;
     let mut table = false;
     // `Function.apply` live.
-    if let (Some(core), Some(fsym), Some(asym)) = (p.core, i.lookup("Function"), i.lookup("apply")) {
-        if let Some(Element::Class(fc)) = p.library(core).declared.get(&fsym).and_then(|b| b.getter) {
-            if p.class(fc).static_members.get(&asym).is_some_and(|f| world.is_live_function(*f)) {
+    if let (Some(core), Some(fsym), Some(asym)) = (p.core, i.lookup("Function"), i.lookup("apply"))
+        && let Some(Element::Class(fc)) = p.library(core).declared.get(&fsym).and_then(|b| b.getter)
+            && p.class(fc).static_members.get(&asym).is_some_and(|f| world.is_live_function(*f)) {
                 // `Function.apply` translates the names at run time
                 // (`dart.nomeadoJS`, emitted with the table).
                 table = true;
             }
-        }
-    }
     // The program's own `noSuchMethod`, live outside the SDK.
     for (k, f) in p.functions.iter().enumerate() {
         if f.class.is_some() && !p.library(f.library).is_sdk && i.resolve(f.name) == "noSuchMethod" && world.is_live_function(FunctionElementId(k as u32)) {

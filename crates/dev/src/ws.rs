@@ -73,9 +73,9 @@ fn sha1(data: &[u8]) -> [u8; 20] {
         m.push(0);
     }
     m.extend_from_slice(&bits.to_be_bytes());
-    for block in m.chunks_exact(64) {
+    for block in m.as_chunks::<64>().0 {
         let mut w = [0u32; 80];
-        for (i, p) in block.chunks_exact(4).enumerate() {
+        for (i, p) in block.as_chunks::<4>().0.iter().enumerate() {
             w[i] = u32::from_be_bytes([p[0], p[1], p[2], p[3]]);
         }
         for i in 16..80 {
@@ -118,12 +118,24 @@ fn base64(data: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut s = String::with_capacity(data.len().div_ceil(3) * 4);
     for block in data.chunks(3) {
-        let b = [block[0], *block.get(1).unwrap_or(&0), *block.get(2).unwrap_or(&0)];
+        let b = [
+            block[0],
+            *block.get(1).unwrap_or(&0),
+            *block.get(2).unwrap_or(&0),
+        ];
         let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
         s.push(T[(n >> 18) as usize & 63] as char);
         s.push(T[(n >> 12) as usize & 63] as char);
-        s.push(if block.len() > 1 { T[(n >> 6) as usize & 63] as char } else { '=' });
-        s.push(if block.len() > 2 { T[n as usize & 63] as char } else { '=' });
+        s.push(if block.len() > 1 {
+            T[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        s.push(if block.len() > 2 {
+            T[n as usize & 63] as char
+        } else {
+            '='
+        });
     }
     s
 }
@@ -137,7 +149,10 @@ mod tests {
     /// the handshake.
     #[test]
     fn rfc_accept_key() {
-        assert_eq!(accept_key("dGhlIHNhbXBsZSBub25jZQ=="), "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
+        assert_eq!(
+            accept_key("dGhlIHNhbXBsZSBub25jZQ=="),
+            "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+        );
     }
 
     /// Classic FIPS 180-4 vectors.
@@ -145,9 +160,14 @@ mod tests {
     fn sha1_known() {
         let hex = |d: [u8; 20]| d.iter().map(|b| format!("{b:02x}")).collect::<String>();
         assert_eq!(hex(sha1(b"")), "da39a3ee5e6b4b0d3255bfef95601890afd80709");
-        assert_eq!(hex(sha1(b"abc")), "a9993e364706816aba3e25717850c26c9cd0d89d");
         assert_eq!(
-            hex(sha1(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")),
+            hex(sha1(b"abc")),
+            "a9993e364706816aba3e25717850c26c9cd0d89d"
+        );
+        assert_eq!(
+            hex(sha1(
+                b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"
+            )),
             "84983e441c3bd26ebaae4aa1f95129e5e54670f1"
         );
     }
@@ -160,28 +180,52 @@ mod tests {
         assert_eq!(base64(b"foobar"), "Zm9vYmFy");
     }
 
-    /// Frame header: FIN+text, short length and 16-bit length.
+    /// Exercise the actual handshake and frame writer over a connected socket.
     #[test]
-    fn frame_header() {
-        // The frame is built by the same logic as `text_frame`; here the
-        // header is checked without needing a socket.
-        let build = |n: usize| {
-            let mut q = vec![0x81u8];
-            match n {
-                n if n < 126 => q.push(n as u8),
-                n if n <= u16::MAX as usize => {
-                    q.push(126);
-                    q.extend_from_slice(&(n as u16).to_be_bytes());
+    fn handshake_and_frames_preserve_wire_bytes_and_utf8() {
+        use std::io::Read;
+        use std::net::TcpListener;
+        use std::time::Duration;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (mut server, _) = listener.accept().unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        server
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let frames = [
+            (String::new(), vec![0x81, 0]),
+            ("a".repeat(125), vec![0x81, 125]),
+            ("b".repeat(126), vec![0x81, 126, 0, 126]),
+            ("é".repeat(64), vec![0x81, 126, 0, 128]),
+            ("c".repeat(65_535), vec![0x81, 126, 255, 255]),
+            ("🦀".repeat(16_384), vec![0x81, 127, 0, 0, 0, 0, 0, 1, 0, 0]),
+        ];
+        std::thread::scope(|scope| {
+            let sent = &frames;
+            let writer = scope.spawn(move || {
+                handshake(&mut server, "dGhlIHNhbXBsZSBub25jZQ==").unwrap();
+                for (text, _) in sent {
+                    text_frame(&mut server, text).unwrap();
                 }
-                n => {
-                    q.push(127);
-                    q.extend_from_slice(&(n as u64).to_be_bytes());
-                }
+            });
+            let expected = b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n";
+            let mut response = vec![0; expected.len()];
+            client.read_exact(&mut response).unwrap();
+            assert_eq!(response, expected);
+            for (text, header) in &frames {
+                let mut received_header = vec![0; header.len()];
+                client.read_exact(&mut received_header).unwrap();
+                assert_eq!(&received_header, header);
+                let mut payload = vec![0; text.len()];
+                client.read_exact(&mut payload).unwrap();
+                assert_eq!(payload, text.as_bytes());
             }
-            q
-        };
-        assert_eq!(build(5), vec![0x81, 5]);
-        assert_eq!(build(200), vec![0x81, 126, 0, 200]);
-        assert_eq!(build(70000)[0..2], [0x81, 127]);
+            assert_eq!(client.read(&mut [0]).unwrap(), 0);
+            writer.join().unwrap();
+        });
     }
 }

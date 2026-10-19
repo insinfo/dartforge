@@ -166,10 +166,12 @@ fn cited_type_variables(js: &str, found: &Found) -> HashSet<String> {
     out
 }
 
+type Citations = (HashSet<String>, Found, Vec<(usize, usize)>);
+
 /// The cited names (see [`prune`]), the JSON of the rules and the
 /// `addRtiResources` lists; `None` if something does not have the expected
 /// shape.
-fn citations(js: &str) -> Option<(HashSet<String>, Found, Vec<(usize, usize)>)> {
+fn citations(js: &str) -> Option<Citations> {
     // The spans that do not count as citations: the JSON of the rules and
     // the `addRtiResources` lists (start and end of each `[...]` list).
     let mut lists: Vec<(usize, usize)> = Vec::new();

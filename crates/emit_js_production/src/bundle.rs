@@ -170,7 +170,7 @@ pub fn sdk_without_export(sdk: &str) -> String {
 pub fn entry_from_mjs(mjs: &str, modules: &[Module]) -> Option<String> {
     let line = mjs.lines().find(|l| l.contains(" as m } from './"))?;
     let ident = line.split("import { ").nth(1)?.split(" as m }").next()?.trim();
-    let path = line.rsplit("from './").nth(0)?.trim_end_matches("';");
+    let path = line.rsplit("from './").next()?.trim_end_matches("';");
     // The `export { L$foo as foo }` disappeared in `split`; the matching
     // namespace is that module's `var L$foo`. Matched by identifier suffix.
     let m = modules.iter().find(|m| m.path == path)?;

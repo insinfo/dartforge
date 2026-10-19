@@ -2,6 +2,27 @@
 
 ## Atualização de 19/10/2026
 
+- A sessão residente agora aplica o filtro de erros obrigatórios de linguagem
+  e atribuição definida usado por `compile-js`: a leitura de um `final` não
+  atribuído rejeita a revisão antes da emissão, preservando o JavaScript válido
+  anterior. Avisos comuns de tipos continuam não fatais. Qualquer erro invalida
+  hashes, dependentes, fragmentos e texto de módulos em memória; a nova tentativa
+  recompila mesmo sem outra edição. Dois testes falharam antes das correções:
+  aceitação da leitura inválida e retry de erro de gravação que deixava `main.js`
+  ausente. A recuperação agora coincide com compilação limpa. O medidor de edições
+  restaura bytes da fonte ao desenrolar um pânico, inclusive num teste com falha
+  real de `Session` e SDK; a restauração normal não sobrescreve uma mudança
+  posterior. A guarda depende da restauração de I/O e não cobre abort/kill.
+  O teste WebSocket usa handshake e frames reais por TCP local, com limites
+  de 125/126 e 65535/65536 bytes, UTF-8 e EOF, substituindo uma cópia da lógica.
+  Passaram 104 testes dirigidos (13 dev, três do medidor e 88 de produção), sem
+  ignorados nas execuções. O medidor está registrado no `cargo test` normal de
+  dev. Dev e emit-js-production passam no Clippy com todos
+  os alvos, sem novas supressões. Não foi medido ganho de desempenho. Checks
+  globais ainda falham; esta execução do Clippy reporta parity/emit-native,
+  a formatação geral e o link Apple/LLVM 22 continuam pendentes. Documentação
+  gerada com avisos. Evidências e limites:
+  `bench/results/2026-10-19-production-dev-quality/checks.json`.
 - Analysis passa no Clippy com todos os alvos, sem novas supressões. O cache de
   dependências consulta `&str`, separado por modo normal/dev, em vez de copiar
   o `pubspec.yaml` em cada acerto; mantém o limite combinado e resultados próprios.

@@ -423,8 +423,8 @@ pub fn apply(source: &str) -> Result<String, String> {
     for (_, _, _, _, g) in &a.type_args {
         *by_callee.entry(g.as_str()).or_default() += 1;
     }
-    if let Some((g, n)) = by_callee.iter().max_by_key(|(g, n)| (**n, std::cmp::Reverse(**g))) {
-        if *n >= 4 {
+    if let Some((g, n)) = by_callee.iter().max_by_key(|(g, n)| (**n, std::cmp::Reverse(**g)))
+        && *n >= 4 {
             let g = g.to_string();
             helpers.push_str(&format!("var t$Q = function(o, t) {{ o.$ti = o.$ti || t || {g}(o); }};\n"));
             for (i, f, x, t, callee) in &a.type_args {
@@ -433,7 +433,6 @@ pub fn apply(source: &str) -> Result<String, String> {
                 }
             }
         }
-    }
     // The program's closed recipes evaluated once: a repeated `t$R("R")`
     // becomes the variable `t$T…`, declared right after the SDK (the rti
     // universe already exists, and the result is the same canonical object).

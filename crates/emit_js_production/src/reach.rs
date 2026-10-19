@@ -179,7 +179,7 @@ pub fn path(units: &[Unit], roots: &[Sym], total_symbols: usize, target: Sym) ->
                 }
             }
         }
-        let Some(i) = unit_queue.pop_front() else { return None };
+        let i = unit_queue.pop_front()?;
         let u = &units[i as usize];
         let from = u.triggers.first().or(u.requirements.first()).copied();
         for &s in u.refs.iter().chain(u.selectors.iter()) {

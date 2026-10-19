@@ -1,0 +1,20 @@
+{
+  "checkpoint": "before compile failure cleanup; mandatory error filter already added",
+  "exit_code": 101,
+  "full_log_bytes": 64430366,
+  "full_log_sha256": "9829d6b4c5d734908119a1a1fea84c51c79dc887ec82ee81b58aa713e1f200fb",
+  "left_output_files": [
+    "dart_sdk.js",
+    "main.mjs",
+    "preambulo.js"
+  ],
+  "right_output_files": [
+    "dart_sdk.js",
+    "main.js",
+    "main.mjs",
+    "preambulo.js"
+  ],
+  "missing_after_retry": [
+    "main.js"
+  ]
+}

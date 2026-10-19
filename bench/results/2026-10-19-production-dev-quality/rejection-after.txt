@@ -1,0 +1,11 @@
+   Compiling dartforge-dev v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/dev)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.75s
+     Running tests/clean_recompilation.rs (target/debug/deps/clean_recompilation-0eda532db33cebfa)
+
+running 4 tests
+test ordinary_type_warnings_remain_nonfatal_in_development ... ok
+test failed_output_write_is_retried_without_another_edit ... ok
+test rejected_revisions_preserve_output_and_fail_again_until_fixed ... ok
+test incremental_recompilation_equals_clean_compilation ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s

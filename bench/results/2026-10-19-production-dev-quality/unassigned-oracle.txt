@@ -1,0 +1,3 @@
+bench/results/2026-10-19-production-dev-quality/unassigned.dart:4:9: Error: Final variable 'value' must be assigned before it can be used.
+  print(value);
+        ^^^^^

@@ -269,23 +269,21 @@ fn handle(
     // The file comes from the output; if it is not there, from the project's
     // `web` directory.
     let mut file = output.join(rel);
-    if !file.is_file() {
-        if let Some(w) = web {
+    if !file.is_file()
+        && let Some(w) = web {
             let alternative = w.join(rel);
             if alternative.is_file() {
                 file = alternative;
             }
         }
-    }
     if !file.is_file() {
         // SPA fallback only for navigation: an API `fetch` keeps getting 404.
         let no_extension = !rel.rsplit('/').next().unwrap_or("").contains('.');
-        if accepts_html && no_extension {
-            if let Some(html) = index_html(output, web) {
+        if accepts_html && no_extension
+            && let Some(html) = index_html(output, web) {
                 let _ = respond(&mut stream, 200, "text/html; charset=utf-8", html.as_bytes());
                 return;
             }
-        }
         let _ = respond(&mut stream, 404, "text/plain; charset=utf-8", b"not found");
         return;
     }

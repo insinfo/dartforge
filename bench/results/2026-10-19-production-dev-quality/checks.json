@@ -1,0 +1,130 @@
+{
+  "baseline": "7eebb717",
+  "environment": {
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "dart": "Dart SDK version: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on \"macos_arm64\"",
+    "node": "v24.21.0",
+    "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "DARTFORGE_LLVM_DIR": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+    "host": "macOS ARM64"
+  },
+  "source_sha256": {
+    "crates/dev/Cargo.toml": "747d45c57d8cee148bc8413859f3e57979be6a33a59409e20f1af40b340b88ff",
+    "crates/dev/examples/measure_generation.rs": "5902ddef887e2de72a2ce03abab3ff4dbc71ade8a3d00d557a022fe85d1f113b",
+    "crates/dev/src/hashes.rs": "7fab131cfd9579d90889718157626bf18c4e92274a6dbd377e9307305e6dc2bc",
+    "crates/dev/src/lib.rs": "757b8d49429584b657fda5c3bfc7c3711f5f14fa8b3af5a6455d594713071c1d",
+    "crates/dev/src/server.rs": "faea7e03c2ce109bce5a177dd6986e7a00f5962c2ac2241813470f9d380037f4",
+    "crates/dev/src/ws.rs": "562e66aa838e60cc742126f3999711b3c0121cd1f45859aaccbd2a1fed117258",
+    "crates/dev/tests/clean_recompilation.rs": "cefd8edccaab1d05af6a747ab0da541e268501e7e2466de7e1cc3cf3a578b8b0",
+    "crates/emit_js_production/examples/composition.rs": "c294ef9743233f3f8c5488f11d087294b26e40dd576cabaeed2e550e969fd03a",
+    "crates/emit_js_production/src/bundle.rs": "3fdf224f7848113637540158224b0b0ff7a91f9174a7a78ed789b4615297c487",
+    "crates/emit_js_production/src/inline.rs": "a0169c6d9cc22805785bcc54ff43ca999c228349fd31040fc2c368f8448c7e0c",
+    "crates/emit_js_production/src/lib.rs": "05bb5c85745f60cea22778de8da536190374d70fc0a158e2454e1abeecb95d9b",
+    "crates/emit_js_production/src/main.rs": "a2972bf38b01348340a9a12e4c4cbb98b902b2a605c63af0e581bfd7815b749f",
+    "crates/emit_js_production/src/minify.rs": "78c73c29c0fb8c20e0351d6f7c287fd54ede63c84d9a644a412b7ebc45a6e550",
+    "crates/emit_js_production/src/named_args.rs": "b75cb55b744b4c793fe61695c3c2476f3e0c2c88390e3b89f914236a744beb35",
+    "crates/emit_js_production/src/own_sdk.rs": "4167b5e875eab38739912915c3119103092e46ecea88c135ce03142cd60d11ed",
+    "crates/emit_js_production/src/reach.rs": "b020f3f030f78193ab3d9b4e007abceb4d1825b70fe4906736c76f7452624b3e",
+    "crates/emit_js_production/src/rti_rules.rs": "b1da17f5495e5f202197c1a15abcfe80befea6e25cf736531d908fe97986643f",
+    "crates/emit_js_production/src/scan.rs": "f001bab1bd037f7fa792164fd90f1e28fd9637ce14c9a7bb8c73acaaaee853c6",
+    "crates/emit_js_production/src/sdk.rs": "d613cc9b1bb830e89194066eaeef090257c51d89b37b0f92c2088ba83f68e630",
+    "crates/emit_js_production/src/shapes.rs": "19c6968b3d96020c840b0bc3207c7b28dd6b06c364f2429b6eefd8feb4651689",
+    "crates/emit_js_production/src/verify.rs": "1c7b0d68865ac53a3583e035456fba99e25b205b38f2a1523454dd7f0137e2eb"
+  },
+  "checks": {
+    "targeted_clippy": {
+      "command": "cargo clippy --locked -p dartforge-dev -p dartforge-emit-js-production --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": "clippy.txt"
+    },
+    "dev": {
+      "command": "cargo test --locked -p dartforge-dev -- --include-ignored",
+      "exit_code": 0,
+      "passed": 16,
+      "log": "dev-suite.txt",
+      "includes_measurement_example_tests": 3
+    },
+    "production": {
+      "command": "cargo test --locked -p dartforge-dev -p dartforge-emit-js-production -- --include-ignored",
+      "exit_code": 0,
+      "passed_production": 88,
+      "log": "production-suite.txt",
+      "log_scope": "production portion extracted from combined run; earlier dev portion is superseded by final dev run"
+    },
+    "measurement_example": {
+      "command": "cargo test --locked -p dartforge-dev --example measure_generation -- --include-ignored",
+      "exit_code": 0,
+      "passed": 3,
+      "log": "example-tests.txt",
+      "supplemental_run_not_additional_unique_cases": true
+    },
+    "mandatory_rejection_before": {
+      "exit_code": 101,
+      "expected_failure": true,
+      "log": "rejection-before.txt",
+      "checkpoint": "before mandatory language-error filter"
+    },
+    "write_retry_before": {
+      "exit_code": 101,
+      "expected_failure": true,
+      "details": "write-retry-before.json"
+    },
+    "official_unassigned_oracle": {
+      "command": "dart run bench/results/2026-10-19-production-dev-quality/unassigned.dart",
+      "exit_code": 254,
+      "expected_failure": true,
+      "log": "unassigned-oracle.txt"
+    },
+    "workspace": {
+      "fmt_exit_code": 1,
+      "clippy_exit_code": 101,
+      "tests_exit_code": 101,
+      "doc_exit_code": 0,
+      "documentation_warnings_remain": true,
+      "test_failure": "Apple LLVM 21 linker cannot read static LLVM 22 bitcode",
+      "details": "workspace-failures.json"
+    },
+    "registered_example_format": {
+      "command": "rustfmt --edition 2024 --check crates/dev/src/ws.rs crates/dev/examples/measure_generation.rs crates/dev/tests/clean_recompilation.rs",
+      "exit_code": 0
+    }
+  },
+  "unique_directed_tests_passed": 104,
+  "websocket_wire_cases": {
+    "handshake": "RFC 6455 accept-key vector",
+    "utf8_payload_bytes": [
+      0,
+      125,
+      126,
+      128,
+      65535,
+      65536
+    ],
+    "transport": "actual loopback TCP using the production handshake and text_frame functions",
+    "io_timeout_seconds": 5
+  },
+  "scope_limits": [
+    "ordinary type warnings remain nonfatal by existing compiler policy",
+    "source restoration covers panic unwinding and ordinary restore I/O; no recovery guarantee for process abort, kill or failed filesystem restoration",
+    "failed output writes may be partial; retry rebuilds emitted files, not an atomic rollback",
+    "no whole-compiler speed or memory improvement measured"
+  ],
+  "artifacts_sha256": {
+    "unassigned.dart": "c21ba4dad548686dff9ea86dac63f4af41937b99a6a472641eb95b34ffd2de42",
+    "write-retry-before-excerpt.txt": "70325aa82bd038c3f1d4909e7914db81a12f108da498cf5663f12c00a37efc17",
+    "workspace-doc.txt": "e565b0bb2cd12a91227c1362996f4b2d9f8c4a877b306027230c8f496ab647fa",
+    "write-retry-before.json": "2c7c335d47abb86d4031fa6a981181a1bc990a5a2dc08c2f54d456c58e14ca92",
+    "README.md": "4ada6d5d4281bce451d606d9d46041c54f96fc1de6f726a8110a95e1f2010f59",
+    "workspace-clippy-excerpt.txt": "ec5d315e13bcc3ba39c0ae149faeb3471d10faab99bf156cf8158cdf81edaa84",
+    "unassigned-oracle.txt": "028391908e71c063f5504eac87fafd6a999d8de70d851aab7bf9d3bc8964a400",
+    "workspace-fmt-excerpt.txt": "b255b625f165a794183016e56ef15c1a7a35a47e3f5bc5df8f8293f9674fc324",
+    "rejection-after.txt": "ad1ead52960bcaa668628899c72e6ec76a8ebc6a343719658769196c0c0f526f",
+    "workspace-failures.json": "cac5f1c5bce255961bff5ce7a7e611852e25eaf9ded8436c8a069e4c09d20b9d",
+    "workspace-tests-excerpt.txt": "a8454c548a2ff5175da6ac89cbbf60b740777a2c029c8ca279b3a508ebe3650d",
+    "dev-suite.txt": "7779e485c2b2b6d3d77b50614206b32a5615223371d18c2da3c1668921577849",
+    "example-tests.txt": "733ede5736e24a6e18cab21f0f974ae201b6792acd840058c82597964bcfd00e",
+    "clippy.txt": "69918f43df1f65061384d09a0b66d9ef8b2de0804f06a4b80656e83ec72f2bd6",
+    "production-suite.txt": "cd20841dfcee40a65b56bdab60ac1a5c476beefaff93730efdd90cae1873b020",
+    "rejection-before.txt": "7efe26b2cba4a6319b36afd402ac0233434f7b973ac2545f82a95427e2335452"
+  }
+}

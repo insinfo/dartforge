@@ -68,12 +68,11 @@ pub fn declarations(src: &str) -> Vec<(usize, usize)> {
             i = skip_string(b, i);
             continue;
         }
-        if c == b'/' {
-            if let Some(j) = skip_comment(b, i) {
+        if c == b'/'
+            && let Some(j) = skip_comment(b, i) {
                 i = j;
                 continue;
             }
-        }
         match c {
             b'{' => braces += 1,
             b'}' => braces -= 1,
@@ -117,12 +116,11 @@ pub fn object_entries(body: &str) -> Vec<(usize, usize)> {
             i = skip_string(b, i);
             continue;
         }
-        if c == b'/' {
-            if let Some(j) = skip_comment(b, i) {
+        if c == b'/'
+            && let Some(j) = skip_comment(b, i) {
                 i = j;
                 continue;
             }
-        }
         match c {
             b'{' => braces += 1,
             b'}' => braces -= 1,
@@ -161,12 +159,11 @@ pub fn class_entries(body: &str) -> Vec<(usize, usize)> {
             i = skip_string(b, i);
             continue;
         }
-        if c == b'/' {
-            if let Some(j) = skip_comment(b, i) {
+        if c == b'/'
+            && let Some(j) = skip_comment(b, i) {
                 i = j;
                 continue;
             }
-        }
         match c {
             b'{' => braces += 1,
             b'}' => {
@@ -216,12 +213,11 @@ fn closing(src: &str, open: usize, op: u8, cl: u8) -> Option<usize> {
             i = skip_string(b, i);
             continue;
         }
-        if c == b'/' {
-            if let Some(j) = skip_comment(b, i) {
+        if c == b'/'
+            && let Some(j) = skip_comment(b, i) {
                 i = j;
                 continue;
             }
-        }
         if c == op {
             d += 1;
         } else if c == cl {

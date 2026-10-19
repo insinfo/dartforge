@@ -1,0 +1,40 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+warning: output filename collision at /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/examples/oracle
+  |
+  = note: the example target `oracle` in package `dartforge-ng-generator v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/ng_generator)` has the same output filename as the example target `oracle` in package `dartforge-formatter v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/formatter)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+warning: output filename collision at /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/examples/oracle.dSYM
+  |
+  = note: the example target `oracle` in package `dartforge-ng-generator v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/ng_generator)` has the same output filename as the example target `oracle` in package `dartforge-formatter v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/formatter)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `identity` is never used
+   --> crates/emit_native/src/hir.rs:256:19
+    |
+254 | impl FieldDeclaration {
+    | --------------------- method in this implementation
+255 |     /// Semantic identity excludes flags and layout premises, which a proof must reconcile.
+256 |     pub(crate) fn identity(&self) -> (&str, &str, &str) {
+    |                   ^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib) generated 2 warnings (run `cargo fix --lib -p dartforge-emit-native` to apply 1 suggestion)
+   Compiling dartforge-lsp v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/lsp)
+   Compiling dartforge-dev v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/dev)
+   Compiling dartforge-differential v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/differential)
+   Compiling dartforge-jit v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/jit)

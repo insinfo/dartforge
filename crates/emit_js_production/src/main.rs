@@ -86,11 +86,10 @@ fn run() -> Result<(), String> {
         .join()
         .map_err(|_| "the compilation aborted")??;
 
-    if let Some(parent) = output.parent() {
-        if !parent.as_os_str().is_empty() {
+    if let Some(parent) = output.parent()
+        && !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
         }
-    }
     std::fs::write(&output, &prod.js).map_err(|e| format!("{}: {e}", output.display()))?;
     for c in &prod.cycles {
         eprintln!("warning: import cycle between modules: {c}");

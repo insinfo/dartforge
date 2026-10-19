@@ -1,0 +1,15 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+   Compiling dartforge-dev v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/dev)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.72s
+     Running unittests examples/measure_generation.rs (target/debug/examples/measure_generation-bd92e79458029f62)
+
+running 3 tests
+test tests::explicit_restoration_does_not_overwrite_a_later_change ... ok
+test tests::failed_measurement_restores_original_bytes ... ok
+test tests::compilation_failure_restores_source_and_session_recovers ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s

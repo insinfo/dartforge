@@ -114,13 +114,13 @@ fn main() {
     line("rest (punctuation, keywords...)", rest);
     println!("strings: {}", c.n_strings);
     let mut p: Vec<_> = c.by_property.into_iter().collect();
-    p.sort_by(|a, b| b.1.cmp(&a.1));
+    p.sort_by_key(|x| std::cmp::Reverse(x.1));
     println!("\nmost expensive property/key names:");
     for (n, b) in p.iter().take(top) {
         println!("  {b:>10}  {n}");
     }
     let mut s: Vec<_> = c.by_string.into_iter().collect();
-    s.sort_by(|a, b| b.1.cmp(&a.1));
+    s.sort_by_key(|x| std::cmp::Reverse(x.1));
     println!("\nmost expensive strings (summed by value):");
     for (n, b) in s.iter().take(top) {
         println!("  {b:>10}  {n}");

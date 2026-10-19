@@ -267,90 +267,6 @@ fn regex_end(b: &[u8], i: usize) -> Option<usize> {
     Some(j)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn shares_short_names_only_outside_common_groups() {
-        let js = "a.foo; a.foo; a.foo; b.bar; b.bar; c.baz; d.stat; e.unknown;";
-        let allocator = oxc_allocator::Allocator::default();
-        let parsed = oxc_parser::Parser::new(&allocator, js, oxc_span::SourceType::cjs()).parse();
-        let renamed: std::collections::HashSet<String> = ["foo", "bar", "baz", "stat", "unknown"].iter().map(|s| s.to_string()).collect();
-        // `foo` and `bar` never meet; `baz` lives with `foo`.
-        let names = crate::properties::Names {
-            groups: vec![vec!["foo".into(), "baz".into()], vec!["bar".into()]],
-            solitary: ["stat".to_string()].into_iter().collect(),
-            ..Default::default()
-        };
-        let map: std::collections::HashMap<String, String> = assign_names(&parsed.program, &renamed, &[], &names).into_iter().collect();
-        assert_eq!(map["foo"], map["bar"]);
-        assert_ne!(map["foo"], map["baz"]);
-        for solo in ["stat", "unknown"] {
-            for other in ["foo", "bar", "baz", if solo == "stat" { "unknown" } else { "stat" }] {
-                assert_ne!(map[solo], map[other], "{solo} shares with {other}");
-            }
-        }
-        // Without groups, every name gets its own target.
-        let map: std::collections::HashMap<String, String> =
-            assign_names(&parsed.program, &renamed, &[], &crate::properties::Names::default()).into_iter().collect();
-        let targets: std::collections::HashSet<&String> = map.values().collect();
-        assert_eq!(targets.len(), renamed.len());
-    }
-
-    #[test]
-    fn removes_comments_and_indentation() {
-        let js = "// header\nfunction f(a, b) {\n  /* sum */\n  return a + b;\n}\n";
-        assert_eq!(compact(js), "function f(a,b){\nreturn a+b;\n}\n");
-    }
-
-    #[test]
-    fn keeps_line_breaks_that_decide_semicolons() {
-        // `return`↵`x` returns `undefined`; `a`↵`++b` increments `b`.
-        assert_eq!(compact("return\n  x"), "return\nx");
-        assert_eq!(compact("a\n++b"), "a\n++b");
-        // A block comment with a line break is a line break.
-        assert_eq!(compact("return /*\n*/ x"), "return\nx");
-    }
-
-    #[test]
-    fn whitespace_that_separates_tokens_stays() {
-        assert_eq!(compact("a + +b"), "a+ +b");
-        assert_eq!(compact("a - -b"), "a- -b");
-        assert_eq!(compact("a++ + b"), "a++ +b");
-        assert_eq!(compact("var x = typeof y"), "var x=typeof y");
-        assert_eq!(compact("1 .toString()"), "1 .toString()");
-        assert_eq!(compact("x < !y"), "x< !y");
-        assert_eq!(compact("x-- > y"), "x-- >y");
-        assert_eq!(compact("a / /re/.source.length"), "a/ /re/.source.length");
-    }
-
-    #[test]
-    fn literals_are_copied_as_they_are() {
-        assert_eq!(compact("s = 'a  // b'  ;"), "s='a  // b';");
-        assert_eq!(compact("s = \"x \\\" /* y */\""), "s=\"x \\\" /* y */\"");
-        assert_eq!(compact("t = `a  ${ f( '}' ) }  b`"), "t=`a  ${ f( '}' ) }  b`");
-        assert_eq!(compact("r = /a  b[/ ]c/g.test(x)"), "r=/a  b[/ ]c/g.test(x)");
-        assert_eq!(compact("return /  x/.exec(s)"), "return/  x/.exec(s)");
-    }
-
-    #[test]
-    fn slash_after_expression_is_division() {
-        assert_eq!(compact("x = a / b / c"), "x=a/b/c");
-        assert_eq!(compact("x = (a) / 2 / 3"), "x=(a)/2/3");
-        assert_eq!(compact("x = a++ / 2 / 3"), "x=a++/2/3");
-        assert_eq!(compact("x = 1e-5 / 2"), "x=1e-5/2");
-    }
-
-    #[test]
-    fn is_deterministic_and_idempotent() {
-        let js = "var a = {b: 1, // c\n  d: [1, 2]};\nfunction g() { return a.b  +  a.d[0]; }\n";
-        let one = compact(js);
-        assert_eq!(one, compact(js));
-        assert_eq!(compact(&one), one);
-    }
-}
-
 /// Marker that `own_sdk::assemble` puts right after the SDK module: what
 /// comes before it (the *bootstrap* and the SDK) is the runtime, whose
 /// *strings* are all potential names; what comes after is the program.
@@ -641,7 +557,7 @@ fn rewrite_binds<'a>(program: &mut oxc_ast::ast::Program<'a>, map: &std::collect
                     if let oxc_ast::ast::Argument::StringLiteral(l) = a
                         && let Some(new) = self.map.get(l.value.as_str())
                     {
-                        l.value = (&*self.allocator.alloc_str(new)).into();
+                        l.value = self.allocator.alloc_str(new).into();
                         l.raw = None;
                     }
                 }
@@ -1052,4 +968,88 @@ pub fn minify_names(js: &str) -> Result<String, String> {
         .with_private_member_mappings(Some(mangle.class_private_mappings))
         .build(&parsed.program);
     Ok(output.code)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shares_short_names_only_outside_common_groups() {
+        let js = "a.foo; a.foo; a.foo; b.bar; b.bar; c.baz; d.stat; e.unknown;";
+        let allocator = oxc_allocator::Allocator::default();
+        let parsed = oxc_parser::Parser::new(&allocator, js, oxc_span::SourceType::cjs()).parse();
+        let renamed: std::collections::HashSet<String> = ["foo", "bar", "baz", "stat", "unknown"].iter().map(|s| s.to_string()).collect();
+        // `foo` and `bar` never meet; `baz` lives with `foo`.
+        let names = crate::properties::Names {
+            groups: vec![vec!["foo".into(), "baz".into()], vec!["bar".into()]],
+            solitary: ["stat".to_string()].into_iter().collect(),
+            ..Default::default()
+        };
+        let map: std::collections::HashMap<String, String> = assign_names(&parsed.program, &renamed, &[], &names).into_iter().collect();
+        assert_eq!(map["foo"], map["bar"]);
+        assert_ne!(map["foo"], map["baz"]);
+        for solo in ["stat", "unknown"] {
+            for other in ["foo", "bar", "baz", if solo == "stat" { "unknown" } else { "stat" }] {
+                assert_ne!(map[solo], map[other], "{solo} shares with {other}");
+            }
+        }
+        // Without groups, every name gets its own target.
+        let map: std::collections::HashMap<String, String> =
+            assign_names(&parsed.program, &renamed, &[], &crate::properties::Names::default()).into_iter().collect();
+        let targets: std::collections::HashSet<&String> = map.values().collect();
+        assert_eq!(targets.len(), renamed.len());
+    }
+
+    #[test]
+    fn removes_comments_and_indentation() {
+        let js = "// header\nfunction f(a, b) {\n  /* sum */\n  return a + b;\n}\n";
+        assert_eq!(compact(js), "function f(a,b){\nreturn a+b;\n}\n");
+    }
+
+    #[test]
+    fn keeps_line_breaks_that_decide_semicolons() {
+        // `return`↵`x` returns `undefined`; `a`↵`++b` increments `b`.
+        assert_eq!(compact("return\n  x"), "return\nx");
+        assert_eq!(compact("a\n++b"), "a\n++b");
+        // A block comment with a line break is a line break.
+        assert_eq!(compact("return /*\n*/ x"), "return\nx");
+    }
+
+    #[test]
+    fn whitespace_that_separates_tokens_stays() {
+        assert_eq!(compact("a + +b"), "a+ +b");
+        assert_eq!(compact("a - -b"), "a- -b");
+        assert_eq!(compact("a++ + b"), "a++ +b");
+        assert_eq!(compact("var x = typeof y"), "var x=typeof y");
+        assert_eq!(compact("1 .toString()"), "1 .toString()");
+        assert_eq!(compact("x < !y"), "x< !y");
+        assert_eq!(compact("x-- > y"), "x-- >y");
+        assert_eq!(compact("a / /re/.source.length"), "a/ /re/.source.length");
+    }
+
+    #[test]
+    fn literals_are_copied_as_they_are() {
+        assert_eq!(compact("s = 'a  // b'  ;"), "s='a  // b';");
+        assert_eq!(compact("s = \"x \\\" /* y */\""), "s=\"x \\\" /* y */\"");
+        assert_eq!(compact("t = `a  ${ f( '}' ) }  b`"), "t=`a  ${ f( '}' ) }  b`");
+        assert_eq!(compact("r = /a  b[/ ]c/g.test(x)"), "r=/a  b[/ ]c/g.test(x)");
+        assert_eq!(compact("return /  x/.exec(s)"), "return/  x/.exec(s)");
+    }
+
+    #[test]
+    fn slash_after_expression_is_division() {
+        assert_eq!(compact("x = a / b / c"), "x=a/b/c");
+        assert_eq!(compact("x = (a) / 2 / 3"), "x=(a)/2/3");
+        assert_eq!(compact("x = a++ / 2 / 3"), "x=a++/2/3");
+        assert_eq!(compact("x = 1e-5 / 2"), "x=1e-5/2");
+    }
+
+    #[test]
+    fn is_deterministic_and_idempotent() {
+        let js = "var a = {b: 1, // c\n  d: [1, 2]};\nfunction g() { return a.b  +  a.d[0]; }\n";
+        let one = compact(js);
+        assert_eq!(one, compact(js));
+        assert_eq!(compact(&one), one);
+    }
 }

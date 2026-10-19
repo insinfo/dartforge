@@ -398,13 +398,12 @@ impl<'a> Visit<'a> for Scan<'_> {
             self.iife = Some(self.iifes);
             self.iifes += 1;
         }
-        if self.depth <= 2 {
-            if let Some(b) = &it.body {
+        if self.depth <= 2
+            && let Some(b) = &it.body {
                 for s in b.statements.iter() {
                     self.top_statements.insert(s.span().start);
                 }
             }
-        }
         walk::walk_function(self, it, flags);
         self.iife = saved;
         self.depth -= 1;
@@ -513,13 +512,12 @@ impl<'a> Visit<'a> for Sites<'_> {
         self.depth -= 1;
     }
     fn visit_call_expression(&mut self, it: &oxc_ast::ast::CallExpression<'a>) {
-        if it.span.start >= self.covered {
-            if let Some(new) = self.inline(it) {
+        if it.span.start >= self.covered
+            && let Some(new) = self.inline(it) {
                 self.edits.push((it.span.start, it.span.end, new));
                 self.covered = it.span.end;
                 return;
             }
-        }
         walk::walk_call_expression(self, it);
     }
 }

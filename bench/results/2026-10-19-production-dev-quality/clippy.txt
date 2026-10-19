@@ -1,0 +1,5 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+    Checking dartforge-dev v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/dev)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.13s

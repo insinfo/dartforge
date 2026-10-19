@@ -1,0 +1,253 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `identity` is never used
+   --> crates/emit_native/src/hir.rs:256:19
+    |
+254 | impl FieldDeclaration {
+    | --------------------- method in this implementation
+255 |     /// Semantic identity excludes flags and layout premises, which a proof must reconcile.
+256 |     pub(crate) fn identity(&self) -> (&str, &str, &str) {
+    |                   ^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib) generated 2 warnings (run `cargo fix --lib -p dartforge-emit-native` to apply 1 suggestion)
+warning: unresolved link to `js_member_name`
+   --> crates/emit_js_production/src/properties.rs:219:39
+    |
+219 | /// the instances: the member name ([`js_member_name`]) and, for a program
+    |                                       ^^^^^^^^^^^^^^ no item named `js_member_name` in scope
+    |
+    = help: to escape `[` and `]` characters, add '\' before them like `\[` or `\]`
+    = note: `#[warn(rustdoc::broken_intra_doc_links)]` on by default
+
+    Checking dartforge-dev v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/dev)
+warning: `dartforge-emit-js-production` (lib doc) generated 1 warning
+warning: public documentation for `with_body_without_outside` links to private item `Self::direct_body`
+   --> crates/emit_native/src/llvm/mod.rs:460:36
+    |
+460 |     /// directly from the block ([`Self::direct_body`]).
+    |                                    ^^^^^^^^^^^^^^^^^ this item is private
+    |
+    = note: this link resolves only because you passed `--document-private-items`, but will break without
+    = note: `#[warn(rustdoc::private_intra_doc_links)]` on by default
+
+warning: public documentation for `with_tables_registered_at_startup` links to private item `Self::emit_inline_allocation`
+   --> crates/emit_native/src/llvm/mod.rs:512:51
+    |
+512 |     /// allocation skips the registration test ([`Self::emit_inline_allocation`]).
+    |                                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this item is private
+    |
+    = note: this link resolves only because you passed `--document-private-items`, but will break without
+
+warning: public documentation for `call_member` links to private item `DEVIRTUALIZATION_FAN_OUT`
+    --> crates/emit_native/src/lower/members.rs:1434:45
+     |
+1434 |     /// chooses the implementation (up to [`DEVIRTUALIZATION_FAN_OUT`]
+     |                                             ^^^^^^^^^^^^^^^^^^^^^^^^ this item is private
+     |
+     = note: this link resolves only because you passed `--document-private-items`, but will break without
+
+warning: unresolved link to `crate::sdk_modulo::SOURCE_LIBRARIES`
+  --> crates/emit_native/src/natives.rs:30:27
+   |
+30 | //! [`SOURCE_LIBRARIES`]: crate::sdk_modulo::SOURCE_LIBRARIES
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no item named `sdk_modulo` in module `dartforge_emit_native`
+   |
+   = note: `#[warn(rustdoc::broken_intra_doc_links)]` on by default
+
+warning: public documentation for `with_context_in_tls` links to private item `context_in_tsd`
+    --> crates/emit_native/src/sdk_module.rs:1080:53
+     |
+1080 | /// publishes before any Dart code of the thread ([`context_in_tsd`]). The
+     |                                                     ^^^^^^^^^^^^^^ this item is private
+     |
+     = note: this link resolves only because you passed `--document-private-items`, but will break without
+
+warning: `dartforge-emit-native` (lib doc) generated 5 warnings
+ Documenting dartforge-dev v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/dev)
+warning: unresolved link to `ler`
+   --> crates/ng_generator/src/component.rs:803:36
+    |
+803 | /// in the expression scope (see [`ler`]).
+    |                                    ^^^ no item named `ler` in scope
+    |
+    = help: to escape `[` and `]` characters, add '\' before them like `\[` or `\]`
+    = note: `#[warn(rustdoc::broken_intra_doc_links)]` on by default
+
+warning: public documentation for `apply` links to private item `PATCHES`
+   --> crates/emit_js/src/sdk_patches.rs:132:15
+    |
+132 | /// Applies [`PATCHES`] to `sdk` as overlay replacements. The patched files
+    |               ^^^^^^^ this item is private
+    |
+    = note: this link resolves only because you passed `--document-private-items`, but will break without
+    = note: `#[warn(rustdoc::private_intra_doc_links)]` on by default
+
+warning: public documentation for `recipe_ids` links to private item `FREQUENT_CLASSES`
+   --> crates/emit_js/src/lib.rs:124:7
+    |
+124 | /// [`FREQUENT_CLASSES`], then the others in program order, each one with the
+    |       ^^^^^^^^^^^^^^^^ this item is private
+    |
+    = note: this link resolves only because you passed `--document-private-items`, but will break without
+
+warning: `write` is both a function and a macro
+   --> crates/emit_js/src/lib.rs:806:12
+    |
+806 | /// Like [`write`], optionally skipping the comparison with the file on disk.
+    |            ^^^^^ ambiguous link
+    |
+    = note: `#[warn(rustdoc::broken_intra_doc_links)]` on by default
+help: to link to the function, add parentheses
+    |
+806 | /// Like [`write()`], optionally skipping the comparison with the file on disk.
+    |                 ++
+help: to link to the macro, add an exclamation mark
+    |
+806 | /// Like [`write!`], optionally skipping the comparison with the file on disk.
+    |                 +
+
+warning: `dartforge-ng-generator` (lib doc) generated 1 warning
+warning: `dartforge-emit-js` (lib doc) generated 3 warnings
+warning: unresolved link to `InstanceState::variables_in_cycle`
+  --> crates/types/src/const_eval/cycles.rs:14:22
+   |
+14 | //!   at its name ([`InstanceState::variables_in_cycle`], [`InstanceState::locals_in_cycle`]);
+   |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no item named `InstanceState` in scope
+   |
+   = note: `#[warn(rustdoc::broken_intra_doc_links)]` on by default
+
+warning: unresolved link to `InstanceState::locals_in_cycle`
+  --> crates/types/src/const_eval/cycles.rs:14:61
+   |
+14 | //!   at its name ([`InstanceState::variables_in_cycle`], [`InstanceState::locals_in_cycle`]);
+   |                                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no item named `InstanceState` in scope
+
+warning: unresolved link to `InstanceState::constructors_in_cycle`
+  --> crates/types/src/const_eval/cycles.rs:16:10
+   |
+16 | //!   ([`InstanceState::constructors_in_cycle`]): every creation through it is worth
+   |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no item named `InstanceState` in scope
+
+warning: unresolved link to `Result_::partes`
+   --> crates/types/src/const_eval/exhaustiveness.rs:363:20
+    |
+363 |     /// Computes [`Result_::partes`].
+    |                    ^^^^^^^^^^^^^^^ the struct `Result_` has no field or associated item named `partes`
+
+warning: unresolved link to `Grafo::evaluated`
+  --> crates/types/src/const_eval/graph.rs:10:10
+   |
+10 | //!   ([`Grafo::evaluated`]). A constructor in a cycle never becomes evaluated:
+   |          ^^^^^^^^^^^^^^^^ no item named `Grafo` in scope
+
+warning: unresolved link to `Grafo::evaluate`
+  --> crates/types/src/const_eval/graph.rs:17:33
+   |
+17 | //! an edge to itself goes to [`Grafo::evaluate`]; any other component
+   |                                 ^^^^^^^^^^^^^^^ no item named `Grafo` in scope
+
+warning: unresolved link to `Grafo::evaluate_component`
+  --> crates/types/src/const_eval/graph.rs:19:7
+   |
+19 | //! [`Grafo::evaluate_component`], which marks the cycle.
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^ no item named `Grafo` in scope
+
+warning: unresolved link to `Walker::percorrer`
+  --> crates/types/src/const_eval/graph.rs:42:7
+   |
+42 | /// [`Walker::percorrer`].
+   |       ^^^^^^^^^^^^^^^^^ the struct `Walker` has no field or associated item named `percorrer`
+
+warning: unresolved link to `coletar`
+  --> crates/types/src/const_eval/potential.rs:18:12
+   |
+18 | /// Like [`coletar`], saying whether the parameters count and whether the
+   |            ^^^^^^^ no item named `coletar` in scope
+   |
+   = help: to escape `[` and `]` characters, add '\' before them like `\[` or `\]`
+
+warning: unresolved link to `Provedor`
+  --> crates/types/src/inheritance.rs:19:7
+   |
+19 | //! [`Provedor`]: inference provides the types of inferred fields on demand;
+   |       ^^^^^^^^ no item named `Provedor` in scope
+   |
+   = help: to escape `[` and `]` characters, add '\' before them like `\[` or `\]`
+
+warning: unresolved link to `value`
+   --> crates/types/src/inference/shorthands.rs:247:58
+    |
+247 | /// call's common path, which types the target through [`value`]).
+    |                                                          ^^^^^ no item named `value` in scope
+    |
+    = help: to escape `[` and `]` characters, add '\' before them like `\[` or `\]`
+
+warning: unresolved link to `construir`
+    --> crates/types/src/inference/calls.rs:2186:7
+     |
+2186 | /// [`construir`] with the inferable alias ([`inferable_alias`]) through which
+     |       ^^^^^^^^^ no item named `construir` in scope
+     |
+     = help: to escape `[` and `]` characters, add '\' before them like `\[` or `\]`
+
+warning: unresolved link to `super::shorthands::value`
+   --> crates/types/src/inference/body.rs:177:54
+    |
+177 |     /// (`shorthands::construction`): the target's [`super::shorthands::value`] does not report again.
+    |                                                      ^^^^^^^^^^^^^^^^^^^^^^^^ no item named `value` in module `shorthands`
+
+warning: unresolved link to `Body::buscar`
+   --> crates/types/src/inference/body.rs:549:56
+    |
+549 |     /// the innermost declaration (the same order as [`Body::buscar`]).
+    |                                                        ^^^^^^^^^^^^ the struct `Body` has no field or associated item named `buscar`
+
+warning: unresolved link to `Fluxo`
+ --> crates/types/src/inference/flow.rs:4:9
+  |
+4 | //! A [`Fluxo`] is the specification's `FlowModel`; each local variable has a
+  |         ^^^^^ no item named `Fluxo` in scope
+  |
+  = help: to escape `[` and `]` characters, add '\' before them like `\[` or `\]`
+
+warning: unresolved link to `Fluxo`
+  --> crates/types/src/inference/patterns/matching.rs:10:15
+   |
+10 | //! current [`Fluxo`] like that of any variable. The matched type of a
+   |               ^^^^^ no item named `Fluxo` in scope
+   |
+   = help: to escape `[` and `]` characters, add '\' before them like `\[` or `\]`
+
+warning: unresolved link to `ligado`
+  --> crates/types/src/inference/patterns/matching.rs:17:45
+   |
+17 | //! Only the analyzer uses this path (see [`ligado`]); the compilers keep the
+   |                                             ^^^^^^ no item named `ligado` in scope
+   |
+   = help: to escape `[` and `]` characters, add '\' before them like `\[` or `\]`
+
+warning: unresolved link to `crate::display::Displayer::argumentos`
+    --> crates/types/src/inference/mod.rs:1058:41
+     |
+1058 |     /// `ErrorReporter`'s conversion ([`crate::display::Displayer::argumentos`],
+     |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the struct `Displayer` has no field or associated item named `argumentos`
+
+warning: `dartforge-types` (lib doc) generated 18 warnings
+ Documenting dartforge-cli v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 13.28s
+   Generated /Volumes/ssd_dock/MyRustProjects/dartforge/target/doc/dartforge_abi/index.html and 29 other files

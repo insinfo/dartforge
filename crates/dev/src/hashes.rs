@@ -272,14 +272,13 @@ impl<'a> Hasher<'a> {
             }
             self.name(&v.name);
             self.f.bool(v.initializer.is_some());
-            if list.const_ {
-                if let Some(e) = v.initializer {
+            if list.const_
+                && let Some(e) = v.initializer {
                     let s = self.ast.expr(e).span;
                     let t = self.slice(s.start, s.end).to_string();
                     self.f.bytes(t.as_bytes());
                     self.f.sep();
                 }
-            }
         }
     }
 

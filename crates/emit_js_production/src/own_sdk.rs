@@ -26,16 +26,14 @@ const BUILTIN_TAGS: &[&str] = &["Object", "String", "Number", "Boolean", "Array"
 /// The rest comes from the fixed point with the text.
 fn roots(a: &dartforge_emit_js::Analysis<'_>, e: &dartforge_world::WorldInput<'_>) -> dartforge_world::Roots {
     let mut r = dartforge_world::Roots::default();
-    if let (Some(lib), Some(sym)) = (a.program.entry, a.interner.lookup("main")) {
-        if let Some(Element::Function(f)) = a.program.library(lib).declared.get(&sym).and_then(|b| b.getter) {
+    if let (Some(lib), Some(sym)) = (a.program.entry, a.interner.lookup("main"))
+        && let Some(Element::Function(f)) = a.program.library(lib).declared.get(&sym).and_then(|b| b.getter) {
             r.functions.push(f);
         }
-    }
-    if let (Some(core), Some(sym)) = (a.program.core, a.interner.lookup("Object")) {
-        if let Some(Element::Class(c)) = a.program.library(core).declared.get(&sym).and_then(|b| b.getter) {
+    if let (Some(core), Some(sym)) = (a.program.core, a.interner.lookup("Object"))
+        && let Some(Element::Class(c)) = a.program.library(core).declared.get(&sym).and_then(|b| b.getter) {
             r.instantiated_classes.push(c);
         }
-    }
     for (c, tags) in dartforge_world::native_tags(e) {
         if tags.iter().any(|t| BUILTIN_TAGS.contains(&t.as_str())) {
             r.instantiated_classes.push(c);
