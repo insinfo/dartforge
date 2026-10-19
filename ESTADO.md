@@ -2,6 +2,16 @@
 
 ## Atualização de 19/10/2026
 
+- `pub get` só publica metadados hospedados depois de validar os candidatos;
+  respostas rejeitadas deixam utilizável o cache offline anterior. Duas
+  regressões falhavam antes; três testes novos cobrem rejeição, primeira
+  resposta inválida e substituição válida. Passaram 39 testes da CLI com
+  features padrão, Clippy estrito nessa configuração e 17 execuções do binário
+  real contra registro local, preservando cache, lockfile e configuração após
+  oito respostas inválidas. Rodada macOS; não repetida nas VMs. Clippy com
+  todas as features ainda aponta pendências nativas/JIT; checks globais seguem
+  falhando em fmt/Clippy/link Apple/LLVM 22, e docs geram avisos. Evidências:
+  `bench/results/2026-10-19-pub-cache-validation/README.md`.
 - Compiladores Windows/Linux remontados de `2b923a60` e bundles renovados com
   fontes de runtime coincidentes. O JIT macOS otimizado revelou 29 símbolos
   públicos ausentes de CoreFoundation/Security no catálogo gerado; foram

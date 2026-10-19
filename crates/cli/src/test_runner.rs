@@ -100,15 +100,14 @@ impl Options {
 fn discover(path: &Path, files: &mut BTreeSet<PathBuf>, explicit: bool) -> std::io::Result<()> {
     let metadata = fs::symlink_metadata(path)?;
     if metadata.is_file() {
-        if explicit
+        if (explicit
             || path
                 .file_name()
                 .and_then(|v| v.to_str())
-                .is_some_and(|v| v.ends_with("_test.dart"))
+                .is_some_and(|v| v.ends_with("_test.dart")))
+            && path.extension().is_some_and(|v| v == "dart")
         {
-            if path.extension().is_some_and(|v| v == "dart") {
-                files.insert(path.canonicalize()?);
-            }
+            files.insert(path.canonicalize()?);
         }
     } else if metadata.is_dir() {
         for entry in fs::read_dir(path)? {

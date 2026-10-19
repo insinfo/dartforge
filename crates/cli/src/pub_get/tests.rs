@@ -376,15 +376,14 @@ fn irrelevant_unavailable_sdk_historical_versions_do_not_poison_supported_releas
 }
 #[test]
 fn native_http_checksum_failure_does_not_publish_archive() {
-    use std::io::{Read, Write};
+    use std::io::Write;
     let f = Fixture::new();
     let bytes = archive("lib/a.dart", tar::EntryType::Regular);
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let server = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
-        let mut request = [0u8; 4096];
-        stream.read(&mut request).unwrap();
+        read_http_headers(&mut stream);
         write!(
             stream,
             "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -723,9 +722,161 @@ fn sdk_package_versions_are_constraints_not_hosted_fallbacks_and_selected_mappin
 fn sdk_vendor_package_symlink_cannot_resolve_outside_the_selected_sdk() {
     let fixture = Fixture::new();
     let root = declared_sdk(&fixture);
-    let outside = fixture.package("outside", "name: vendor_one\nversion: 1.2.3\nenvironment:\n  sdk: ^3.4.0\n");
+    let outside = fixture.package(
+        "outside",
+        "name: vendor_one\nversion: 1.2.3\nenvironment:\n  sdk: ^3.4.0\n",
+    );
     std::fs::remove_dir_all(root.join("declared/one")).unwrap();
     std::os::unix::fs::symlink(outside, root.join("declared/one")).unwrap();
-    let error = sdk::candidate(Some(&root), "dart", "vendor_one", &constraints::parse_version("3.6.2").unwrap(), "https://pub.dev").unwrap_err();
+    let error = sdk::candidate(
+        Some(&root),
+        "dart",
+        "vendor_one",
+        &constraints::parse_version("3.6.2").unwrap(),
+        "https://pub.dev",
+    )
+    .unwrap_err();
     assert!(error.contains("escapes the selected SDK"));
+}
+
+/// Read complete request headers even when TCP splits them across packets.
+fn read_http_headers(stream: &mut std::net::TcpStream) {
+    use std::io::{BufRead, Read};
+    stream.set_nonblocking(false).unwrap();
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+        .unwrap();
+    let mut reader = std::io::BufReader::new(stream.take(8192));
+    let mut line = String::new();
+    loop {
+        line.clear();
+        assert!(
+            reader.read_line(&mut line).unwrap() > 0,
+            "incomplete HTTP request"
+        );
+        if line == "\r\n" {
+            break;
+        }
+    }
+}
+
+/// A bounded local registry; no external registry or environment mutation.
+fn metadata_server(responses: Vec<serde_json::Value>) -> (String, std::thread::JoinHandle<()>) {
+    use std::io::Write;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let host = format!("http://{}", listener.local_addr().unwrap());
+    listener.set_nonblocking(true).unwrap();
+    let server = std::thread::spawn(move || {
+        for value in responses {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(
+                            std::time::Instant::now() < deadline,
+                            "registry request timed out"
+                        );
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                    }
+                    Err(error) => panic!("registry accept failed: {error}"),
+                }
+            };
+            read_http_headers(&mut stream);
+            stream
+                .set_write_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let body = serde_json::to_vec(&value).unwrap();
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).unwrap();
+            stream.write_all(&body).unwrap();
+        }
+    });
+    (host, server)
+}
+
+#[test]
+fn rejected_registry_updates_preserve_offline_metadata() {
+    let good = serde_json::json!({"name":"a","versions":[version_row("a", "1.0.0", serde_json::json!({}))]});
+    let mut failures = Vec::new();
+    for case in 0..8 {
+        let f = Fixture::new();
+        let cache = f.0.join("cache");
+        let mut bad = good.clone();
+        match case {
+            0 => bad["name"] = serde_json::json!("different_package"),
+            1 => {
+                bad.as_object_mut().unwrap().remove("versions");
+            }
+            2 => bad["versions"][0]["version"] = serde_json::json!("invalid-version"),
+            3 => {
+                let duplicate = bad["versions"][0].clone();
+                bad["versions"].as_array_mut().unwrap().push(duplicate);
+            }
+            4 => bad["versions"][0]["pubspec"]["name"] = serde_json::json!("different_package"),
+            5 => bad["versions"][0]["pubspec"]["version"] = serde_json::json!("2.0.0"),
+            6 => bad["versions"][0]["archive_sha256"] = serde_json::json!("invalid-digest"),
+            7 => bad["versions"][0]["archive_url"] = serde_json::json!("file:///archive.tar.gz"),
+            _ => unreachable!(),
+        }
+        let (host, server) = metadata_server(vec![good.clone(), bad]);
+        assert_eq!(
+            hosted::Hosted::new(cache.clone(), false, host.clone())
+                .candidates("a", &host)
+                .unwrap()
+                .len(),
+            1
+        );
+        let rejected =
+            hosted::Hosted::new(cache.clone(), false, host.clone()).candidates("a", &host);
+        server.join().unwrap();
+        assert!(rejected.is_err(), "case {case}: invalid response accepted");
+        let cached = hosted::Hosted::new(cache, true, host.clone()).candidates("a", &host);
+        match cached {
+            Ok(rows)
+                if rows.len() == 1 && rows[0].manifest.version == semver::Version::new(1, 0, 0) => {
+            }
+            other => failures.push(format!(
+                "case {case}: valid cached metadata lost: {other:?}"
+            )),
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn invalid_first_registry_response_is_not_cached() {
+    let f = Fixture::new();
+    let cache = f.0.join("cache");
+    let (host, server) = metadata_server(vec![serde_json::json!({"name":"a"})]);
+    let error = hosted::Hosted::new(cache.clone(), false, host.clone())
+        .candidates("a", &host)
+        .unwrap_err();
+    server.join().unwrap();
+    assert!(error.contains("missing versions"));
+    let offline = hosted::Hosted::new(cache, true, host.clone())
+        .candidates("a", &host)
+        .unwrap_err();
+    assert!(offline.contains("no cached hosted metadata"), "{offline}");
+}
+
+#[test]
+fn validated_registry_updates_replace_offline_metadata() {
+    let f = Fixture::new();
+    let cache = f.0.join("cache");
+    let responses = ["1.0.0", "2.0.0"].map(|version| serde_json::json!({"name":"a","versions":[version_row("a", version, serde_json::json!({}))]}));
+    let (host, server) = metadata_server(responses.to_vec());
+    for version in [1, 2] {
+        let rows = hosted::Hosted::new(cache.clone(), false, host.clone())
+            .candidates("a", &host)
+            .unwrap();
+        assert_eq!(
+            rows[0].manifest.version,
+            semver::Version::new(version, 0, 0)
+        );
+    }
+    server.join().unwrap();
+    let rows = hosted::Hosted::new(cache, true, host.clone())
+        .candidates("a", &host)
+        .unwrap();
+    assert_eq!(rows[0].manifest.version, semver::Version::new(2, 0, 0));
 }

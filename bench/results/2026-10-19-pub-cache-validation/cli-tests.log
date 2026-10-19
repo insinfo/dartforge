@@ -1,0 +1,146 @@
+Cargo LLVM linker: /Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/ld64.lld; SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
+   Compiling dartforge-cli v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli)
+warning: linker stderr: ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-16a5a15323f260f4.rlib(25ac62e5b3c53843-curve25519.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-16a5a15323f260f4.rlib(0bbbd18bda93c05b-aes_nohw.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-16a5a15323f260f4.rlib(00c879ee3285a50d-montgomery.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-16a5a15323f260f4.rlib(00c879ee3285a50d-montgomery_inv.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-16a5a15323f260f4.rlib(a0330e891e733f4e-gfp_p384.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-16a5a15323f260f4.rlib(a0330e891e733f4e-ecp_nistz.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-16a5a15323f260f4.rlib(aaa1ba3e455ee2e1-limbs.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-16a5a15323f260f4.rlib(a4019cc0736b0423-mem.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-16a5a15323f260f4.rlib(d5a9841f3dc6e253-poly1305.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-16a5a15323f260f4.rlib(a0330e891e733f4e-p256-nistz.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-16a5a15323f260f4.rlib(c322a0bcc369f531-chacha-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-16a5a15323f260f4.rlib(c322a0bcc369f531-chacha20_poly1305_armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-16a5a15323f260f4.rlib(c322a0bcc369f531-aesv8-armx-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-16a5a15323f260f4.rlib(c322a0bcc369f531-aesv8-gcm-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-16a5a15323f260f4.rlib(c322a0bcc369f531-ghash-neon-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-16a5a15323f260f4.rlib(c322a0bcc369f531-ghashv8-armx-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-16a5a15323f260f4.rlib(c322a0bcc369f531-vpaes-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-16a5a15323f260f4.rlib(c322a0bcc369f531-armv8-mont-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-16a5a15323f260f4.rlib(c322a0bcc369f531-p256-armv8-asm-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-16a5a15323f260f4.rlib(c322a0bcc369f531-sha512-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libring-16a5a15323f260f4.rlib(c322a0bcc369f531-sha256-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/deps/libblake3-3516a563bfb687ce.rlib(a1edd97dd51cd48d-blake3_neon.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-cli` (bin "dartforge" test) generated 1 warning
+warning: `dartforge-cli` (bin "dartforge") generated 1 warning (1 duplicate)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.24s
+     Running unittests src/main.rs (target/impl-a/debug/deps/dartforge-aee690ce25524104)
+
+running 33 tests
+test analyze::tests::machine_format_escape ... ok
+test analyze::tests::relative_only_when_not_longer ... ok
+test pub_get::tests::explicit_lower_prerelease_allows_same_release_below_stable_upper ... ok
+test pub_get::tests::dart_intervals_and_sdk_compatibility ... ok
+test jit::argument_tests::explicit_program_options_empty_arguments_and_separator_are_not_cli_options ... ok
+test jit::argument_tests::runtime_package_selection_matches_explicit_and_nearest_loader_config ... ok
+test jit::argument_tests::reload_watches_nearest_package_siblings_instead_of_entry_bin_only ... ok
+test pub_get::tests::archive_files_allowed_links_refused ... ok
+test jit::argument_tests::runtime_package_config_preserves_symlink_selected_relative_uri_base ... ok
+test pub_get::tests::cached_pubspec_must_match_the_resolved_registry_graph ... ok
+test pub_get::tests::invalid_first_registry_response_is_not_cached ... ok
+test pub_get::tests::irrelevant_unavailable_sdk_historical_versions_do_not_poison_supported_release ... ok
+test pub_get::tests::pub_build_suffixes_are_ordered_and_exact_constraints_remain_exact ... ok
+test pub_get::tests::hosted_integrity_missing_metadata_and_source_conflict_fail ... ok
+test pub_get::tests::hosted_backtracks_transitive_constraints_and_prefers_existing_lock ... ok
+test pub_get::tests::native_http_checksum_failure_does_not_publish_archive ... ok
+test pub_get::tests::sdk_source_identity_conflicts_are_errors ... ok
+test pub_get::tests::overrides_keep_package_identity_and_root_sdk_checks ... ok
+test pub_get::tests::declared_sdk_packages_resolve_transitively_offline_and_write_sdk_lock_identity ... ok
+test pub_get::tests::offline_path_transitive_cycles_and_root_dev ... ok
+test pub_get::tests::root_overrides_replace_transitive_sources_and_include_unused_packages ... ok
+test pub_get::tests::sdk_package_versions_are_constraints_not_hosted_fallbacks_and_selected_mapping_changes ... ok
+test test_runner::tests::ordinary_test_filters_and_unsupported_flags_are_explicit ... ok
+test test_runner::tests::discovery_keeps_sorted_unique_suites_and_skips_helper_files ... ok
+test test_runner::tests::relative_import_and_dart_escaping_preserve_literal_path ... ok
+test pub_get::tests::sdk_vendor_package_symlink_cannot_resolve_outside_the_selected_sdk ... ok
+test pub_get::tests::sdk_lookup_requires_selected_version_and_declared_unique_matching_package ... ok
+test pub_get::tests::sdk_vendor_packages_refuse_non_sdk_regular_sources_and_source_identity_conflicts ... ok
+test test_runner::metadata_tests::library_annotations_and_project_configuration_are_refused_without_text_guessing ... ok
+test pub_get::tests::overrides_relax_the_overridden_sdk_and_root_back_reference ... ok
+test pub_get::tests::sidecar_replaces_override_map_and_dependencies_ignore_their_sidecars ... ok
+test pub_get::tests::validated_registry_updates_replace_offline_metadata ... ok
+test pub_get::tests::rejected_registry_updates_preserve_offline_metadata ... ok
+
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/analyze_publication.rs (target/impl-a/debug/deps/analyze_publication-6ae4ba44d0f8d611)
+
+running 4 tests
+test cannot_ignore_keeps_the_published_assignment_error ... ok
+test default_reports_invalid_assignment_with_same_exit_and_json_as_all ... ok
+test valid_assignments_are_not_published_as_errors ... ok
+test newly_published_assignment_respects_comment_and_option_ignores ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.30s
+
+     Running tests/analyze_sdk_path.rs (target/impl-a/debug/deps/analyze_sdk_path-f203827fda85c9f5)
+
+running 2 tests
+test invalid_explicit_sdk_does_not_fall_back ... ok
+test explicit_root_and_lib_override_environment ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/contracts_cli.rs (target/impl-a/debug/deps/contracts_cli-624600d97657aaae)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cross_cli.rs (target/impl-a/debug/deps/cross_cli-af8ad42fcaec0d6f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/debugging.rs (target/impl-a/debug/deps/debugging-fe2cda0859cc5807)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/directed_maps.rs (target/impl-a/debug/deps/directed_maps-ded0e7865024f59a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/io_regression.rs (target/impl-a/debug/deps/io_regression-d95f844fd60ca672)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/jit_program.rs (target/impl-a/debug/deps/jit_program-695733f836e964be)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/memory_cli.rs (target/impl-a/debug/deps/memory_cli-def60fc2631a6d5c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/native_generated.rs (target/impl-a/debug/deps/native_generated-1873f280ace6ae36)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/reload_state.rs (target/impl-a/debug/deps/reload_state-295d4456e2fbed70)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/subsystem_cli.rs (target/impl-a/debug/deps/subsystem_cli-9ddca44885f24f1a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

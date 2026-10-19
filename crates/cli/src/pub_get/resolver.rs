@@ -108,15 +108,14 @@ impl Resolver {
             ));
         }
         for (name, requirement) in &requirements {
-            if let Some(value) = selected.get(name) {
-                if value.source != requirement.source
+            if let Some(value) = selected.get(name)
+                && (value.source != requirement.source
                     || !requirement
                         .constraints
                         .iter()
-                        .all(|(_, c)| c.allows(&value.candidate.manifest.version))
-                {
-                    return Err(SearchError::Conflict(conflict(name, requirement)));
-                }
+                        .all(|(_, c)| c.allows(&value.candidate.manifest.version)))
+            {
+                return Err(SearchError::Conflict(conflict(name, requirement)));
             }
         }
         let Some((name, requirement)) = requirements
@@ -150,16 +149,14 @@ impl Resolver {
                     .iter()
                     .all(|(_, r)| r.allows(&c.manifest.version))
         });
-        if let Some((source, version)) = self.locked.get(name) {
-            if source == &requirement.source {
-                if let Some(index) = candidates
-                    .iter()
-                    .position(|c| &c.manifest.version == version)
-                {
-                    let candidate = candidates.remove(index);
-                    candidates.insert(0, candidate);
-                }
-            }
+        if let Some((source, version)) = self.locked.get(name)
+            && source == &requirement.source
+            && let Some(index) = candidates
+                .iter()
+                .position(|c| &c.manifest.version == version)
+        {
+            let candidate = candidates.remove(index);
+            candidates.insert(0, candidate);
         }
         let mut error = conflict(name, requirement);
         for candidate in candidates {

@@ -1,0 +1,333 @@
+{
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+  "compiler_sha256": "d94913f8b04055a37eda0e53895cd7a1f5fbb2805f7e1ec4ca6004e02326888d",
+  "cases": [
+    {
+      "case": "initial-online-resolution",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+        "pub",
+        "get",
+        "--directory",
+        "/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-pub-cache-7eo6jcpk/project with spaces",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--sdk-version",
+        "3.6.2"
+      ],
+      "exit": 0,
+      "stdout": "Resolved 1 dependencies with DartForge.\n",
+      "stderr": ""
+    },
+    {
+      "case": "reject-package-name",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+        "pub",
+        "get",
+        "--directory",
+        "/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-pub-cache-7eo6jcpk/project with spaces",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--sdk-version",
+        "3.6.2"
+      ],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "error: registry returned a different package for a\n"
+    },
+    {
+      "case": "offline-after-package-name",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+        "pub",
+        "get",
+        "--directory",
+        "/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-pub-cache-7eo6jcpk/project with spaces",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--sdk-version",
+        "3.6.2",
+        "--offline"
+      ],
+      "exit": 0,
+      "stdout": "Resolved 1 dependencies with DartForge.\n",
+      "stderr": ""
+    },
+    {
+      "case": "reject-missing-versions",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+        "pub",
+        "get",
+        "--directory",
+        "/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-pub-cache-7eo6jcpk/project with spaces",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--sdk-version",
+        "3.6.2"
+      ],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "error: registry response missing versions\n"
+    },
+    {
+      "case": "offline-after-missing-versions",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+        "pub",
+        "get",
+        "--directory",
+        "/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-pub-cache-7eo6jcpk/project with spaces",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--sdk-version",
+        "3.6.2",
+        "--offline"
+      ],
+      "exit": 0,
+      "stdout": "Resolved 1 dependencies with DartForge.\n",
+      "stderr": ""
+    },
+    {
+      "case": "reject-invalid-version",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+        "pub",
+        "get",
+        "--directory",
+        "/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-pub-cache-7eo6jcpk/project with spaces",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--sdk-version",
+        "3.6.2"
+      ],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "error: unexpected character 'i' while parsing major version number\n"
+    },
+    {
+      "case": "offline-after-invalid-version",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+        "pub",
+        "get",
+        "--directory",
+        "/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-pub-cache-7eo6jcpk/project with spaces",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--sdk-version",
+        "3.6.2",
+        "--offline"
+      ],
+      "exit": 0,
+      "stdout": "Resolved 1 dependencies with DartForge.\n",
+      "stderr": ""
+    },
+    {
+      "case": "reject-duplicate-version",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+        "pub",
+        "get",
+        "--directory",
+        "/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-pub-cache-7eo6jcpk/project with spaces",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--sdk-version",
+        "3.6.2"
+      ],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "error: duplicate registry version for a: 1.0.0\n"
+    },
+    {
+      "case": "offline-after-duplicate-version",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+        "pub",
+        "get",
+        "--directory",
+        "/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-pub-cache-7eo6jcpk/project with spaces",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--sdk-version",
+        "3.6.2",
+        "--offline"
+      ],
+      "exit": 0,
+      "stdout": "Resolved 1 dependencies with DartForge.\n",
+      "stderr": ""
+    },
+    {
+      "case": "reject-pubspec-name",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+        "pub",
+        "get",
+        "--directory",
+        "/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-pub-cache-7eo6jcpk/project with spaces",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--sdk-version",
+        "3.6.2"
+      ],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "error: registry pubspec identity mismatch for a 1.0.0\n"
+    },
+    {
+      "case": "offline-after-pubspec-name",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+        "pub",
+        "get",
+        "--directory",
+        "/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-pub-cache-7eo6jcpk/project with spaces",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--sdk-version",
+        "3.6.2",
+        "--offline"
+      ],
+      "exit": 0,
+      "stdout": "Resolved 1 dependencies with DartForge.\n",
+      "stderr": ""
+    },
+    {
+      "case": "reject-pubspec-version",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+        "pub",
+        "get",
+        "--directory",
+        "/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-pub-cache-7eo6jcpk/project with spaces",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--sdk-version",
+        "3.6.2"
+      ],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "error: registry pubspec identity mismatch for a 1.0.0\n"
+    },
+    {
+      "case": "offline-after-pubspec-version",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+        "pub",
+        "get",
+        "--directory",
+        "/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-pub-cache-7eo6jcpk/project with spaces",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--sdk-version",
+        "3.6.2",
+        "--offline"
+      ],
+      "exit": 0,
+      "stdout": "Resolved 1 dependencies with DartForge.\n",
+      "stderr": ""
+    },
+    {
+      "case": "reject-archive-digest",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+        "pub",
+        "get",
+        "--directory",
+        "/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-pub-cache-7eo6jcpk/project with spaces",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--sdk-version",
+        "3.6.2"
+      ],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "error: invalid archive SHA256\n"
+    },
+    {
+      "case": "offline-after-archive-digest",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+        "pub",
+        "get",
+        "--directory",
+        "/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-pub-cache-7eo6jcpk/project with spaces",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--sdk-version",
+        "3.6.2",
+        "--offline"
+      ],
+      "exit": 0,
+      "stdout": "Resolved 1 dependencies with DartForge.\n",
+      "stderr": ""
+    },
+    {
+      "case": "reject-archive-transport",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+        "pub",
+        "get",
+        "--directory",
+        "/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-pub-cache-7eo6jcpk/project with spaces",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--sdk-version",
+        "3.6.2"
+      ],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "error: invalid archive transport\n"
+    },
+    {
+      "case": "offline-after-archive-transport",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+        "pub",
+        "get",
+        "--directory",
+        "/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-pub-cache-7eo6jcpk/project with spaces",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--sdk-version",
+        "3.6.2",
+        "--offline"
+      ],
+      "exit": 0,
+      "stdout": "Resolved 1 dependencies with DartForge.\n",
+      "stderr": ""
+    }
+  ],
+  "passed": 17,
+  "network": "loopback only",
+  "initial_cache_snapshot": {
+    "dartforge/dartforge-9b51daf299e564be5522202961cdfc640fed1f10bbdb30b3450eadfe2ba000fa/a-versions.json": "2f6f5c15db17f7ba16d0f3ea73d316cbaf1c05157a933b81a2ca36e42a264b4b",
+    "hosted/dartforge-9b51daf299e564be5522202961cdfc640fed1f10bbdb30b3450eadfe2ba000fa/a-1.0.0/lib/a.dart": "8de5c07db8deb3b75dedd9b5bc999669936cea181ae0033c27c4e2071a6e434d",
+    "hosted/dartforge-9b51daf299e564be5522202961cdfc640fed1f10bbdb30b3450eadfe2ba000fa/a-1.0.0/pubspec.yaml": "1823b1ec4064d4964c6202995acc7ebc1b3ec2ef0024e76e4b564cafa8c94dc9",
+    "hosted-hashes/dartforge-9b51daf299e564be5522202961cdfc640fed1f10bbdb30b3450eadfe2ba000fa/a-1.0.0.sha256": "4162e8392e4302cdcbce8fb531d7fd383f2330987b7b8edba889854d465c710a"
+  },
+  "final_cache_snapshot": {
+    "dartforge/dartforge-9b51daf299e564be5522202961cdfc640fed1f10bbdb30b3450eadfe2ba000fa/a-versions.json": "2f6f5c15db17f7ba16d0f3ea73d316cbaf1c05157a933b81a2ca36e42a264b4b",
+    "hosted/dartforge-9b51daf299e564be5522202961cdfc640fed1f10bbdb30b3450eadfe2ba000fa/a-1.0.0/lib/a.dart": "8de5c07db8deb3b75dedd9b5bc999669936cea181ae0033c27c4e2071a6e434d",
+    "hosted/dartforge-9b51daf299e564be5522202961cdfc640fed1f10bbdb30b3450eadfe2ba000fa/a-1.0.0/pubspec.yaml": "1823b1ec4064d4964c6202995acc7ebc1b3ec2ef0024e76e4b564cafa8c94dc9",
+    "hosted-hashes/dartforge-9b51daf299e564be5522202961cdfc640fed1f10bbdb30b3450eadfe2ba000fa/a-1.0.0.sha256": "4162e8392e4302cdcbce8fb531d7fd383f2330987b7b8edba889854d465c710a"
+  },
+  "project_output_hashes": {
+    "pubspec.lock": "7810bb5c6f76a9554f28cef1d51dfef8a7dd9a4f58d19bfd76e1bb657f606fe0",
+    ".dart_tool/package_config.json": "65fd01ba6e8602081dcae62887f75a52c48354660139b319ef810f0027de46e1"
+  },
+  "http_requests": [
+    "/api/packages/a",
+    "/archive.tar.gz",
+    "/api/packages/a",
+    "/api/packages/a",
+    "/api/packages/a",
+    "/api/packages/a",
+    "/api/packages/a",
+    "/api/packages/a",
+    "/api/packages/a",
+    "/api/packages/a"
+  ]
+}

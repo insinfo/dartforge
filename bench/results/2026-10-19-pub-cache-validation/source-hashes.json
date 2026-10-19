@@ -1,0 +1,8 @@
+{
+  "crates/cli/src/pub_get/hosted.rs": "a92561b4e13a70afdc26c31902678166d229fbbc0cd40fc1b5367e331e64d516",
+  "crates/cli/src/pub_get/output.rs": "7dc1b077227e1f254389e16513af9b3b2370af7925357f94f3a176fb1195c022",
+  "crates/cli/src/pub_get/resolver.rs": "a808e21ec43a3ce1de1cc84d8f13575d43709257ce0bbda49c9141460ea1f171",
+  "crates/cli/src/pub_get/tests.rs": "035420ac0c6d26a82ca8f6b1944d637e20fbc4308c7fe410818851278d4a03af",
+  "crates/cli/src/test_runner.rs": "4899db3728dc558f0ef12f5feb34c44a3d0b00971a662e9696328e91516b3079",
+  "bench/results/2026-10-19-pub-cache-validation/check-cli.py": "2449c7912d60fa5a16b9ec04fd2d4d58016ad499258f1a7a0385f94fe0fc2f5e"
+}

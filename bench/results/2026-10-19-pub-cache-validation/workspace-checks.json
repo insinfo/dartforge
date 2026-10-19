@@ -1,0 +1,22 @@
+{
+  "fmt": {
+    "exit": 1,
+    "log_bytes": 15734588,
+    "log_sha256": "f432b96f8e05bc018805c0ac114e7e65c9a310ef1de1c35915e1bf3e9a655d47"
+  },
+  "clippy": {
+    "exit": 101,
+    "log_bytes": 40299,
+    "log_sha256": "14900ee0f313034b3f1d1b52ebc7128404c72ece757b9d7ff7f5e488dcf4c9f8"
+  },
+  "test": {
+    "exit": 101,
+    "log_bytes": 2677348,
+    "log_sha256": "41c5601a6056a3bacf7514d93f11d9b9ce67703f9d22c6ea07a815a6696475e6"
+  },
+  "doc": {
+    "exit": 0,
+    "log_bytes": 11485,
+    "log_sha256": "665452950ea1bbdac9a3dda472ebdc45669d6dcd254deeb9fce5e2a8d24951b3"
+  }
+}

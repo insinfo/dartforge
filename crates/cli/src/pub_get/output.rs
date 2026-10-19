@@ -119,25 +119,25 @@ pub(super) fn write(
             .map(|v| &v.candidate.manifest),
     ) {
         let constraint = manifest.sdk.for_sdk(sdk);
-        if let Some(bound) = constraint.lower {
-            if lower.as_ref().is_none_or(|(v, inc): &(Version, bool)| {
+        if let Some(bound) = constraint.lower
+            && lower.as_ref().is_none_or(|(v, inc): &(Version, bool)| {
                 super::constraints::compare_versions(&bound.0, v).is_gt()
                     || (super::constraints::compare_versions(&bound.0, v).is_eq()
                         && !bound.1
                         && *inc)
-            }) {
-                lower = Some(bound);
-            }
+            })
+        {
+            lower = Some(bound);
         }
-        if let Some(bound) = constraint.upper {
-            if upper.as_ref().is_none_or(|(v, inc): &(Version, bool)| {
+        if let Some(bound) = constraint.upper
+            && upper.as_ref().is_none_or(|(v, inc): &(Version, bool)| {
                 super::constraints::compare_versions(&bound.0, v).is_lt()
                     || (super::constraints::compare_versions(&bound.0, v).is_eq()
                         && !bound.1
                         && *inc)
-            }) {
-                upper = Some(bound);
-            }
+            })
+        {
+            upper = Some(bound);
         }
     }
     let mut sdk_parts = Vec::new();

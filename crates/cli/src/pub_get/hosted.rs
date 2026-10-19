@@ -79,14 +79,15 @@ impl Hosted {
             std::fs::read(&metadata)
                 .map_err(|_| format!("offline: no cached hosted metadata for {name} at {host}"))?
         } else {
-            let bytes = download(&format!("{host}/api/packages/{name}"))?;
-            let _: Value = serde_json::from_slice(&bytes)
-                .map_err(|e| format!("{name}: invalid registry JSON: {e}"))?;
-            atomic_write(&metadata, &bytes)?;
-            bytes
+            download(&format!("{host}/api/packages/{name}"))?
         };
-        let value: Value = serde_json::from_slice(&bytes)
-            .map_err(|e| format!("invalid cached registry metadata: {e}"))?;
+        let value: Value = serde_json::from_slice(&bytes).map_err(|e| {
+            if self.offline {
+                format!("invalid cached registry metadata: {e}")
+            } else {
+                format!("{name}: invalid registry JSON: {e}")
+            }
+        })?;
         if value["name"].as_str() != Some(name) {
             return Err(format!("registry returned a different package for {name}"));
         }
@@ -184,6 +185,12 @@ impl Hosted {
                     super::constraints::compare_versions(&b.manifest.version, &a.manifest.version)
                 })
         });
+        // A rejected response must not replace the last usable offline snapshot.
+        // Publish only after validating every candidate, including its identity
+        // and archive transport; JSON syntax alone is insufficient.
+        if !self.offline {
+            atomic_write(&metadata, &bytes)?;
+        }
         self.metadata.insert(key, result.clone());
         Ok(result)
     }
