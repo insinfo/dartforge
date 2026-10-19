@@ -46,7 +46,7 @@ pub fn abi_info(args: &[std::ffi::OsString]) -> Outcome {
                 "note":"Full FFI still pending. Host AOT accepts @Native Int32/Int64/Void with explicitly linked objects; it does not load libraries dynamically. Cross AOT uses --target and --target-bundle; abi-info profiles only describe FFI layouts."
             }))?
         );
-        return Ok(());
+        Ok(())
 }
 
 #[cfg(feature = "native")]
@@ -265,8 +265,8 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
                     optimize,
                     language_version: None,
                     experiments: Vec::new(),
-                    debug: debug,
-                    generator: generator,
+                    debug,
+                    generator,
                     cpu,
                 };
                 let flags = dart_flags(optimize, enable_asserts);
@@ -400,7 +400,19 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
         if emit_ir && out.is_none() {
             return Err(usage.into());
         }
-        return emit_native_ir(input, out.filter(|_| emit_ir), sdk, packages, timings, digest, language, debug, optimize, contracts, flags);
+        return emit_native_ir(IrEmission {
+            input,
+            out: out.filter(|_| emit_ir),
+            sdk,
+            packages,
+            timings,
+            digest,
+            language,
+            debug,
+            optimize,
+            contracts,
+            flags,
+        });
     }
     let Some(out) = out else {
         return Err(usage.into());
@@ -420,8 +432,8 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
                     optimize,
                     language_version: language.current_version,
                     experiments: language.experiments,
-                    debug: debug,
-                    generator: generator,
+                    debug,
+                    generator,
                     cpu,
                 };
                 dartforge_emit_native::compile_with_flags(&i2, &o2, &options, flags).map_err(|e| e.to_string())
@@ -435,10 +447,8 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
 }
 
 #[cfg(feature = "native")]
-/// `compile-native --emit-ir` / `--digest`: emission only, without Clang or
-/// linking — what the determinism test compares, and what changes when the
-/// emitter changes.
-fn emit_native_ir(
+/// Resolved options for the IR and digest views of native compilation.
+struct IrEmission {
     input: PathBuf,
     out: Option<PathBuf>,
     sdk: Option<PathBuf>,
@@ -447,27 +457,47 @@ fn emit_native_ir(
     digest: bool,
     language: dartforge_elements::sdk::LanguageOptions,
     debug: bool,
-    // The production IR (`--optimize`): static literals, the large program
-    // with fields and per-call helpers. Link-time pruning comes later.
+    // Production IR includes static literals and per-call helpers; link-time
+    // pruning still belongs to executable compilation.
     optimize: bool,
     contracts: dartforge_emit_native::contracts::ContractMode,
     flags: dartforge_emit_native::DartFlags,
-) -> Outcome {
+}
+
+#[cfg(feature = "native")]
+/// Emit the same generated sources as executable compilation, without linking.
+fn emit_native_ir(command: IrEmission) -> Outcome {
+    let IrEmission {
+        input,
+        out,
+        sdk,
+        packages,
+        timings,
+        digest,
+        language,
+        debug,
+        optimize,
+        contracts,
+        flags,
+    } = command;
     let ir = std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
-            let options = dartforge_emit_native::CompileOptions { contracts,
-                sdk: sdk.as_deref(),
-                packages: packages.as_deref(),
-                timings,
-                optimize,
-                language_version: language.current_version,
-                experiments: language.experiments,
-                debug: debug,
-                generator: None,
-                cpu: None,
-            };
-            dartforge_emit_native::emit_ir_with_flags(&input, &options, flags)
+            crate::engine::with_generator(&input, packages.as_deref(), |generator| {
+                let options = dartforge_emit_native::CompileOptions {
+                    contracts,
+                    sdk: sdk.as_deref(),
+                    packages: packages.as_deref(),
+                    timings,
+                    optimize,
+                    language_version: language.current_version,
+                    experiments: language.experiments,
+                    debug,
+                    generator,
+                    cpu: None,
+                };
+                dartforge_emit_native::emit_ir_with_flags(&input, &options, flags)
+            })
         })
         .map_err(|e| e.to_string())?
         .join()

@@ -2,6 +2,18 @@
 
 ## Atualização de 19/10/2026
 
+- `compile-native --emit-ir` e `--digest` agora usam o motor de geração de
+  fontes, como o AOT e o JIT. Duas regressões reproduzidas no compilador anterior
+  cobrem fonte ausente e configuração inválida ignorada diante de fonte antiga.
+  Passaram os dois testes novos e os dois casos existentes de i18n real em
+  AOT/JIT, além de 33 testes unitários da CLI. Em um programa sem builders, o
+  IR permaneceu idêntico byte a byte e os manifestos só diferem pelo caminho
+  de saída. Seis cenários reais de `run`, `reload` e `reload --restart` preservam
+  argumentos e os códigos de saída 0/37. O Clippy estrito da CLI passa com todas
+  as features usando `--no-deps`; os checks globais ainda falham em
+  fmt/Clippy/link Apple/LLVM 22, e docs geram avisos. Rodada macOS, sem nova
+  certificação Windows/Linux. Evidências:
+  `bench/results/2026-10-19-generated-native-ir/README.md`.
 - A prova experimental de alcance de classes aceita closures uniformes locais e
   tear-offs com ABI conferida, sem escape ou escrita do handle. O receptor
   implícito também é protegido, sem presumir sua identidade só pela assinatura.

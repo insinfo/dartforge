@@ -23,6 +23,18 @@ em memória (`crates/elements/src/gerado.rs`), atômica.
 Duas perguntas, nada mais: **quando** (plano, agenda, impressão) e
 **o quê** (executores). O motor não sabe gerar nada sozinho.
 
+Na CLI nativa, `compile-native --emit-ir` e `--digest` também passam por
+`engine::with_generator`, como a compilação do executável e o JIT. Os modos
+de inspeção recebem a geração em memória, sem exigir que as fontes geradas
+tenham sido materializadas antes. Uma alteração no insumo do builder deve
+alcançar o digest; emitir IR e pedir só o digest sobre a mesma geração devem
+produzir o mesmo resumo. Um erro na configuração do motor interrompe a
+emissão mesmo quando existe uma fonte gerada antiga no disco, preservando
+os artefatos de saída anteriores. Isso não muda a política de fallback de
+executores indisponíveis nem torna a gravação do IR e do manifesto uma
+transação única. Evidências e limites da correção:
+`bench/results/2026-10-19-generated-native-ir/README.md`.
+
 ## 2. Configuração e plano (`config/`, `pacotes.rs`, `plano.rs`)
 
 * **Grafo de pacotes** — `PackageGraph.forPath`

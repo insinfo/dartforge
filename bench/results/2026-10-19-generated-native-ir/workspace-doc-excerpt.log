@@ -1,0 +1,50 @@
+2186 | /// [`construir`] with the inferable alias ([`inferable_alias`]) through which
+     |       ^^^^^^^^^ no item named `construir` in scope
+     |
+     = help: to escape `[` and `]` characters, add '\' before them like `\[` or `\]`
+
+warning: unresolved link to `super::shorthands::value`
+   --> crates/types/src/inference/body.rs:177:54
+    |
+177 |     /// (`shorthands::construction`): the target's [`super::shorthands::value`] does not report again.
+    |                                                      ^^^^^^^^^^^^^^^^^^^^^^^^ no item named `value` in module `shorthands`
+
+warning: unresolved link to `Body::buscar`
+   --> crates/types/src/inference/body.rs:549:56
+    |
+549 |     /// the innermost declaration (the same order as [`Body::buscar`]).
+    |                                                        ^^^^^^^^^^^^ the struct `Body` has no field or associated item named `buscar`
+
+warning: unresolved link to `Fluxo`
+ --> crates/types/src/inference/flow.rs:4:9
+  |
+4 | //! A [`Fluxo`] is the specification's `FlowModel`; each local variable has a
+  |         ^^^^^ no item named `Fluxo` in scope
+  |
+  = help: to escape `[` and `]` characters, add '\' before them like `\[` or `\]`
+
+warning: unresolved link to `Fluxo`
+  --> crates/types/src/inference/patterns/matching.rs:10:15
+   |
+10 | //! current [`Fluxo`] like that of any variable. The matched type of a
+   |               ^^^^^ no item named `Fluxo` in scope
+   |
+   = help: to escape `[` and `]` characters, add '\' before them like `\[` or `\]`
+
+warning: unresolved link to `ligado`
+  --> crates/types/src/inference/patterns/matching.rs:17:45
+   |
+17 | //! Only the analyzer uses this path (see [`ligado`]); the compilers keep the
+   |                                             ^^^^^^ no item named `ligado` in scope
+   |
+   = help: to escape `[` and `]` characters, add '\' before them like `\[` or `\]`
+
+warning: unresolved link to `crate::display::Displayer::argumentos`
+    --> crates/types/src/inference/mod.rs:1058:41
+     |
+1058 |     /// `ErrorReporter`'s conversion ([`crate::display::Displayer::argumentos`],
+     |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the struct `Displayer` has no field or associated item named `argumentos`
+
+warning: `dartforge-types` (lib doc) generated 18 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.36s
+   Generated /Volumes/ssd_dock/MyRustProjects/dartforge/target/doc/dartforge_abi/index.html and 29 other files

@@ -1,0 +1,28 @@
+Cargo LLVM linker: /Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/ld64.lld; SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
+[Repeated build/link warning preamble omitted; see test-log-hashes.json.]
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.69s
+     Running tests/generated_ir.rs (target/impl-a/debug/deps/generated_ir-51208305c2faffb9)
+
+running 2 tests
+generated IR test compiler: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge
+generated IR test compiler: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge
+
+thread 'ir_and_digest_generate_fresh_sources_without_materializing_them' (1518683) panicked at crates/cli/tests/generated_ir.rs:102:5:
+error: error loading the program: could not read /private/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-generated-ir-55432-1792420823010069000/lib/messages.i18n.dart: No such file or directory (os error 2) at bytes 0..0
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test ir_and_digest_generate_fresh_sources_without_materializing_them ... FAILED
+
+thread 'invalid_builder_configuration_cannot_use_stale_sources_or_replace_artifacts' (1518682) panicked at crates/cli/tests/generated_ir.rs:193:9:
+stale disk source bypassed the invalid builder configuration
+test invalid_builder_configuration_cannot_use_stale_sources_or_replace_artifacts ... FAILED
+
+failures:
+
+failures:
+    invalid_builder_configuration_cannot_use_stale_sources_or_replace_artifacts
+    ir_and_digest_generate_fresh_sources_without_materializing_them
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.81s
+
+error: test failed, to rerun pass `-p dartforge-cli --test generated_ir`

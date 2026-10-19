@@ -1,0 +1,15 @@
+Cargo LLVM linker: /Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/ld64.lld; SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
+[Repeated build/link warning preamble omitted; see test-log-hashes.json.]
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.33s
+     Running tests/generated_ir.rs (target/impl-a/debug/deps/generated_ir-51208305c2faffb9)
+
+running 2 tests
+generated IR test compiler: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge
+generated IR test compiler: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge
+generated IR test compiler: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge
+test invalid_builder_configuration_cannot_use_stale_sources_or_replace_artifacts ... ok
+generated IR test compiler: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge
+generated IR test compiler: /Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge
+test ir_and_digest_generate_fresh_sources_without_materializing_them ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.21s

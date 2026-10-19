@@ -1,0 +1,10 @@
+Cargo LLVM linker: /Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/ld64.lld; SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
+[Repeated build/link warning preamble omitted; see test-log-hashes.json.]
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.32s
+     Running tests/native_generated.rs (target/impl-a/debug/deps/native_generated-b33d13afc18325b8)
+
+running 2 tests
+test compile_native_generates_the_sources_through_the_engine ... ok
+test run_generates_the_sources_through_the_engine ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.72s

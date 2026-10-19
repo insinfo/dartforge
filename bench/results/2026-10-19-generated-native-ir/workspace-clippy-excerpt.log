@@ -1,0 +1,50 @@
+error: consider using `sort_by_key`
+    --> crates/emit_native/src/sdk_module.rs:1287:13
+     |
+1287 |             v.sort_by(|a, b| b.1.cmp(&a.1));
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_sort_by
+help: try
+     |
+1287 -             v.sort_by(|a, b| b.1.cmp(&a.1));
+1287 +             v.sort_by_key(|a| std::cmp::Reverse(a.1));
+     |
+
+error: consider using `sort_by_key`
+    --> crates/emit_native/src/sdk_module.rs:1322:9
+     |
+1322 |         v.sort_by(|a, b| b.1.cmp(&a.1));
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_sort_by
+help: try
+     |
+1322 -         v.sort_by(|a, b| b.1.cmp(&a.1));
+1322 +         v.sort_by_key(|a| std::cmp::Reverse(a.1));
+     |
+
+error: consider using `sort_by_key`
+    --> crates/emit_native/src/sdk_module.rs:1502:9
+     |
+1502 |         v.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_sort_by
+help: try
+     |
+1502 -         v.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+1502 +         v.sort_by_key(|a| std::cmp::Reverse(a.1.0));
+     |
+
+error: useless use of `vec!`
+   --> crates/emit_native/src/compact_stack_trace.rs:727:32
+    |
+727 |         assert_eq!(convert_elf(&mut vec![0u8; 8]), Ok(false));
+    |                                ^^^^^^^^^^^^^^^^^ help: you can use a slice directly: `&mut [0u8; 8]`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#useless_vec
+    = note: `-D clippy::useless-vec` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::useless_vec)]`
+
+error: could not compile `dartforge-emit-native` (lib test) due to 47 previous errors

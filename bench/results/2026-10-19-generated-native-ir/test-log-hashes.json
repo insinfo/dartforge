@@ -1,0 +1,20 @@
+{
+  "generated-ir.log": {
+    "local_full_log": "/tmp/forge-generated-ir-current.log",
+    "bytes": 157388,
+    "sha256": "239e3407468f614d2bede29bf3b1aaecf6c1c1b2a9992b8f847a9a466653d6f5",
+    "exit": 0
+  },
+  "native-generated.log": {
+    "local_full_log": "/tmp/forge-native-generated-existing.log",
+    "bytes": 156852,
+    "sha256": "11571ce74fb0b6043c2c4374b35a609d03e5d8d1839e0e2fd78b69ee9b8de340",
+    "exit": 0
+  },
+  "regressions-before.log": {
+    "local_full_log": "/tmp/forge-generated-ir-replay-before.log",
+    "bytes": 158000,
+    "sha256": "aa4aa16e998bd1ba912554e1964dc9224b9f53be997a949274d882e39d391c87",
+    "exit": 101
+  }
+}

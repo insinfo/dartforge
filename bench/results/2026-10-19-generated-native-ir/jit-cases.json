@@ -1,0 +1,100 @@
+{
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+  "compiler_sha256": "6fb8aa06092b880c5fa59bf944acd1a190a24590baf5572accd24dfa174c97b0",
+  "cases": [
+    {
+      "mode": "run",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "run",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli/tests/fixtures/jit_main_arguments.dart",
+        "--",
+        "--timings",
+        "--child",
+        "",
+        "é folder",
+        "--"
+      ],
+      "exit": 0,
+      "stdout": "[\"--timings\",\"--child\",\"\",\"é folder\",\"--\"]\n",
+      "stderr": ""
+    },
+    {
+      "mode": "reload",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "reload",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli/tests/fixtures/jit_main_arguments.dart",
+        "--once",
+        "--",
+        "--timings",
+        "--child",
+        "",
+        "é folder",
+        "--"
+      ],
+      "exit": 0,
+      "stdout": "[\"--timings\",\"--child\",\"\",\"é folder\",\"--\"]\n",
+      "stderr": "[reload] generation 1: state preserved in the same session\n"
+    },
+    {
+      "mode": "restart",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "reload",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli/tests/fixtures/jit_main_arguments.dart",
+        "--once",
+        "--restart",
+        "--",
+        "--timings",
+        "--child",
+        "",
+        "é folder",
+        "--"
+      ],
+      "exit": 0,
+      "stdout": "[\"--timings\",\"--child\",\"\",\"é folder\",\"--\"]\n",
+      "stderr": "[reload] generation 1: hot restart — state is NOT preserved (the program starts over from main; stateful hot reload does not exist yet)\n[reload] generation 1 ended with code 0\n"
+    },
+    {
+      "mode": "run",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "run",
+        "/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-jit-exit-l5igsmfv/exit.dart",
+        "--"
+      ],
+      "exit": 37,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "mode": "reload",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "reload",
+        "/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-jit-exit-l5igsmfv/exit.dart",
+        "--once",
+        "--"
+      ],
+      "exit": 37,
+      "stdout": "",
+      "stderr": "[reload] generation 1: state preserved in the same session\n"
+    },
+    {
+      "mode": "restart",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "reload",
+        "/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-jit-exit-l5igsmfv/exit.dart",
+        "--once",
+        "--restart",
+        "--"
+      ],
+      "exit": 37,
+      "stdout": "",
+      "stderr": "[reload] generation 1: hot restart — state is NOT preserved (the program starts over from main; stateful hot reload does not exist yet)\n[reload] generation 1 ended with code 37\n"
+    }
+  ],
+  "passed": 6
+}

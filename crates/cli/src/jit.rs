@@ -110,7 +110,7 @@ fn emit_generation(
                     language_version: None,
                     experiments: Vec::new(),
                     debug: false,
-                    generator: generator,
+                    generator,
                     cpu: None,
                 };
                 dartforge_emit_native::emit_reloadable_ir(&input, &options, previous.as_deref().map(String::as_str))
@@ -454,18 +454,18 @@ pub fn reload(args: &[std::ffi::OsString]) -> Outcome {
             }
         }
         if let Some(current) = child.as_mut() {
-            if !end_reported {
-                if let Some(status) = current.try_wait()? {
-                    end_reported = true;
-                    let code = status.code().unwrap_or(-1);
-                    eprintln!("[reload] generation {generation} ended with code {code}");
-                    if once {
-                        if code != 0 {
-                            drop(temp);
-                            std::process::exit(code);
-                        }
-                        return Ok(());
+            if !end_reported
+                && let Some(status) = current.try_wait()?
+            {
+                end_reported = true;
+                let code = status.code().unwrap_or(-1);
+                eprintln!("[reload] generation {generation} ended with code {code}");
+                if once {
+                    if code != 0 {
+                        drop(temp);
+                        std::process::exit(code);
                     }
+                    return Ok(());
                 }
             }
         } else if once && generation == 0 {

@@ -1,0 +1,10 @@
+{
+  "before_compiler_sha256": "6a68f8b744ad129add5b1ac3586ac51088e5f205652a5c3d90d9c83b02b9c825",
+  "after_compiler_sha256": "6fb8aa06092b880c5fa59bf944acd1a190a24590baf5572accd24dfa174c97b0",
+  "ir_sha256": "5e8ec59e3de054328732978141890b1fb1e3bf8a6f2ef4e1558dcbe0a546b41b",
+  "ir_bytes": 166722,
+  "ir_byte_equal": true,
+  "manifest_equal_except_artifact_path": true,
+  "before_digest_stdout": "2f67a6d3bf3c3b27a4b52f9a628c95be  166722\n",
+  "after_digest_stdout": "2f67a6d3bf3c3b27a4b52f9a628c95be  166722\n"
+}

@@ -1,0 +1,9 @@
+{
+  "crates/cli/src/native.rs": "8208ce30a00d97534e3a7d25cd511a129ea193446baec217287a5d589934d8e7",
+  "crates/cli/src/jit.rs": "5ab11831f74d5d320de087527caeba17d41719a681a482d9dd14b89f88cf7d7a",
+  "crates/cli/tests/debugging.rs": "346149c76d25f9d444a4a597ead1094aba30ca3dff19f14debb544b051d7c294",
+  "crates/cli/tests/generated_ir.rs": "557140111a5a7f238408f6cd203b0c95792872a9f17213ba44d078b454a98a65",
+  "crates/cli/tests/native_generated.rs": "96b6e899e70015f2782003e6ff1c849e12a6fc939c4e8c2eadedad65a7b68611",
+  "crates/cli/tests/fixtures/jit_main_arguments.dart": "05e52bae3d16a6e1699c5974e1654fb9a4079141071e857b80418990a02ea876",
+  "bench/results/2026-10-19-generated-native-ir/check-jit.py": "2a69cabfc206d040d87ee4af2a377105c68ea3eb94a44ca44c743076519de238"
+}

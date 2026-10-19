@@ -65,7 +65,7 @@ fn gdb_stops_at_the_dart_line_and_shows_the_stack() {
     let frames: Vec<&str> = output.lines().filter(|l| l.starts_with('#')).collect();
     let frame = |l: &str| {
         // `#0  0x… in twice () at main.dart:3` or `#0  twice () at main.dart:3`.
-        let after = l.split_once(" in ").map_or_else(|| l.splitn(2, "  ").nth(1).unwrap_or(l), |(_, r)| r);
+        let after = l.split_once(" in ").map_or_else(|| l.split_once("  ").map_or(l, |(_, rest)| rest), |(_, r)| r);
         let name = after.split(" (").next().unwrap_or("");
         let location = after.rsplit(" at ").next().unwrap_or("");
         format!("{name} {location}")
