@@ -1,0 +1,7 @@
+---- optimize::arc::fields::class_cases::tests::ordinary_late_generic_notifier_dispatch_prepares_without_erasing_field_guards stdout ----
+
+thread '<unnamed>' (960087) panicked at crates/emit_native/src/optimize/arc/fields/class_cases/tests.rs:29:9:
+fixture must reproduce the mixed-origin layout conflict
+
+thread 'optimize::arc::fields::class_cases::tests::ordinary_late_generic_notifier_dispatch_prepares_without_erasing_field_guards' (960086) panicked at crates/emit_native/src/optimize/arc/fields/class_cases/tests.rs:39:24:
+called `Result::unwrap()` on an `Err` value: Any { .. }

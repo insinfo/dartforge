@@ -25,17 +25,71 @@ fn ordinary_late_generic_notifier_dispatch_prepares_without_erasing_field_guards
         crate::optimize::optimize(&mut module);
         let original = module.functions.iter().find(|f| f.symbol.ends_with("Owner.update")).unwrap();
         assert!(original.blocks.iter().any(|b| matches!(b.terminator, Terminator::Switch { .. })), "fixture must exercise physical dispatch");
-        let mut conservative = original.clone();
-        assert!(super::super::prepare(&mut conservative, &module.arc_field_layouts,
-            &mut DartFunctionPlan::default(), None, &HashSet::new()).is_err(), "fixture must reproduce the mixed-origin layout conflict");
+        let owner_reads: Vec<_> = original.blocks.iter().flat_map(|b| &b.instructions)
+            .filter_map(|(value, instruction, ty)| match instruction {
+                Instruction::CallRuntime { name, args, ret_ty: Type::Ref }
+                    if name == "dartforge_arc_read_field_late_ref_v1" && *ty == Type::Ref => Some((*value, args.clone())),
+                _ => None,
+            }).collect();
+        assert!(!owner_reads.is_empty(), "the late notifier already uses the ARC late-field protocol");
+        // Follow actual reads in either body; do not depend on whether notify
+        // was inlined into the dispatcher by an earlier optimization.
+        let scalar_reads: Vec<_> = module.functions.iter().filter(|f|
+            f.symbol.ends_with("Owner.update") || f.symbol.ends_with("Derived.notify"))
+            .flat_map(|f| f.blocks.iter().flat_map(|b| &b.instructions).filter_map(|(value, instruction, ty)| match instruction {
+                Instruction::GetField { object, index } if *ty == Type::I64 => Some((f.symbol.clone(), *value, object.clone(), *index)),
+                _ => None,
+            })).collect();
+        assert!(!scalar_reads.is_empty(), "fixture must exercise the actual holds field");
+        let derived = program.classes.iter().enumerate().find(|(_, class)|
+            !program.library(class.library).is_sdk && context.symbol_name(class.name) == "Derived").unwrap();
+        let class_id = context.class_id_of(dartforge_elements::model::ClassId(derived.0 as u32)).unwrap();
+        let layout = &module.arc_field_layouts[&class_id];
+        assert!(scalar_reads.iter().all(|(_, _, _, index)| layout.get(*index) == Some(&Type::I64)));
+        let field_count = layout.len();
+        // The real body must still fail closed when its scalar representation
+        // has no admissible class in the image. Do not turn stale expectations
+        // about inlining into permission to reinterpret a Ref slot as an int.
+        let mut incompatible = module.arc_field_layouts.clone();
+        for fields in incompatible.values_mut() {
+            for (_, _, _, index) in &scalar_reads {
+                if fields.get(*index) == Some(&Type::I64) { fields[*index] = Type::Ref; }
+            }
+        }
+        let mut incompatible_body = module.functions.iter().find(|f| f.symbol == scalar_reads[0].0).unwrap().clone();
+        let error = super::super::prepare_with_class_cases(&mut incompatible_body, &incompatible,
+            &mut DartFunctionPlan::default(), None, &HashSet::new(), true).unwrap_err();
+        assert!(error.contains("no matching layout declared"), "{error}");
         module.arc_external_callees = true;
         module.arc_external_layouts = crate::lower::sdk_arc_layouts(&context);
         let mut plans = module.functions.iter().map(|f|
             (f.symbol.clone(), DartFunctionPlan::default())).collect();
         crate::optimize::arc::prepare_arc_dart_module(&mut module, &mut plans).unwrap();
         let prepared = module.functions.iter().find(|f| f.symbol.ends_with("Owner.update")).unwrap();
-        assert!(prepared.blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)| matches!(i,
-            Instruction::CallRuntime { name, .. } if name == "dartforge_arc_read_field_scalar_checked_v1")));
+        for (value, original_args) in owner_reads {
+            assert!(prepared.blocks.iter().flat_map(|b| &b.instructions).any(|(result, i, ty)|
+                *result == value && *ty == Type::Ref && matches!(i,
+                    Instruction::CallRuntime { name, args, ret_ty: Type::Ref }
+                        if name == "dartforge_arc_read_field_late_ref_v1" && args == &original_args)),
+                "the original late Ref read must retain its receiver, field, result and guard");
+        }
+        for (symbol, value, object, index) in scalar_reads {
+            let prepared = module.functions.iter().find(|f| f.symbol == symbol).unwrap();
+            let (instruction, ty) = prepared.blocks.iter().flat_map(|b| &b.instructions)
+                .find(|(result, _, _)| *result == value).map(|(_, i, ty)| (i, ty)).unwrap();
+            let Instruction::CallRuntime { name, args, ret_ty } = instruction else { panic!("scalar field lost its checked accessor"); };
+            assert_eq!(name, "dartforge_arc_read_field_scalar_checked_v1");
+            assert_eq!((*ty, *ret_ty), (Type::I64, Type::I64));
+            assert_eq!(args[0], (object, Type::Ref));
+            assert_eq!(args[1], (Operand::Constant(Constant::Int(index as i64)), Type::I64));
+            let (Operand::Val(vector), Type::Ptr) = &args[2] else { panic!("guard must carry the image layout vector"); };
+            let fields = prepared.blocks.iter().flat_map(|b| &b.instructions).find_map(|(v, i, _)|
+                match i { Instruction::ConstArray(fields) if v == vector => Some(fields), _ => None }).unwrap();
+            assert!(fields.chunks_exact(2).any(|pair| pair == [i64::from(class_id), field_count as i64]),
+                "the checked layout must admit the declared Derived representation");
+            assert_eq!(args[3], (Operand::Constant(Constant::Int((fields.len() / 2) as i64)), Type::I64));
+            assert_eq!(args[4], (Operand::Constant(Constant::Int(1)), Type::I64), "holds is an i64 scalar, never a Ref");
+        }
     }).unwrap().join().unwrap();
 }
 

@@ -1,0 +1,117 @@
+{
+  "inputs": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/arc_ports/late_notifier_dispatch.dart": "1e591625dcccead374168d51010a695eb8f322fba20da52b1ca8df90219a8591",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge": "0526a9130a2547d0a92403e89d1dc92646cf14d8a2d1933c7d84f1f4cbd2e161",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa"
+  },
+  "runs": [
+    {
+      "name": "vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/arc_ports/late_notifier_dispatch.dart"
+      ],
+      "exit": 0,
+      "environment": {},
+      "stdout_sha256": "a90a55ddbfe2da8a5aa63a3cb10f2aa3dfed8396c3b49cc4775c4d1001a9b0eb",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "tracing-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/arc_ports/late_notifier_dispatch.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/notifier-checked-validation/notifier-tracing"
+      ],
+      "exit": 0,
+      "environment": {},
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "tracing-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/notifier-checked-validation/notifier-tracing"
+      ],
+      "exit": 0,
+      "environment": {},
+      "stdout_sha256": "a90a55ddbfe2da8a5aa63a3cb10f2aa3dfed8396c3b49cc4775c4d1001a9b0eb",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "exact": true
+    },
+    {
+      "name": "tracing-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/notifier-checked-validation/notifier-tracing"
+      ],
+      "exit": 0,
+      "environment": {
+        "DARTFORGE_GC_STRESS": "1"
+      },
+      "stdout_sha256": "a90a55ddbfe2da8a5aa63a3cb10f2aa3dfed8396c3b49cc4775c4d1001a9b0eb",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "exact": true
+    },
+    {
+      "name": "arc-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/arc_ports/late_notifier_dispatch.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=arc",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/notifier-checked-validation/notifier-arc"
+      ],
+      "exit": 0,
+      "environment": {},
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "arc-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/notifier-checked-validation/notifier-arc"
+      ],
+      "exit": 0,
+      "environment": {
+        "DARTFORGE_ARC_CHECK": "1",
+        "DARTFORGE_ARC_NURSERY": "0"
+      },
+      "stdout_sha256": "a90a55ddbfe2da8a5aa63a3cb10f2aa3dfed8396c3b49cc4775c4d1001a9b0eb",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "exact": true
+    },
+    {
+      "name": "arc-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/notifier-checked-validation/notifier-arc"
+      ],
+      "exit": 0,
+      "environment": {
+        "DARTFORGE_ARC_CHECK": "1",
+        "DARTFORGE_ARC_NURSERY": "0",
+        "DARTFORGE_GC_STRESS": "1"
+      },
+      "stdout_sha256": "a90a55ddbfe2da8a5aa63a3cb10f2aa3dfed8396c3b49cc4775c4d1001a9b0eb",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "exact": true
+    }
+  ],
+  "scope": "macOS ARM64 functional output and checked ARC run; no performance claim",
+  "inputs_unchanged": true
+}

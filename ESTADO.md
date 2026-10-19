@@ -23,6 +23,15 @@
   remove getters/checks nem ativa a especialização experimental por padrão.
   Detalhes: `RELATORIO-ENUM-PHI.md`.
 
+- Corrigido falso negativo do teste de notifier ARC: ele dependia de uma forma
+  antiga de inlining e procurava o guarda escalar no corpo errado. A regressão
+  agora acompanha as leituras reais, confere representação/vetor de layouts e
+  recusa a ausência de layout admissível. Os 14 testes dirigidos passaram;
+  suíte ampla: 770 passaram, uma falha de especialização de cor resta, nove
+  ignorados. Tracing/ARC coincidiram com a VM oficial, também sob stress e
+  ARC_CHECK; código de produção ARC e fixture Dart permaneceram intactos.
+  Detalhes: `RELATORIO-ARC-NOTIFIER.md`.
+
 ## Consolidação de 13–15/10/2026: últimas 48 horas
 
 Esta seção atualiza o retrato geral. As seções anteriores permanecem como

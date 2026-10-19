@@ -1,0 +1,35 @@
+{
+  "native_suite": {
+    "passed": 770,
+    "failed": 1,
+    "ignored": 9,
+    "remaining_failures": [
+      "optimize::constant_specialize::tests::actual_color_context_reports_post_prune_specialization_eligibility"
+    ],
+    "removed_false_negative": "optimize::arc::fields::class_cases::tests::ordinary_late_generic_notifier_dispatch_prepares_without_erasing_field_guards",
+    "new_failures": []
+  },
+  "final_focused_tests": {
+    "passed": 14,
+    "failed": 0,
+    "order": "Full suite followed by final placement-independent test refinement and focused rerun"
+  },
+  "native": {
+    "production_compiler_base": "ad52385d",
+    "production_code_changed": false,
+    "tracing_normal_exact": true,
+    "tracing_stress_exact": true,
+    "arc_normal_exact": true,
+    "arc_stress_exact": true,
+    "arc_check": "1",
+    "arc_nursery": "0",
+    "source_unchanged": true
+  },
+  "workspace": {
+    "fmt_exit": 1,
+    "clippy_exit": 101,
+    "tests_exit": 101,
+    "doc_exit": 0,
+    "notes": "Existing formatting/lints; default Apple LLVM21 linker cannot read LLVM22 bitcode; docs build with warnings"
+  }
+}
