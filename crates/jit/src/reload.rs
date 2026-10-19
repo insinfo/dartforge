@@ -63,6 +63,7 @@
 //! A generation is unloaded at the next publication, when no stable
 //! entry reaches it anymore (J02). See [`JitSession::hot_reload`].
 
+use dartforge_abi::image_symbols::{LEGACY_RTI_START, RTI_START};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::CString;
 use std::sync::atomic::AtomicUsize;
@@ -559,7 +560,7 @@ impl JitSession {
         let empties_list = HashMap::new();
         let live_list = self.reloadables.iter().find(|m| m.name == name).map_or(&empties_list, |m| &m.published_list);
         let (generation_ir, kept_fns, mut new_items) =
-            match crate::delta::delta(ir, live_list, &[AREA_PREPARATION, PROGRAM_REGISTRY, RTI_START]) {
+            match crate::delta::delta(ir, live_list, &[AREA_PREPARATION, PROGRAM_REGISTRY, RTI_START, LEGACY_RTI_START]) {
                 Some(d) => (std::borrow::Cow::Owned(d.ir), d.kept_fns, d.new_items),
                 None => (std::borrow::Cow::Borrowed(ir), Vec::new(), HashMap::new()),
             };
@@ -729,8 +730,8 @@ impl JitSession {
             let has = |name_str: &str| signatures.iter().any(|s| s.name == name_str && s.ret == "void" && s.params.is_empty());
             let area = has(AREA_PREPARATION);
             let register = has(PROGRAM_REGISTRY);
-            let rti = has(RTI_START);
-            if area || register || rti || encoded_plan.is_some() {
+            let rti = [RTI_START, LEGACY_RTI_START].into_iter().find(|symbol| has(symbol));
+            if area || register || rti.is_some() || encoded_plan.is_some() {
                 let runtime = match &self.sdk_dll {
                     Some(dll) => ffi::ReloadRuntime::from_library(dll)
                         .map_err(|detail| JitError::new("contract", "the session runtime does not publish generations", detail))?,
@@ -1022,7 +1023,10 @@ impl JitSession {
                     runtime,
                     addr_value(self, AREA_PREPARATION, area)?,
                     addr_value(self, PROGRAM_REGISTRY, register)?,
-                    addr_value(self, RTI_START, rti)?,
+                    match rti {
+                        Some(symbol) => Some(self.lookup(symbol)?),
+                        None => None,
+                    },
                 ))
             }
             None => None,
@@ -1309,7 +1313,6 @@ fn check_contract(
 /// its layout and the registrations it redoes.
 const AREA_PREPARATION: &str = "df.prepare_area";
 const PROGRAM_REGISTRY: &str = "df.register.program";
-const RTI_START: &str = "dartforge_rti_init";
 
 /// The program's class ids are positional: an edit that inserts or
 /// reorders classes changes the class of an id that already has objects in the heap.

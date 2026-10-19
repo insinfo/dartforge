@@ -1,6 +1,8 @@
 //! Initial target and C FFI contracts for LLVM; it neither loads nor calls libraries.
 //! Reference: Dart SDK 3.6.2 sdk/lib/ffi/{native_type,abi,dynamic_library}.dart.
 //! Managed handles are not C addresses; WebAssembly requires its own imports.
+pub mod image_symbols;
+
 use std::fmt;
 
 /// Explicit profiles; they do not represent support already implemented by the driver.

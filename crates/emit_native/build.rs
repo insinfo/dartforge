@@ -1,7 +1,8 @@
 //! The compiler fingerprint that goes into the cache key of the source SDK
 //! (P5c, `src/sdk_module.rs`): the blake3 of the sources of whatever decides the
 //! code of an SDK library — the lowering and the emitter (this crate), the
-//! inference (`types`), the element model (`elements`) and the front end.
+//! inference (`types`), the element model (`elements`), the front end and shared
+//! ABI contracts (including generated image entrypoint names).
 //! A change in any of them invalidates the cached SDK objects; the
 //! package version alone would not be enough (it does not change on every commit).
 //!
@@ -28,7 +29,7 @@ fn join(dir: &Path, exit: &mut Vec<PathBuf>) {
 fn main() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut files = Vec::new();
-    for d in ["src", "../types/src", "../elements/src", "../frontend/src", "../runtime/src"] {
+    for d in ["src", "../abi/src", "../types/src", "../elements/src", "../frontend/src", "../runtime/src"] {
         let dir = root.join(d);
         println!("cargo::rerun-if-changed={}", dir.display());
         join(&dir, &mut files);

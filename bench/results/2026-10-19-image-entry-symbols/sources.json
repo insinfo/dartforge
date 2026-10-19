@@ -1,0 +1,16 @@
+{
+  "Cargo.lock": "d49386a91d51906d501f83508bd67b18adcb4340ab631aca6b37babfb2473af7",
+  "crates/abi/src/lib.rs": "f8490105e22ebc9d475e0a140e151f5cf39addce52db030f32e28624ebfaa9bf",
+  "crates/emit_native/Cargo.toml": "9708d419e81d553699783c0da2497efab168598962ed510f49252aef4f4c8bbf",
+  "crates/emit_native/build.rs": "c77e1cf3aaaf7ce5bc5168e15d0f42a135eb4d920d1b2adb4f9af2e6b48c5da5",
+  "crates/emit_native/src/lib.rs": "7254b26277da0107c5d1bb0cbf9e118545eae878713a09d719fc9287df0b163b",
+  "crates/emit_native/src/lower/async_sm.rs": "00607a12ed6bba11f99582e3598f4072b3ba9a0f94ca521bc90c655cbb47f9ef",
+  "crates/emit_native/src/lower/mod.rs": "77e64752ffd40dc70668d439550e467291f356e9e049646a9e2f6824b1c88b8c",
+  "crates/emit_native/src/lower/rti.rs": "83ee921090eba0b7f57e857e13abd4c4d08ff957f7e9734084a8000c6dd15012",
+  "crates/emit_native/src/pruning/class_reachability/tests.rs": "2ee6cba2c3626821e9588e10dbf40bcf06e8df569b5b110e2ecbe20745658adc",
+  "crates/jit/Cargo.toml": "56c236567376d77869d422827865f1b4b9e14004a2789f9c9ee96c9f121bf6f2",
+  "crates/jit/src/ffi.rs": "ce29338b152705b8a4c74a6c868aa7ff2bba46b34f8610d7d54cd4b80ead2980",
+  "crates/jit/src/reload.rs": "56db58882aa859e3593e25fd8f39279b36b01fb31f247d58d6da42a9bfb9520c",
+  "crates/jit/tests/hot_reload.rs": "80790f29ab5ce35625c2f428ba3fe2a7c76cf9b2634bcd7617e616794bfe45e9",
+  "crates/abi/src/image_symbols.rs": "eb2e2c1e30f19a0c41d4aa67a70437d954537d9d5e0101fa36b48acd1cc4e796"
+}

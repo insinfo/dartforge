@@ -12,6 +12,7 @@ publish = false
 workspace = true
 
 [dependencies]
+dartforge-abi = { path = "../abi" }
 # The runtime: `abi` (the same fragments of `crates/runtime/src` the AOT links) and the symbol
 # table generated from it (`simbolos`). Single source, see crates/runtime/src/lib.rs.
 dartforge-runtime = { path = "../runtime" }

@@ -1048,7 +1048,7 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
     if ctx.uses_dart_async
         && let Some(u) = ctx.entry_lib.and_then(|l| ctx.program.library(l).units.first().copied())
     {
-        let symbol = "dartforge_call_dart0".to_string();
+        let symbol = dartforge_abi::image_symbols::CALL_DART.to_string();
         let mut b = fn_builder::FnBuilder::new(ctx, u, symbol.clone(), "chamar".to_string(), Type::Ref);
         let clo = Operand::Val(b.add_param("closure".to_string(), Type::Ref));
         let r = b.call_function_value(clo, &[]);

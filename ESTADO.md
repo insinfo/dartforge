@@ -2,6 +2,25 @@
 
 ## Atualização de 19/10/2026
 
+
+- As funções internas geradas usam agora `df.prepare_rti` e `df.call_dart0`,
+  separadas do namespace nativo reservado. O contrato fica em `dartforge-abi` e
+  participa do fingerprint do cache do SDK. A recarga aceita o inicializador
+  legado e republica ambos os formatos mesmo com corpo inalterado; o teste
+  cobre também migração legado → atual. Passaram 835 testes nativos, 36 dirigidos,
+  45 unitários JIT, 17 de hot reload e os testes/doctest ABI. Três programas reais
+  passaram em tracing/ARC, AOT/JIT, normal/estresse, com saída igual à VM Dart:
+  33 comandos incluindo referências e compilações. Clippy/docs estritos do
+  workspace passam; fmt global e avisos macOS de deployment target persistem.
+  A primeira suíte JIT falhou antes dos cenários por `ld64.lld` ausente no PATH;
+  a repetição configurada passou sem mudar expectativas. A poda experimental
+  continua falhando por reconciliação do inventário SDK com a imagem, mantendo
+  registro amplo. Não houve relaxamento da prova, redução comprovada do
+  explorador, aprovação global ou nova execução Windows/Linux. Os dois novos
+  vínculos locais em Cargo.lock podem invalidar fingerprints de bundles de
+  destino existentes. Evidências:
+  `bench/results/2026-10-19-image-entry-symbols/README.md`.
+
 - `_Type` tem agora a função de tabela registrada e ancestralidade marcada só
   quando o pai do SDK é resolvido e distinto. A prova protege seu CID criado
   pelo runtime mesmo sem alocação local ou vetor posicional; não autoriza o

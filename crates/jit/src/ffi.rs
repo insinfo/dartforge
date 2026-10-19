@@ -2058,7 +2058,7 @@ impl ReloadRuntime {
         let as_fn = |address: Option<u64>| {
             // SAFETY: the addresses are `void ()` trampolines of the session
             // (`df.prepare_area`, `df.register.program`,
-            // `dartforge_rti_init`), alive
+            // `df.prepare_rti`, or the legacy `dartforge_rti_init`), alive
             // while it exists.
             address.map(|e| unsafe { std::mem::transmute::<usize, extern "C" fn()>(e as usize) })
         };

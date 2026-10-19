@@ -1,0 +1,23 @@
+{
+  "artifact": {
+    "blake3": "6e81118d354ad476c86ad19d33a37c4b8f40f28a4269714ac78d94cb33238e43",
+    "cpu": "None",
+    "debug": false,
+    "ir_blake3": "8feb116a02008e8744dac32d56f1103feda57f29ee849460d9e2f447e4c2834e",
+    "optimized": true,
+    "path": "/tmp/forge-image-entry-live/frames-tracing"
+  },
+  "certified": false,
+  "diagnostics": [],
+  "manifest_schema": 1,
+  "mode": "verify",
+  "package": null,
+  "requests": [],
+  "sources": [
+    {
+      "blake3": "18c790b5837a60230dfa250e41bf63f9ac31d3b4e75e9649663ee0abc2fc3aa8",
+      "uri": "file:///private/tmp/forge-image-entry-live/frames.dart"
+    }
+  ],
+  "verification_implemented": false
+}

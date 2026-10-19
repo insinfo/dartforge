@@ -1138,7 +1138,7 @@ na ordem da VM (`timer_impl.dart`): prazo `agora` para duração 0 e
 `agora + 1 + ms` para as outras, desempate pela sequência de agendamento,
 periódico reagendado em `prazo + ms` depois do callback. É o único ponto em
 que o runtime chama Dart, por uma função do código gerado que chama uma
-closure sem argumentos (`dartforge_call_dart0`; G8 marca
+closure sem argumentos (`df.call_dart0`; G8 marca
 `dartforge_event_loop` com `chama_dart`). Exceção que sai de uma
 microtarefa já passou pela `Zone` (`_rootHandleError` a relança): o laço para
 e `finalizar_programa` a relata. O estado é por thread (um isolado por

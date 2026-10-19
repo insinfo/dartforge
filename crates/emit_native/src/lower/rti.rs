@@ -29,6 +29,7 @@
 use super::fn_builder::FnBuilder;
 use crate::context::Context;
 use crate::hir::*;
+use dartforge_abi::image_symbols::RTI_START;
 use dartforge_elements::model::{ClassId, Element};
 use dartforge_frontend::ast::{self, TypeKind};
 use dartforge_intern::SymbolId;
@@ -1508,7 +1509,7 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
     // every JIT reload and every AOT link. One line per registration:
     // `C<id> <parameters> <name>`, `R<id> <recipe>`, `F<shape> <id>`.
     let mut table = String::new();
-    let mut b = FnBuilder::new(ctx, u, "dartforge_rti_init".to_string(), "rti".to_string(), Type::Void);
+    let mut b = FnBuilder::new(ctx, u, RTI_START.to_string(), "rti".to_string(), Type::Void);
     for &c in &classes {
         let id = ctx.id_rti(c);
         let name_str = visible_name(ctx, c);
@@ -1584,7 +1585,7 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
     );
     b.terminate(Terminator::Return(None));
     b.finish(module);
-    module.start_rti = Some("dartforge_rti_init".to_string());
+    module.start_rti = Some(RTI_START.to_string());
 }
 
 /// The name of a class in `Type.toString()`: the VM's `Class::UserVisibleName`

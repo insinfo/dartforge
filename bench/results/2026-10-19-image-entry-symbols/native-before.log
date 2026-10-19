@@ -1,0 +1,27 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.79s
+     Running unittests src/lib.rs (target/impl-a/debug/deps/dartforge_emit_native-58f242ef6e261ae4)
+
+running 1 test
+test pruning::class_reachability::tests::lowering_marks_only_nominal_ancestors_and_preserves_the_premises_when_joining ... FAILED
+
+failures:
+
+---- pruning::class_reachability::tests::lowering_marks_only_nominal_ancestors_and_preserves_the_premises_when_joining stdout ----
+
+thread '<unnamed>' (2026599) panicked at crates/emit_native/src/pruning/class_reachability/tests.rs:1681:9:
+assertion `left == right` failed
+  left: Some("dartforge_rti_init")
+ right: Some("df.prepare_rti")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'pruning::class_reachability::tests::lowering_marks_only_nominal_ancestors_and_preserves_the_premises_when_joining' (2026598) panicked at crates/emit_native/src/pruning/class_reachability/tests.rs:1696:24:
+called `Result::unwrap()` on an `Err` value: Any { .. }
+
+
+failures:
+    pruning::class_reachability::tests::lowering_marks_only_nominal_ancestors_and_preserves_the_premises_when_joining
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 832 filtered out; finished in 0.62s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

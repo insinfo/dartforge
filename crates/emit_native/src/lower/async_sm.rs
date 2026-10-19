@@ -1823,7 +1823,7 @@ mod frame_abi_tests {
                     assert_eq!(module.call_dart.is_some(), event_loop);
                     let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
                     assert_eq!(
-                        ir.contains("call void @dartforge_event_loop(ptr @dartforge_call_dart0)"),
+                        ir.contains("call void @dartforge_event_loop(ptr @df.call_dart0)"),
                         event_loop
                     );
                 }

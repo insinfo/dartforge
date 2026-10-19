@@ -1678,6 +1678,7 @@ fn lowering_marks_only_nominal_ancestors_and_preserves_the_premises_when_joining
         assert!(lowered.errors.is_empty(), "{:?}", lowered.errors);
         assert!(lowered.classes.iter().any(|class| class.id == 0));
         assert!(lowered.pruning_metadata_only_class_ids.contains(&0));
+        assert_eq!(lowered.start_rti.as_deref(), Some("df.prepare_rti"));
         let type_cid = crate::lower::rti::TYPE_CLASS as u32;
         assert!(lowered.subtyping_edges.iter().any(|(child, parent)| *child == type_cid && *parent != type_cid));
         assert!(lowered.pruning_class_ids.contains(&type_cid));
@@ -1809,4 +1810,49 @@ fn compiled_runtime_type_factory_matches_the_emitter_cid_and_scalar_payload() {
             assert!(output.stdout.is_empty() && output.stderr.is_empty());
         }
     }).unwrap().join().unwrap();
+}
+
+#[test]
+fn image_initialization_names_keep_native_exports_disjoint() {
+    use dartforge_abi::image_symbols::{CALL_DART, LEGACY_RTI_START, RTI_START};
+    for symbol in [RTI_START, CALL_DART, LEGACY_RTI_START] {
+        assert!(!dartforge_runtime::symbols::NAMES.contains(&symbol));
+    }
+    let mut module = fixture();
+    module.start_rti = Some(RTI_START.into());
+    module.functions.push(function(RTI_START, vec![]));
+    assert!(audit(&mut module, &[]).is_ok());
+    assert_eq!(
+        module.closed_class_tables.as_ref().unwrap(),
+        &HashSet::from([300])
+    );
+}
+
+#[test]
+fn image_entry_names_do_not_authorize_runtime_shadowing_or_unproved_bodies() {
+    for opaque_body in [false, true] {
+        let mut module = fixture();
+        let symbol = if opaque_body {
+            dartforge_abi::image_symbols::RTI_START
+        } else {
+            "dartforge_object_new"
+        };
+        module.start_rti = Some(symbol.into());
+        let instructions = if opaque_body {
+            vec![(
+                ValueId(0),
+                Instruction::CallRuntime {
+                    name: "dartforge_unproved_native".into(),
+                    args: vec![],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            )]
+        } else {
+            vec![]
+        };
+        module.functions.push(function(symbol, instructions));
+        assert!(audit(&mut module, &[]).is_err());
+        assert!(module.closed_class_tables.is_none());
+    }
 }

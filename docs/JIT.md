@@ -1071,3 +1071,22 @@ apt.llvm.org com `DARTFORGE_LLVM_LINK=shared`) e roda os testes do
   convenção `LLVM_SYS_<versão>_PREFIX`.
 - `crates/runtime/CONTRACT.md` e [historico/AOT-DRIVER.md](historico/AOT-DRIVER.md): a ABI que este
   crate precisa reproduzir e a fronteira `unsafe` do perfil de produção.
+
+
+### Entradas internas de imagem
+
+O emissor e o consumidor de recarga compartilham os nomes em
+`dartforge_abi::image_symbols`. A inicialização RTI usa `df.prepare_rti` e o
+callback entregue por endereço ao loop de eventos usa `df.call_dart0`.
+São funções da imagem gerada; os exports C do runtime continuam separados no
+namespace `dartforge_`. O fingerprint do cache de código do SDK inclui as fontes
+de `crates/abi`, para invalidar objetos quando esse contrato mudar.
+
+A recarga também reconhece `dartforge_rti_init` em IR legado. Tanto a entrada
+atual quanto a legada são reemitidas e publicadas a cada geração, mesmo com corpo
+inalterado. A transição do nome legado para o atual tem teste de recarga com
+estado global preservado. Isso não certifica migração arbitrária entre versões
+do compilador de todos os callbacks já carregados.
+
+A separação de nomes não autoriza chamadas nativas desconhecidas na prova de
+classes fechadas: as verificações de namespace e dos corpos permanecem.

@@ -523,3 +523,37 @@ fn unchanged_function_stays_in_live_implementation() {
     assert_eq!(caller.call(&session).unwrap(), 3);
     assert_eq!(r.retained_generations, 1);
 }
+
+/// Both compiler generations republish RTI registration, including unchanged
+/// initialization bodies, rather than retaining the prior generation's entry.
+#[test]
+#[ignore = "requires the native LLVM and runtime"]
+fn current_and_legacy_rti_entries_are_republished_on_every_generation() {
+    for symbols in [
+        ["df.prepare_rti", "df.prepare_rti", "df.prepare_rti"],
+        ["dartforge_rti_init", "dartforge_rti_init", "dartforge_rti_init"],
+        ["dartforge_rti_init", "df.prepare_rti", "df.prepare_rti"],
+    ] {
+        let ir = |symbol: &str| format!(r#"
+@dfg.rti_counter = internal global i64 0
+define void @{symbol}() {{
+  %old = load i64, ptr @dfg.rti_counter
+  %new = add i64 %old, 1
+  store i64 %new, ptr @dfg.rti_counter
+  ret void
+}}
+define i64 @df_fn_0() {{
+  %value = load i64, ptr @dfg.rti_counter
+  ret i64 %value
+}}
+"#);
+        let mut session = JitSession::new().unwrap();
+        session.add_reloadable_module("rti", &ir(symbols[0])).unwrap();
+        let counter = session.stable_entry("df_fn_0").unwrap();
+        assert_eq!(counter.call(&session).unwrap(), 0, "{symbols:?}: initial load");
+        for generation in 1..=2 {
+            session.hot_reload("rti", &ir(symbols[generation as usize])).unwrap();
+            assert_eq!(counter.call(&session).unwrap(), generation, "{symbols:?}: reload {generation}");
+        }
+    }
+}

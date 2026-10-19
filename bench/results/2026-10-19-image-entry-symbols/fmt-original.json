@@ -1,0 +1,6 @@
+{
+  "path": "/tmp/forge-image-abi-checks/fmt.log",
+  "bytes": 15751496,
+  "sha256": "7bb0bd9b882f74664191267f1f024f5fd58e917c5a48b81181c91a1c616391e5",
+  "retained": "first 100 lines in fmt-excerpt.log"
+}

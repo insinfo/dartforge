@@ -1,0 +1,23 @@
+{
+  "artifact": {
+    "blake3": "98396562b69fb6c6fa98a33c049f1cbe04e19fd4b630dcb3c652653447893cc3",
+    "cpu": "None",
+    "debug": false,
+    "ir_blake3": "be7de33a38a05a07870f04c3102bc86dbc504ceb3bc723fd71cc65d1325f4db1",
+    "optimized": true,
+    "path": "/tmp/forge-image-entry-live/identity-arc"
+  },
+  "certified": false,
+  "diagnostics": [],
+  "manifest_schema": 1,
+  "mode": "verify",
+  "package": null,
+  "requests": [],
+  "sources": [
+    {
+      "blake3": "48b97529971ba3c2e387e2df12ec341cc065a995277ad1502758e2b7839a70a5",
+      "uri": "file:///private/tmp/forge-image-entry-live/identity.dart"
+    }
+  ],
+  "verification_implemented": false
+}

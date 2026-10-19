@@ -434,6 +434,7 @@ name = "dartforge-emit-native"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "dartforge-abi",
  "dartforge-diagnostics",
  "dartforge-elements",
  "dartforge-frontend",
@@ -484,6 +485,7 @@ dependencies = [
 name = "dartforge-jit"
 version = "0.1.0"
 dependencies = [
+ "dartforge-abi",
  "dartforge-emit-native",
  "dartforge-llvm",
  "dartforge-runtime",

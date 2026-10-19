@@ -1,0 +1,483 @@
+{
+  "compiler_sha256": "c6cae768b1981b8c41e319f63bf1311078ed9442dca902e4d0db744a8b18414c",
+  "base_revision": "311115f6600d1319477ba97a4c84e8d10afab4d2",
+  "cases": [
+    {
+      "name": "callbacks-dart",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "run",
+        "/tmp/forge-image-entry-live/callbacks.dart"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "seconds": 0.478149167,
+      "stdout_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "callbacks-tracing-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "compile-native",
+        "/tmp/forge-image-entry-live/callbacks.dart",
+        "-o",
+        "/tmp/forge-image-entry-live/callbacks-tracing",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "seconds": 13.036627708,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "callbacks-tracing-aot",
+      "command": [
+        "/tmp/forge-image-entry-live/callbacks-tracing"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "seconds": 0.1866398750000009,
+      "stdout_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "callbacks-tracing-jit",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--memory=tracing",
+        "/tmp/forge-image-entry-live/callbacks.dart"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "seconds": 130.09545350000002,
+      "stdout_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "callbacks-tracing-aot-stress",
+      "command": [
+        "/tmp/forge-image-entry-live/callbacks-tracing"
+      ],
+      "gc_stress": true,
+      "exit": 0,
+      "seconds": 0.01945608299999435,
+      "stdout_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "callbacks-tracing-jit-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--memory=tracing",
+        "/tmp/forge-image-entry-live/callbacks.dart"
+      ],
+      "gc_stress": true,
+      "exit": 0,
+      "seconds": 3.7642231670000115,
+      "stdout_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "callbacks-arc-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "compile-native",
+        "/tmp/forge-image-entry-live/callbacks.dart",
+        "-o",
+        "/tmp/forge-image-entry-live/callbacks-arc",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=arc"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "seconds": 91.677526083,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "callbacks-arc-aot",
+      "command": [
+        "/tmp/forge-image-entry-live/callbacks-arc"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "seconds": 0.3481363749999957,
+      "stdout_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "callbacks-arc-jit",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--memory=arc",
+        "/tmp/forge-image-entry-live/callbacks.dart"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "seconds": 51.458276083000015,
+      "stdout_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "callbacks-arc-aot-stress",
+      "command": [
+        "/tmp/forge-image-entry-live/callbacks-arc"
+      ],
+      "gc_stress": true,
+      "exit": 0,
+      "seconds": 0.007065082999986316,
+      "stdout_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "callbacks-arc-jit-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--memory=arc",
+        "/tmp/forge-image-entry-live/callbacks.dart"
+      ],
+      "gc_stress": true,
+      "exit": 0,
+      "seconds": 1.6763760000000048,
+      "stdout_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "frames-dart",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "run",
+        "/tmp/forge-image-entry-live/frames.dart"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "seconds": 0.3084456249999903,
+      "stdout_sha256": "1373c01d990ff8f3dca60603746b699ead9d9a63c64da1e54d933a0ae15b753c",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "frames-tracing-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "compile-native",
+        "/tmp/forge-image-entry-live/frames.dart",
+        "-o",
+        "/tmp/forge-image-entry-live/frames-tracing",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "seconds": 9.870758874999979,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "frames-tracing-aot",
+      "command": [
+        "/tmp/forge-image-entry-live/frames-tracing"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "seconds": 0.21540170899999111,
+      "stdout_sha256": "1373c01d990ff8f3dca60603746b699ead9d9a63c64da1e54d933a0ae15b753c",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "frames-tracing-jit",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--memory=tracing",
+        "/tmp/forge-image-entry-live/frames.dart"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "seconds": 1.837140833000035,
+      "stdout_sha256": "1373c01d990ff8f3dca60603746b699ead9d9a63c64da1e54d933a0ae15b753c",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "frames-tracing-aot-stress",
+      "command": [
+        "/tmp/forge-image-entry-live/frames-tracing"
+      ],
+      "gc_stress": true,
+      "exit": 0,
+      "seconds": 0.0066769580000141104,
+      "stdout_sha256": "1373c01d990ff8f3dca60603746b699ead9d9a63c64da1e54d933a0ae15b753c",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "frames-tracing-jit-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--memory=tracing",
+        "/tmp/forge-image-entry-live/frames.dart"
+      ],
+      "gc_stress": true,
+      "exit": 0,
+      "seconds": 1.7176502920000303,
+      "stdout_sha256": "1373c01d990ff8f3dca60603746b699ead9d9a63c64da1e54d933a0ae15b753c",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "frames-arc-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "compile-native",
+        "/tmp/forge-image-entry-live/frames.dart",
+        "-o",
+        "/tmp/forge-image-entry-live/frames-arc",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=arc"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "seconds": 7.406761125000003,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "frames-arc-aot",
+      "command": [
+        "/tmp/forge-image-entry-live/frames-arc"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "seconds": 0.21364383399998133,
+      "stdout_sha256": "1373c01d990ff8f3dca60603746b699ead9d9a63c64da1e54d933a0ae15b753c",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "frames-arc-jit",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--memory=arc",
+        "/tmp/forge-image-entry-live/frames.dart"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "seconds": 1.8458929160000253,
+      "stdout_sha256": "1373c01d990ff8f3dca60603746b699ead9d9a63c64da1e54d933a0ae15b753c",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "frames-arc-aot-stress",
+      "command": [
+        "/tmp/forge-image-entry-live/frames-arc"
+      ],
+      "gc_stress": true,
+      "exit": 0,
+      "seconds": 0.008169959000042581,
+      "stdout_sha256": "1373c01d990ff8f3dca60603746b699ead9d9a63c64da1e54d933a0ae15b753c",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "frames-arc-jit-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--memory=arc",
+        "/tmp/forge-image-entry-live/frames.dart"
+      ],
+      "gc_stress": true,
+      "exit": 0,
+      "seconds": 1.944547,
+      "stdout_sha256": "1373c01d990ff8f3dca60603746b699ead9d9a63c64da1e54d933a0ae15b753c",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "identity-dart",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "run",
+        "/tmp/forge-image-entry-live/identity.dart"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "seconds": 0.2241745829999786,
+      "stdout_sha256": "77901d466b3439e5105dbf19a66751e3bdca787eff940b764618dd8963c6b465",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "identity-tracing-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "compile-native",
+        "/tmp/forge-image-entry-live/identity.dart",
+        "-o",
+        "/tmp/forge-image-entry-live/identity-tracing",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "seconds": 4.800986207999983,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "identity-tracing-aot",
+      "command": [
+        "/tmp/forge-image-entry-live/identity-tracing"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "seconds": 0.20356920799997624,
+      "stdout_sha256": "77901d466b3439e5105dbf19a66751e3bdca787eff940b764618dd8963c6b465",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "identity-tracing-jit",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--memory=tracing",
+        "/tmp/forge-image-entry-live/identity.dart"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "seconds": 1.7335227919999738,
+      "stdout_sha256": "77901d466b3439e5105dbf19a66751e3bdca787eff940b764618dd8963c6b465",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "identity-tracing-aot-stress",
+      "command": [
+        "/tmp/forge-image-entry-live/identity-tracing"
+      ],
+      "gc_stress": true,
+      "exit": 0,
+      "seconds": 0.00647954200002232,
+      "stdout_sha256": "77901d466b3439e5105dbf19a66751e3bdca787eff940b764618dd8963c6b465",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "identity-tracing-jit-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--memory=tracing",
+        "/tmp/forge-image-entry-live/identity.dart"
+      ],
+      "gc_stress": true,
+      "exit": 0,
+      "seconds": 1.7630919580000182,
+      "stdout_sha256": "77901d466b3439e5105dbf19a66751e3bdca787eff940b764618dd8963c6b465",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "identity-arc-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "compile-native",
+        "/tmp/forge-image-entry-live/identity.dart",
+        "-o",
+        "/tmp/forge-image-entry-live/identity-arc",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=arc"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "seconds": 7.102694917000008,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "identity-arc-aot",
+      "command": [
+        "/tmp/forge-image-entry-live/identity-arc"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "seconds": 0.20090495799996688,
+      "stdout_sha256": "77901d466b3439e5105dbf19a66751e3bdca787eff940b764618dd8963c6b465",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "identity-arc-jit",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--memory=arc",
+        "/tmp/forge-image-entry-live/identity.dart"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "seconds": 1.7852929999999674,
+      "stdout_sha256": "77901d466b3439e5105dbf19a66751e3bdca787eff940b764618dd8963c6b465",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "identity-arc-aot-stress",
+      "command": [
+        "/tmp/forge-image-entry-live/identity-arc"
+      ],
+      "gc_stress": true,
+      "exit": 0,
+      "seconds": 0.006259207999960381,
+      "stdout_sha256": "77901d466b3439e5105dbf19a66751e3bdca787eff940b764618dd8963c6b465",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "identity-arc-jit-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--memory=arc",
+        "/tmp/forge-image-entry-live/identity.dart"
+      ],
+      "gc_stress": true,
+      "exit": 0,
+      "seconds": 1.7144047909999927,
+      "stdout_sha256": "77901d466b3439e5105dbf19a66751e3bdca787eff940b764618dd8963c6b465",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ]
+}

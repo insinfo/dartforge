@@ -1,0 +1,25 @@
+   Compiling dartforge-abi v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/abi)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.68s
+     Running unittests src/lib.rs (target/debug/deps/dartforge_abi-74ccb0e4b0fd9aa9)
+
+running 2 tests
+test tests::target_layouts_do_not_confuse_handles_and_pointers ... ok
+test tests::scalar_contracts_and_target_rejections ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/native_call.rs (target/debug/deps/native_call-607ce2ddd4edfc3e)
+
+running 1 test
+test llvm_scalar_declaration_links_and_calls_c ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+   Doc-tests dartforge_abi
+
+running 1 test
+test crates/abi/src/image_symbols.rs - image_symbols (line 6) ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 0.65s; merged doctests compilation took 0.46s

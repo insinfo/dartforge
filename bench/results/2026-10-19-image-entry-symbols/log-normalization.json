@@ -1,0 +1,22 @@
+{
+  "jit-lib-configured.log": {
+    "original_sha256": "4ef7b1a814d208994d41ebb7ef1267638550c25b463aa540a93a16713bb962ec",
+    "stored_sha256": "6561fb94065a91301d09ade3a6c59ed600d688785dd53241c927157fc76a0d7b"
+  },
+  "directed.log": {
+    "original_sha256": "78d03b89984109560d6c6a29fec4483035438a2e61e099f737c85ead30165bb5",
+    "stored_sha256": "cfd6ac5ab696f5ced3c43f6e93a12906bfd6b71ff0beedc0ded9ac9035d6fa1b"
+  },
+  "hot-reload.log": {
+    "original_sha256": "da30739b063397f020f6d3d3481bdb14bc4573762fe9cc4032a84c49d9efebb7",
+    "stored_sha256": "240f95738ae61913ab0dadbf446f4365aa8bb498282b78930c98ded10228a9e8"
+  },
+  "native.log": {
+    "original_sha256": "a6e9260d5d68d45d4258a1b8d67ab513a086973a1d55fb467919d19a398e9088",
+    "stored_sha256": "926bff4eeb9d447a77f24e26a5714ee07458a6a5a59f46d2d299c9723ba08fd7"
+  },
+  "fmt-excerpt.log": {
+    "original_sha256": "2e9457f4b6980ab983804665a05e5e7a0af22ca645e1159ee599e35fc24f4e94",
+    "stored_sha256": "2e69de2bbe49721a18d9977e626c13b6ca838ab1d1cd091da7130666d951eedf"
+  }
+}

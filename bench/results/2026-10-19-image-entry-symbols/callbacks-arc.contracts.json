@@ -1,0 +1,23 @@
+{
+  "artifact": {
+    "blake3": "9b04e29f01e2a4f04858589efa00a1e7c48c169b28dd13f421c82276e5010caa",
+    "cpu": "None",
+    "debug": false,
+    "ir_blake3": "90d144d526769f7075aac9c4135cd690d314f73b2f7062e12520acc50fa92a4a",
+    "optimized": true,
+    "path": "/tmp/forge-image-entry-live/callbacks-arc"
+  },
+  "certified": false,
+  "diagnostics": [],
+  "manifest_schema": 1,
+  "mode": "verify",
+  "package": null,
+  "requests": [],
+  "sources": [
+    {
+      "blake3": "af6e6281dfb8957e145df21badafc9dd5222530e893faa96f287c3c8263e98af",
+      "uri": "file:///private/tmp/forge-image-entry-live/callbacks.dart"
+    }
+  ],
+  "verification_implemented": false
+}

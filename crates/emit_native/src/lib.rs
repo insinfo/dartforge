@@ -1133,7 +1133,7 @@ void main() {
         assert_eq!(synchronous.sdk_byte_count, 0);
 
         let asynchronous = emit_source("Future<int> f() async { await null; return 2; }\nFuture<void> main() async { print(await f()); }\n");
-        assert!(asynchronous.text.contains("call void @dartforge_event_loop(ptr @dartforge_call_dart0)"));
+        assert!(asynchronous.text.contains("call void @dartforge_event_loop(ptr @df.call_dart0)"));
         assert!(asynchronous.text.contains("define i64 @df.main$2edart..f$async$q"), "the body of the state machine");
         // `dart:async` comes from the cached SDK module (`sdk_module.rs`): the IR
         // of the program only calls it, it does not define its functions (`sdk_byte_count`
