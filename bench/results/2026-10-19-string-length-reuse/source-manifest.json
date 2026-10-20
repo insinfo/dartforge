@@ -1,0 +1,23 @@
+{
+  "base_revision": "3b00c5cde1cc5c68c3d233bf3145f1818f0b525e",
+  "source_sha256": {
+    "crates/emit_native/src/optimize/mod.rs": "d1880d4dde3ec4cd94e5b3b53d5ca35d9ce0dbb562aebaebde65ecd01adea2c4",
+    "crates/emit_native/src/pruning/receiver_provenance.rs": "5371a73feba8636b1a5d2049188988158135a26900d97dde064770a9c7a08ffb",
+    "crates/emit_native/src/optimize/string_lengths/tests.rs": "dff804049ad31ee38768845881e94b4594c7f8b27648a416a0f2d8c37659f1eb",
+    "crates/emit_native/src/optimize/string_lengths.rs": "21886ac5bb0fc7f5594305fc7adf1ac1ef02d0ede2f2f76d158585b1a2b2634f"
+  },
+  "full_ir_sha256": {
+    "enabled": "d1d66efb12dda447617629a8490cf80bcd2222e8d223e5b87f13eb4f4e1dd7c1",
+    "disabled": "9ed214a3ac61174d0d65c43fe6c410fa9f41d1efd649b77ba5e1444664004b76",
+    "arc": "ea5bdf70f9da297906391882c270956d44e1afd458dc1072fe759e59964830df",
+    "development": "5c8f6faeb90a3c59e2640fcf4651bf954aa4f48699090415966ac5bd34bc7d30",
+    "jit": "f2f58f02259fa552230cd242ea0a374d805938e5eca37b7594aea6fb643c769f",
+    "old-development": "fff3cd35b8218e1af3e89551d282110f4899593670dac6a2bc504acfe90fb168"
+  },
+  "scope": "macOS ARM64; AOT tracing enabled/disabled, ARC; JIT API generation with retained ORCv2 executor; no desktop or cross matrix",
+  "workspace_continuation_exit": 101,
+  "workspace_failure": "platform_constant_prunes_the_other_backends: WindowsBackend bodies should have left the IR",
+  "pruned_ir_jit_failure": "retained previous compiler and new compiler both return SIGSEGV (-11); regular JIT API emission passes",
+  "llvm_string_length_helper_unchanged": true,
+  "global_formatting": "not approved; only new files checked"
+}

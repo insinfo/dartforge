@@ -331,7 +331,13 @@ estimativas.
 4. Teto de fan-out medido (4/8/16) em `calls.dart` e no dart_ui.
 
 ### Onda 2 (ordem sugerida)
-1. `!invariant.load` no comprimento em `@df.string_len` (içamento fora de laços).
+1. Comprimento de strings: em 19/10 entrou reutilização dominante no HIR e
+   içamento de prefixos de leitura para predecessores que entram incondicionalmente
+   no laço, com receptor já disponível fora dele. Não foi acrescentado
+   `!invariant.load`; o helper LLVM permanece igual. Controle:
+   `DARTFORGE_NO_STRING_LENGTH_REUSE=1`. Passaram 930 testes nativos e fixtures
+   AOT/JIT macOS, inclusive GC sob estresse; sem ganho geral de tempo medido.
+   Evidências: `bench/results/2026-10-19-string-length-reuse/README.md`.
 2. `dartforge_exception_clear` em `break`/`continue` só dentro de regiões `try`/`catch`/`finally`.
 3. Raízes de campos estáticos pela varredura dos slots `Ref` da área (sem `HashMap` por store).
 4. Política jovem: limite por bytes até 16 MiB (hoje `YOUNG_COUNT` ≈ 8 MiB), envelhecimento

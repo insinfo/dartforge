@@ -1,0 +1,14 @@
+{
+  "host": "macOS-27.2-arm64-arm-64bit",
+  "llvm_prefix": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+  "dart_sdk": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk",
+  "SDKROOT": "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk",
+  "MACOSX_DEPLOYMENT_TARGET": "15.0",
+  "RUSTDOCFLAGS": "-D warnings",
+  "CARGO_TARGET_DIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation",
+  "aot_compiler_features": [
+    "native"
+  ],
+  "jit_generation_api": "emit_reloadable_ir",
+  "jit_executor": "retained target/debug/dartforge-run-ir"
+}

@@ -1,0 +1,60 @@
+[
+  {
+    "label": "dev-build",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/dartforge",
+      "compile-native",
+      "/tmp/forge-string-length-reuse/lengths.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/tmp/forge-string-length-reuse/development"
+    ],
+    "exit": 0
+  },
+  {
+    "label": "dev-ir",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/dartforge",
+      "compile-native",
+      "/tmp/forge-string-length-reuse/lengths.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--emit-ir",
+      "-o",
+      "/tmp/forge-string-length-reuse/development.ll"
+    ],
+    "exit": 0
+  },
+  {
+    "label": "development-aot-normal",
+    "command": [
+      "/tmp/forge-string-length-reuse/development"
+    ],
+    "exit": 0,
+    "matches_vm": true,
+    "gc_stress": null,
+    "sdk_dll": "/private/tmp/forge-string-length-reuse/libdfsdk_6b6831042293752b.dylib"
+  },
+  {
+    "label": "development-aot-stress",
+    "command": [
+      "/tmp/forge-string-length-reuse/development"
+    ],
+    "exit": 0,
+    "matches_vm": true,
+    "gc_stress": "1",
+    "sdk_dll": "/private/tmp/forge-string-length-reuse/libdfsdk_6b6831042293752b.dylib"
+  },
+  {
+    "label": "development-jit-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/dartforge-run-ir",
+      "/tmp/forge-string-length-reuse/development.ll"
+    ],
+    "exit": 70,
+    "matches_vm": false,
+    "gc_stress": null,
+    "sdk_dll": "/private/tmp/forge-string-length-reuse/libdfsdk_6b6831042293752b.dylib"
+  }
+]

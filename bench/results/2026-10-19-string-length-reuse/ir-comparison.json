@@ -1,0 +1,44 @@
+{
+  "enabled": {
+    "df.lengths$2edart..stable": {
+      "length_calls": 1,
+      "sha256": "08038884e609bcc0111104b50faf9d67b331b45534d0181c8437dc54fac7363f"
+    },
+    "df.lengths$2edart..changing": {
+      "length_calls": 1,
+      "sha256": "9b25869d867c40bf4ff82777bcc00f52697d9b7d939a0d3c043fabac295239bb"
+    },
+    "df.lengths$2edart..nullable": {
+      "length_calls": 0,
+      "sha256": "b9b0837d12d3899e6c03681637338f28dd3df56b2a13ee15dcd4d7bb29bebbbc"
+    }
+  },
+  "disabled": {
+    "df.lengths$2edart..stable": {
+      "length_calls": 2,
+      "sha256": "6195d7faac05daa34846b9c772b3188ee37f6c0719de6f203c3c137af589594c"
+    },
+    "df.lengths$2edart..changing": {
+      "length_calls": 2,
+      "sha256": "9be92d04f07633163449ffed9e9e3022534a575caf00e47b1d27f4bb20e485ce"
+    },
+    "df.lengths$2edart..nullable": {
+      "length_calls": 0,
+      "sha256": "b9b0837d12d3899e6c03681637338f28dd3df56b2a13ee15dcd4d7bb29bebbbc"
+    }
+  },
+  "arc": {
+    "df.lengths$2edart..stable": {
+      "length_calls": 1,
+      "sha256": "08038884e609bcc0111104b50faf9d67b331b45534d0181c8437dc54fac7363f"
+    },
+    "df.lengths$2edart..changing": {
+      "length_calls": 1,
+      "sha256": "9b25869d867c40bf4ff82777bcc00f52697d9b7d939a0d3c043fabac295239bb"
+    },
+    "df.lengths$2edart..nullable": {
+      "length_calls": 0,
+      "sha256": "2dc9ea2f0ac90b44741fd6001e7cc787f47b5c54feab9f7003bcaf7187d29fee"
+    }
+  }
+}

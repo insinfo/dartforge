@@ -1,0 +1,20 @@
+{
+  "artifact": {
+    "ir_digest": "b7c23a0bc86a21ad63e9304697f74cec",
+    "kind": "llvm_ir",
+    "path": "/tmp/forge-string-length-reuse/development.ll"
+  },
+  "certified": false,
+  "diagnostics": [],
+  "manifest_schema": 1,
+  "mode": "verify",
+  "package": null,
+  "requests": [],
+  "sources": [
+    {
+      "blake3": "673fcde45dc24bb8a5bdd2000c7bad9146836e4f5963f2cf3e989115edb443f7",
+      "uri": "file:///private/tmp/forge-string-length-reuse/lengths.dart"
+    }
+  ],
+  "verification_implemented": false
+}

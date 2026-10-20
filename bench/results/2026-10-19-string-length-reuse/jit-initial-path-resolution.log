@@ -1,0 +1,3 @@
+The initial verification script exited 1 after dev-build and dev-ir passed.
+It expected an absolute dartforge_sdk dependency; otool reported @rpath/libdfsdk_6b6831042293752b.dylib.
+Python StopIteration occurred before either AOT or JIT execution. The verifier now resolves the observed LC_RPATH.

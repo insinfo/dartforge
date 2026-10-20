@@ -1,0 +1,5 @@
+/tmp/forge-string-length-reuse/development:
+	@rpath/libdfsdk_6b6831042293752b.dylib (compatibility version 0.0.0, current version 0.0.0)
+	/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1.0.0)
+	/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation (compatibility version 1.0.0, current version 1.0.0)
+	/System/Library/Frameworks/Security.framework/Versions/A/Security (compatibility version 1.0.0, current version 1.0.0)

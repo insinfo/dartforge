@@ -1,0 +1,34 @@
+[
+  {
+    "name": "jit-api-emit",
+    "command": [
+      "/tmp/forge-string-length-reuse/emit-jit"
+    ],
+    "exit": 0,
+    "matches_vm": true,
+    "gc_stress": null,
+    "sdk_dll": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-native-cache/sdk/6b6831042293752baa4cd97534016ec3/libdfsdk_6b6831042293752b.dylib"
+  },
+  {
+    "name": "jit-api-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/dartforge-run-ir",
+      "/tmp/forge-string-length-reuse/jit.ll"
+    ],
+    "exit": 0,
+    "matches_vm": true,
+    "gc_stress": null,
+    "sdk_dll": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-native-cache/sdk/6b6831042293752baa4cd97534016ec3/libdfsdk_6b6831042293752b.dylib"
+  },
+  {
+    "name": "jit-api-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/dartforge-run-ir",
+      "/tmp/forge-string-length-reuse/jit.ll"
+    ],
+    "exit": 0,
+    "matches_vm": true,
+    "gc_stress": "1",
+    "sdk_dll": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-native-cache/sdk/6b6831042293752baa4cd97534016ec3/libdfsdk_6b6831042293752b.dylib"
+  }
+]

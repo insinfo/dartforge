@@ -21,6 +21,11 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 /// Physical class IDs, including Null when a normal path returns null.
 pub(crate) type Classes = BTreeSet<u32>;
 
+/// Checks bounded structural SSA and edge dominance, not general typing or effects.
+pub(crate) fn has_structural_ssa_shape(function: &Function) -> bool {
+    Shape::new(function).is_ok()
+}
+
 /// Compilation-only ablation; this does not change runtime execution policies.
 pub(crate) fn enabled() -> bool {
     std::env::var("DARTFORGE_FACTORY_RECEIVER_PROVENANCE").as_deref() != Ok("0")

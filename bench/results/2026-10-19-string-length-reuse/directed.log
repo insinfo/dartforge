@@ -1,0 +1,119 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.26
+   Compiling quote v1.0.47
+   Compiling libc v0.2.189
+   Compiling find-msvc-tools v0.1.13
+   Compiling shlex v2.0.1
+   Compiling cc v1.4.7
+   Compiling stable_deref_trait v1.2.1
+   Compiling version_check v0.9.5
+   Compiling cfg-if v1.0.5
+   Compiling typenum v1.20.1
+   Compiling serde_core v1.0.229
+   Compiling generic-array v0.14.7
+   Compiling writeable v0.6.4
+   Compiling litemap v0.8.3
+   Compiling icu_properties_data v2.3.0
+   Compiling syn v3.0.6
+   Compiling utf8_iter v1.0.4
+   Compiling icu_normalizer_data v2.3.0
+   Compiling serde v1.0.229
+   Compiling smallvec v1.16.1
+   Compiling thiserror v2.0.20
+   Compiling zmij v1.0.23
+   Compiling vcpkg v0.2.15
+   Compiling ring v0.17.14
+   Compiling pkg-config v0.3.34
+   Compiling crypto-common v0.1.7
+   Compiling block-padding v0.3.3
+   Compiling zeroize v1.9.0
+   Compiling inout v0.1.4
+   Compiling rustls-pki-types v1.15.1
+   Compiling cipher v0.4.4
+   Compiling libz-sys v1.1.29
+   Compiling percent-encoding v2.3.2
+   Compiling memchr v2.8.3
+   Compiling bitflags v2.13.2
+   Compiling serde_json v1.0.151
+   Compiling core-foundation-sys v0.8.7
+   Compiling form_urlencoded v1.2.2
+   Compiling blake3 v1.8.7
+   Compiling getrandom v0.2.17
+   Compiling untrusted v0.9.0
+   Compiling crc32fast v1.5.2
+   Compiling itoa v1.0.18
+   Compiling core-foundation v0.10.1
+   Compiling security-framework-sys v2.17.0
+   Compiling block-buffer v0.10.4
+   Compiling getrandom v0.4.3
+   Compiling arrayvec v0.7.8
+   Compiling rustix v1.1.5
+   Compiling constant_time_eq v0.4.2
+   Compiling once_cell v1.21.4
+   Compiling rustls v0.23.45
+   Compiling security-framework v3.7.0
+   Compiling digest v0.10.7
+   Compiling cpufeatures v0.2.17
+   Compiling errno v0.3.14
+   Compiling rustc-hash v2.1.3
+   Compiling dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+   Compiling synstructure v0.14.0
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.3
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling zerofrom v0.1.8
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.20
+   Compiling yoke v0.8.3
+   Compiling zerotrie v0.2.5
+   Compiling zerovec v0.11.8
+   Compiling rustls-webpki v0.103.15
+   Compiling subtle v2.6.1
+   Compiling object v0.39.1
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+   Compiling rustls-native-certs v0.8.4
+   Compiling cobs v0.3.0
+   Compiling aes v0.8.4
+   Compiling flate2 v1.1.10
+   Compiling tinystr v0.8.4
+   Compiling icu_locale_core v2.3.0
+   Compiling potential_utf v0.1.6
+   Compiling icu_collections v2.3.0
+   Compiling md-5 v0.10.6
+   Compiling webpki-roots v1.0.9
+   Compiling cbc v0.1.2
+   Compiling des v0.8.1
+   Compiling rc2 v0.8.1
+   Compiling fastrand v2.5.0
+   Compiling icu_provider v2.3.1
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_properties v2.3.0
+   Compiling tempfile v3.27.0
+   Compiling dartforge-diagnostics v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/diagnostics)
+   Compiling dartforge-intern v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/intern)
+   Compiling postcard v1.1.3
+   Compiling dartforge-frontend v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/frontend)
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling dartforge-abi v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/abi)
+   Compiling dartforge-instrument v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/instrument)
+   Compiling url v2.5.8
+   Compiling dartforge-elements v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/elements)
+   Compiling dartforge-types v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/types)
+   Compiling dartforge-world v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/world)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 51s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 8 tests
+test optimize::string_lengths::tests::constants_distinct_references_and_other_helpers_remain_separate ... ok
+test optimize::string_lengths::tests::siblings_and_join_cannot_reuse_non_dominating_reads ... ok
+test optimize::string_lengths::tests::replacements_preserve_phi_edge_uses ... ok
+test optimize::string_lengths::tests::malformed_shapes_and_helper_abis_are_unchanged ... ok
+test optimize::string_lengths::tests::malformed_unreachable_definitions_and_over_budget_bodies_are_unchanged ... ok
+test optimize::string_lengths::tests::conditional_entry_and_effectful_prefix_do_not_speculate ... ok
+test optimize::string_lengths::tests::loop_carried_string_identity_is_never_hoisted ... ok
+test optimize::string_lengths::tests::loop_prefix_is_hoisted_and_dominating_reads_are_reused ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 922 filtered out; finished in 0.02s
+

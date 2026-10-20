@@ -1,0 +1,6 @@
+{
+  "compiler_sha256": "913c7062fe74c1a1a890a1aa39730f20ae3e975d9c39e99cc26d4beb36b68e18",
+  "fixture_sha256": "6601f93e81f2a873b4d3cde7c1222b05429cd31c88b4beca3fc063689384c46e",
+  "expected_stdout": "35294\n",
+  "native_cache": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-native-cache"
+}

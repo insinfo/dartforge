@@ -1,0 +1,141 @@
+[
+  {
+    "label": "enabled",
+    "stage": "build",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/dartforge",
+      "compile-native",
+      "/tmp/forge-string-length-reuse/lengths.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--optimize",
+      "-o",
+      "/tmp/forge-string-length-reuse/enabled"
+    ],
+    "exit": 0
+  },
+  {
+    "label": "enabled",
+    "stage": "ir",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/dartforge",
+      "compile-native",
+      "/tmp/forge-string-length-reuse/lengths.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--optimize",
+      "--emit-ir",
+      "-o",
+      "/tmp/forge-string-length-reuse/enabled.ll"
+    ],
+    "exit": 0
+  },
+  {
+    "label": "enabled",
+    "stage": "normal",
+    "gc_stress": null,
+    "exit": 0,
+    "matches_vm": true
+  },
+  {
+    "label": "enabled",
+    "stage": "stress",
+    "gc_stress": "1",
+    "exit": 0,
+    "matches_vm": true
+  },
+  {
+    "label": "disabled",
+    "stage": "build",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/dartforge",
+      "compile-native",
+      "/tmp/forge-string-length-reuse/lengths.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--optimize",
+      "-o",
+      "/tmp/forge-string-length-reuse/disabled"
+    ],
+    "exit": 0
+  },
+  {
+    "label": "disabled",
+    "stage": "ir",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/dartforge",
+      "compile-native",
+      "/tmp/forge-string-length-reuse/lengths.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--optimize",
+      "--emit-ir",
+      "-o",
+      "/tmp/forge-string-length-reuse/disabled.ll"
+    ],
+    "exit": 0
+  },
+  {
+    "label": "disabled",
+    "stage": "normal",
+    "gc_stress": null,
+    "exit": 0,
+    "matches_vm": true
+  },
+  {
+    "label": "disabled",
+    "stage": "stress",
+    "gc_stress": "1",
+    "exit": 0,
+    "matches_vm": true
+  },
+  {
+    "label": "arc",
+    "stage": "build",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/dartforge",
+      "compile-native",
+      "/tmp/forge-string-length-reuse/lengths.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--optimize",
+      "--memory",
+      "arc",
+      "-o",
+      "/tmp/forge-string-length-reuse/arc"
+    ],
+    "exit": 0
+  },
+  {
+    "label": "arc",
+    "stage": "ir",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/dartforge",
+      "compile-native",
+      "/tmp/forge-string-length-reuse/lengths.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--optimize",
+      "--memory",
+      "arc",
+      "--emit-ir",
+      "-o",
+      "/tmp/forge-string-length-reuse/arc.ll"
+    ],
+    "exit": 0
+  },
+  {
+    "label": "arc",
+    "stage": "normal",
+    "gc_stress": null,
+    "exit": 0,
+    "matches_vm": true
+  },
+  {
+    "label": "arc",
+    "stage": "stress",
+    "gc_stress": "1",
+    "exit": 0,
+    "matches_vm": true
+  }
+]

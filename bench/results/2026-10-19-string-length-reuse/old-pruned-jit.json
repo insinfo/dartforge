@@ -1,0 +1,28 @@
+{
+  "results": [
+    {
+      "label": "old-aot",
+      "command": [
+        "/tmp/forge-string-length-reuse/old-development"
+      ],
+      "exit": 0,
+      "stdout": "35294\n"
+    },
+    {
+      "label": "old-pruned-jit",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/dartforge-run-ir",
+        "/tmp/forge-string-length-reuse/old-development.ll"
+      ],
+      "exit": -11,
+      "stdout": ""
+    }
+  ],
+  "sdk_dll": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native_cache/sdk/397fd30f2d6130097a559a4fc95d3a5c/libdfsdk_397fd30f2d613009.dylib",
+  "sha256": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-root-policy-fixed": "74e4e11af0bd93d9f6e4643d4c804bba2ef418950116b123f5840676b43ce51d",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/dartforge-run-ir": "6ddd51410cee2df92dad48ebd88e2455cd1c5551aa381ec2e3de0528c09fe6ce",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native_cache/sdk/397fd30f2d6130097a559a4fc95d3a5c/libdfsdk_397fd30f2d613009.dylib": "25c7a99655344b2affb76f8048cea46603f2eadc30ccb6281e985606a231167c",
+    "/tmp/forge-string-length-reuse/old-development.ll": "fff3cd35b8218e1af3e89551d282110f4899593670dac6a2bc504acfe90fb168"
+  }
+}

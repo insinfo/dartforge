@@ -1,0 +1,4 @@
+(lldb) target create "target/debug/dartforge-run-ir"
+Current executable set to '/Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/dartforge-run-ir' (arm64).
+(lldb) settings set -- target.run-args  "/tmp/forge-string-length-reuse/development.ll"
+(lldb) run

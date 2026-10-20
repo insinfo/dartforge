@@ -1,0 +1,218 @@
+    Checking cfg-if v1.0.5
+   Compiling serde_core v1.0.229
+   Compiling serde v1.0.229
+    Checking itoa v1.0.18
+   Compiling syn v3.0.6
+    Checking libc v0.2.189
+    Checking zmij v1.0.23
+    Checking memchr v2.8.3
+    Checking stable_deref_trait v1.2.1
+    Checking writeable v0.6.4
+    Checking litemap v0.8.3
+    Checking utf8_iter v1.0.4
+    Checking percent-encoding v2.3.2
+   Compiling thiserror v2.0.20
+    Checking icu_properties_data v2.3.0
+    Checking icu_normalizer_data v2.3.0
+    Checking form_urlencoded v1.2.2
+    Checking bitflags v2.13.2
+    Checking once_cell v1.21.4
+    Checking rustc-hash v2.1.3
+    Checking dartforge-instrument v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/instrument)
+    Checking errno v0.3.14
+    Checking getrandom v0.4.3
+    Checking fastrand v2.5.0
+    Checking rustix v1.1.5
+    Checking typenum v1.20.1
+    Checking arrayvec v0.7.8
+    Checking constant_time_eq v0.4.2
+    Checking getrandom v0.2.17
+    Checking blake3 v1.8.7
+    Checking cpufeatures v0.2.17
+    Checking adler2 v2.0.1
+    Checking simd-adler32 v0.3.10
+   Compiling siphasher v1.0.4
+    Checking generic-array v0.14.7
+    Checking miniz_oxide v0.9.1
+    Checking allocator-api2 v0.2.21
+    Checking tempfile v3.27.0
+    Checking foldhash v0.1.5
+    Checking simdutf8 v0.1.5
+    Checking hashbrown v0.17.1
+    Checking crypto-common v0.1.7
+    Checking block-buffer v0.10.4
+    Checking hashbrown v0.15.5
+    Checking scopeguard v1.2.0
+    Checking digest v0.10.7
+    Checking encoding_rs v0.8.41
+    Checking serde_json v1.0.151
+    Checking arraydeque v0.5.1
+    Checking zeroize v1.9.0
+    Checking hashlink v0.10.0
+    Checking untrusted v0.9.0
+    Checking rustls-pki-types v1.15.1
+    Checking ring v0.17.14
+    Checking log v0.4.34
+    Checking dartforge-dfexec v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/dfexec)
+    Checking subtle v2.6.1
+    Checking crc32fast v1.5.2
+    Checking webpki-roots v1.0.9
+    Checking libz-sys v1.1.29
+    Checking block-padding v0.3.3
+    Checking core-foundation-sys v0.8.7
+    Checking flate2 v1.1.10
+    Checking inout v0.1.4
+    Checking yaml-rust2 v0.10.4
+    Checking security-framework-sys v2.17.0
+    Checking cipher v0.4.4
+   Compiling synstructure v0.14.0
+    Checking core-foundation v0.10.1
+    Checking zerocopy v0.8.59
+    Checking sha2 v0.10.9
+    Checking security-framework v3.7.0
+   Compiling phf_shared v0.11.3
+   Compiling dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+   Compiling phf_generator v0.11.3
+    Checking rustls-webpki v0.103.15
+    Checking rc2 v0.8.1
+    Checking des v0.8.1
+    Checking cbc v0.1.2
+    Checking rustls v0.23.45
+    Checking rustls-native-certs v0.8.4
+    Checking aes v0.8.4
+    Checking md-5 v0.10.6
+    Checking rand_core v0.6.4
+   Compiling phf_macros v0.11.3
+   Compiling serde_derive v1.0.229
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.3
+    Checking zerofrom v0.1.8
+   Compiling zerovec-derive v0.11.6
+    Checking yoke v0.8.3
+   Compiling displaydoc v0.2.7
+   Compiling thiserror-impl v2.0.20
+    Checking ppv-lite86 v0.2.21
+    Checking zerovec v0.11.8
+    Checking zerotrie v0.2.5
+    Checking rand_chacha v0.3.1
+    Checking equivalent v1.0.2
+    Checking rand v0.8.8
+    Checking indexmap v2.14.2
+    Checking phf v0.11.3
+    Checking codemap v0.1.3
+    Checking dartforge-abi v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/abi)
+    Checking tinystr v0.8.4
+    Checking potential_utf v0.1.6
+    Checking icu_collections v2.3.0
+    Checking icu_locale_core v2.3.0
+    Checking dartforge-sass v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/sass)
+    Checking cobs v0.3.0
+    Checking smallvec v1.16.1
+    Checking dartforge-diagnostics v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/diagnostics)
+    Checking dartforge-intern v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/intern)
+    Checking postcard v1.1.3
+    Checking icu_provider v2.3.1
+    Checking object v0.39.1
+    Checking dartforge-frontend v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/frontend)
+    Checking icu_normalizer v2.3.0
+    Checking icu_properties v2.3.0
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Checking idna_adapter v1.2.2
+    Checking idna v1.1.0
+    Checking url v2.5.8
+   Compiling phf_shared v0.14.0
+    Checking castaway v0.2.4
+    Checking static_assertions v1.1.0
+    Checking oxc_data_structures v0.152.0
+    Checking base64 v0.22.1
+   Compiling icu_locale_fallback_data v2.3.0
+    Checking oxc_allocator v0.152.0
+    Checking compact_str v0.10.0
+   Compiling phf v0.14.0
+    Checking oxc_estree v0.152.0
+   Compiling icu_segmenter_data v2.3.0
+    Checking oxc_str v0.152.0
+   Compiling phf_generator v0.14.0
+   Compiling oxc_ast_macros v0.152.0
+    Checking icu_locale_fallback v2.3.0
+   Compiling phf_macros v0.14.0
+    Checking dartforge-elements v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/elements)
+    Checking dartforge-formatter v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/formatter)
+    Checking oxc_span v0.152.0
+    Checking cow-utils v0.1.3
+   Compiling dragonbox_ecma v0.1.12
+    Checking icu_segmenter v2.3.0
+    Checking nonmax v0.5.5
+    Checking dartforge-types v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/types)
+    Checking dartforge-macros-host v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/macros_host)
+    Checking dartforge-ng-generator v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/ng_generator)
+   Compiling autocfg v1.5.1
+    Checking smawk v0.3.3
+    Checking unicode-width v0.2.2
+    Checking unicode-id-start v1.5.0
+   Compiling num-traits v0.2.19
+    Checking oxc_index v5.0.0
+    Checking textwrap v0.16.4
+    Checking unicode-segmentation v1.13.3
+    Checking bytecount v0.6.9
+    Checking oxc_syntax v0.152.0
+    Checking oxc_diagnostics v0.152.0
+    Checking oxc-browserslist v5.0.1
+    Checking oxc_regular_expression v0.152.0
+    Checking oxc_compat v0.152.0
+    Checking num-integer v0.1.47
+    Checking oxc_ast v0.152.0
+    Checking num-bigint v0.5.1
+    Checking either v1.18.0
+    Checking itertools v0.15.0
+   Compiling aho-corasick v1.1.5
+    Checking dartforge-build v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/build)
+    Checking self_cell v1.3.0
+   Compiling regex-syntax v0.8.11
+   Compiling anyhow v1.0.104
+   Compiling regex-automata v0.4.18
+    Checking oxc_ecmascript v0.152.0
+    Checking oxc_ast_visit v0.152.0
+    Checking outref v0.5.2
+   Compiling oxc_sourcemap v9.0.0
+    Checking oxc_semantic v0.152.0
+    Checking dartforge-analysis v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/analysis)
+    Checking dartforge-world v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/world)
+    Checking dartforge-emit-js v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js)
+   Compiling regex v1.13.1
+    Checking vsimd v0.8.0
+    Checking escape-simd v0.1.0
+    Checking json-escape-simd v3.1.2
+   Compiling lazy-regex-proc_macros v3.6.1
+    Checking base64-simd v0.8.0
+   Compiling lazy_static v1.5.0
+   Compiling seq-macro v0.3.6
+   Compiling semver v1.0.28
+   Compiling regex-lite v0.1.9
+    Checking lazy-regex v3.6.1
+    Checking oxc_parser v0.152.0
+   Compiling llvm-sys v221.1.0
+    Checking oxc_mangler v0.152.0
+    Checking oxc_traverse v0.152.0
+    Checking dartforge-dev v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/dev)
+    Checking oxc_codegen v0.152.0
+    Checking bytes v1.12.1
+    Checking httparse v1.10.1
+   Compiling dartforge-llvm v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/llvm)
+    Checking http v1.5.0
+    Checking base64 v0.23.1
+    Checking oxc_minifier v0.152.0
+    Checking xattr v1.6.1
+    Checking ureq-proto v0.6.4
+    Checking filetime v0.2.29
+    Checking utf8-zero v0.8.1
+    Checking dartforge-parity v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/parity)
+    Checking tar v0.4.46
+    Checking ureq v3.4.2
+   Compiling dartforge-jit v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/jit)
+    Checking dartforge-lsp v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/lsp)
+    Checking dartforge-cli v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli)
+    Checking dartforge-emit-js-production v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js_production)
+    Checking dartforge-runtime-static v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime_static)
+    Checking dartforge-differential v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/differential)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 59s

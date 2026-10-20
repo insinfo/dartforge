@@ -39,6 +39,7 @@ mod constant_specialize;
 pub(crate) mod primitive_clamp;
 pub(crate) mod enum_constants;
 mod scalar_coalesce;
+mod string_lengths;
 
 use crate::hir::*;
 use std::collections::HashMap;
@@ -283,6 +284,7 @@ pub fn optimize(module: &mut Module) {
     });
     scalar_coalesce::rewrite(module);
     checked_double_roundtrip::rewrite(module);
+    string_lengths::rewrite(module);
     // Inlining and representation folding can expose literal class queries.
     // Fixed registration facts prove only the negative cases; the usual cleanup
     // removes their unreachable branches before tables or ownership plans exist.

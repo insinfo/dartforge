@@ -2,6 +2,20 @@
 
 ## Atualização de 19/10/2026
 
+- O HIR reutiliza `df.string_len` dominante e move prefixos de leitura para
+  entradas incondicionais de laços quando o receptor é invariável. Não muda o
+  helper LLVM nem acrescenta metadados de invariância de memória; preserva
+  receptores que mudam, entradas condicionais, debug e planos ARC já preparados.
+  Passaram oito testes novos com interpretação independente, 930 testes da
+  biblioteca nativa, Clippy estrito do workspace/backend LLVM e docs sem avisos.
+  AOT ligado/desligado, ARC e desenvolvimento, e o JIT pela API regular, coincidiram
+  com a VM em macOS, normal e com GC sob estresse. No IR real, a leitura da string
+  estável sai do laço; sem ganho geral de tempo medido. A continuação ampla anterior
+  terminou com falha na poda de backends em `production_profile`. Executar IR AOT
+  podado no executor JIT também falha, reproduzido com o compilador anterior;
+  a causa segue aberta. Fmt global e aprovação integral continuam pendentes.
+  Evidências: `bench/results/2026-10-19-string-length-reuse/README.md`.
+
 - A rodada ampla anterior terminou: corpus nativo de builders aprovado e os
   quatro testes de transparência Angular aprovados, incluindo edição por arquivo
   (557,38 s para a suíte Angular). Depois, os 15 testes básicos JavaScript falharam

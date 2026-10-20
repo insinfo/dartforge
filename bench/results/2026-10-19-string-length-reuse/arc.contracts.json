@@ -1,0 +1,23 @@
+{
+  "artifact": {
+    "blake3": "b9f668d97420d371daaab86b260f0cfd029211d966ef64769271b5e75f3b2535",
+    "cpu": "None",
+    "debug": false,
+    "ir_blake3": "76af8bb6ea0ea6911fc940016d58801ff7d0e664a767efdb0efa6760117de054",
+    "optimized": true,
+    "path": "/tmp/forge-string-length-reuse/arc"
+  },
+  "certified": false,
+  "diagnostics": [],
+  "manifest_schema": 1,
+  "mode": "verify",
+  "package": null,
+  "requests": [],
+  "sources": [
+    {
+      "blake3": "673fcde45dc24bb8a5bdd2000c7bad9146836e4f5963f2cf3e989115edb443f7",
+      "uri": "file:///private/tmp/forge-string-length-reuse/lengths.dart"
+    }
+  ],
+  "verification_implemented": false
+}
