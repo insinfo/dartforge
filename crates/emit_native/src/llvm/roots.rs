@@ -57,9 +57,16 @@ impl Set {
     }
     fn elements(&self) -> impl Iterator<Item = usize> + '_ {
         self.0.iter().enumerate().flat_map(|(k, &w)| {
-            (0..64)
-                .filter(move |b| w >> b & 1 == 1)
-                .map(move |b| k * 64 + b)
+            let mut remaining = w;
+            std::iter::from_fn(move || {
+                if remaining == 0 {
+                    return None;
+                }
+                let bit = remaining.trailing_zeros() as usize;
+                remaining &= remaining - 1;
+                // Ascending indices preserve deterministic slot coloring.
+                Some(k * 64 + bit)
+            })
         })
     }
 }
@@ -491,5 +498,41 @@ fn dead_slots(func: &Function, position: &HashMap<BlockId, usize>, r: &mut Roots
                 r.clear_at_end.insert(id, dead);
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Set;
+
+    #[test]
+    fn set_bit_iteration_matches_membership_in_ascending_order() {
+        let patterns = [
+            0,
+            u64::MAX,
+            1,
+            1 << 63,
+            0x5555_5555_5555_5555,
+            0xaaaa_aaaa_aaaa_aaaa,
+        ];
+        let check = |words: Vec<u64>| {
+            let set = Set(words);
+            let expected: Vec<_> = (0..set.0.len() * 64).filter(|&bit| set.has(bit)).collect();
+            assert_eq!(set.elements().collect::<Vec<_>>(), expected);
+        };
+        check(Vec::new());
+        for pattern in patterns {
+            check(vec![0, pattern, 0, pattern.rotate_left(17), u64::MAX]);
+        }
+        for bit in 0..64 {
+            check(vec![1 << bit, 0, 1 << (63 - bit)]);
+        }
+        let mut seed = 0x6a09_e667_f3bc_c909u64;
+        for _ in 0..256 {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            check(vec![seed, 0, seed.reverse_bits(), !seed]);
+        }
     }
 }

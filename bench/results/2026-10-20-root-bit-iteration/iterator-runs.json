@@ -1,0 +1,146 @@
+[
+  {
+    "case": "empty",
+    "variant": "before",
+    "seconds": 0.007301292,
+    "checksum": 0
+  },
+  {
+    "case": "empty",
+    "variant": "after",
+    "seconds": 0.000175958,
+    "checksum": 0
+  },
+  {
+    "case": "empty",
+    "variant": "after",
+    "seconds": 0.00016775,
+    "checksum": 0
+  },
+  {
+    "case": "empty",
+    "variant": "before",
+    "seconds": 0.006343375,
+    "checksum": 0
+  },
+  {
+    "case": "empty",
+    "variant": "before",
+    "seconds": 0.005907541,
+    "checksum": 0
+  },
+  {
+    "case": "empty",
+    "variant": "after",
+    "seconds": 0.000144958,
+    "checksum": 0
+  },
+  {
+    "case": "empty",
+    "variant": "after",
+    "seconds": 0.0001405,
+    "checksum": 0
+  },
+  {
+    "case": "empty",
+    "variant": "before",
+    "seconds": 0.005490375,
+    "checksum": 0
+  },
+  {
+    "case": "sparse",
+    "variant": "before",
+    "seconds": 0.005089667,
+    "checksum": 4282122240
+  },
+  {
+    "case": "sparse",
+    "variant": "after",
+    "seconds": 0.000136708,
+    "checksum": 4282122240
+  },
+  {
+    "case": "sparse",
+    "variant": "after",
+    "seconds": 0.000139333,
+    "checksum": 4282122240
+  },
+  {
+    "case": "sparse",
+    "variant": "before",
+    "seconds": 0.00494775,
+    "checksum": 4282122240
+  },
+  {
+    "case": "sparse",
+    "variant": "before",
+    "seconds": 0.0048545,
+    "checksum": 4282122240
+  },
+  {
+    "case": "sparse",
+    "variant": "after",
+    "seconds": 0.000135,
+    "checksum": 4282122240
+  },
+  {
+    "case": "sparse",
+    "variant": "after",
+    "seconds": 0.000135,
+    "checksum": 4282122240
+  },
+  {
+    "case": "sparse",
+    "variant": "before",
+    "seconds": 0.004858583,
+    "checksum": 4282122240
+  },
+  {
+    "case": "dense",
+    "variant": "before",
+    "seconds": 0.004931584,
+    "checksum": 1099494850560
+  },
+  {
+    "case": "dense",
+    "variant": "after",
+    "seconds": 0.015147917,
+    "checksum": 1099494850560
+  },
+  {
+    "case": "dense",
+    "variant": "after",
+    "seconds": 0.015146125,
+    "checksum": 1099494850560
+  },
+  {
+    "case": "dense",
+    "variant": "before",
+    "seconds": 0.004888,
+    "checksum": 1099494850560
+  },
+  {
+    "case": "dense",
+    "variant": "before",
+    "seconds": 0.004911792,
+    "checksum": 1099494850560
+  },
+  {
+    "case": "dense",
+    "variant": "after",
+    "seconds": 0.015225458,
+    "checksum": 1099494850560
+  },
+  {
+    "case": "dense",
+    "variant": "after",
+    "seconds": 0.015140791,
+    "checksum": 1099494850560
+  },
+  {
+    "case": "dense",
+    "variant": "before",
+    "seconds": 0.004860209,
+    "checksum": 1099494850560
+  }
+]

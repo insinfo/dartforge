@@ -1,0 +1,20 @@
+[
+  {
+    "case": "empty",
+    "before_median": 0.006125458,
+    "after_median": 0.000156354,
+    "ratio": 0.02552527500800756
+  },
+  {
+    "case": "sparse",
+    "before_median": 0.0049031665,
+    "after_median": 0.000135854,
+    "ratio": 0.02770740092142496
+  },
+  {
+    "case": "dense",
+    "before_median": 0.004899896,
+    "after_median": 0.015147021,
+    "ratio": 3.09129438665637
+  }
+]

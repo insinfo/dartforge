@@ -1,0 +1,6 @@
+{
+  "base_commit": "cc71a2b582ec309633a78eec124263723864ced0",
+  "path": "crates/emit_native/src/llvm/roots.rs",
+  "before_sha256": "87b74ddd947ab5c9485d52bfdb665bcd7894d21270f7dc9703ccbb92680c4b27",
+  "after_sha256": "c8b638f48c88cfa9c73bcfc7ada73f88573a0bd6131a92c611023a805f862603"
+}

@@ -1,0 +1,146 @@
+[
+  {
+    "case": "empty",
+    "variant": "before",
+    "seconds": 0.012251334,
+    "checksum": 0
+  },
+  {
+    "case": "empty",
+    "variant": "after",
+    "seconds": 0.000124666,
+    "checksum": 0
+  },
+  {
+    "case": "empty",
+    "variant": "candidate",
+    "seconds": 0.000242083,
+    "checksum": 0
+  },
+  {
+    "case": "empty",
+    "variant": "candidate",
+    "seconds": 0.000241917,
+    "checksum": 0
+  },
+  {
+    "case": "empty",
+    "variant": "after",
+    "seconds": 0.00014925,
+    "checksum": 0
+  },
+  {
+    "case": "empty",
+    "variant": "before",
+    "seconds": 0.00494275,
+    "checksum": 0
+  },
+  {
+    "case": "sparse",
+    "variant": "before",
+    "seconds": 0.004938917,
+    "checksum": 4282122240
+  },
+  {
+    "case": "sparse",
+    "variant": "after",
+    "seconds": 0.000137583,
+    "checksum": 4282122240
+  },
+  {
+    "case": "sparse",
+    "variant": "candidate",
+    "seconds": 0.000314166,
+    "checksum": 4282122240
+  },
+  {
+    "case": "sparse",
+    "variant": "candidate",
+    "seconds": 0.000312583,
+    "checksum": 4282122240
+  },
+  {
+    "case": "sparse",
+    "variant": "after",
+    "seconds": 0.000137542,
+    "checksum": 4282122240
+  },
+  {
+    "case": "sparse",
+    "variant": "before",
+    "seconds": 0.004911667,
+    "checksum": 4282122240
+  },
+  {
+    "case": "dense",
+    "variant": "before",
+    "seconds": 0.005025292,
+    "checksum": 1099494850560
+  },
+  {
+    "case": "dense",
+    "variant": "after",
+    "seconds": 0.0154075,
+    "checksum": 1099494850560
+  },
+  {
+    "case": "dense",
+    "variant": "candidate",
+    "seconds": 0.000835333,
+    "checksum": 1099494850560
+  },
+  {
+    "case": "dense",
+    "variant": "candidate",
+    "seconds": 0.000858917,
+    "checksum": 1099494850560
+  },
+  {
+    "case": "dense",
+    "variant": "after",
+    "seconds": 0.016253792,
+    "checksum": 1099494850560
+  },
+  {
+    "case": "dense",
+    "variant": "before",
+    "seconds": 0.004978542,
+    "checksum": 1099494850560
+  },
+  {
+    "case": "near_dense",
+    "variant": "before",
+    "seconds": 0.005001167,
+    "checksum": 1082315243520
+  },
+  {
+    "case": "near_dense",
+    "variant": "after",
+    "seconds": 0.015507,
+    "checksum": 1082315243520
+  },
+  {
+    "case": "near_dense",
+    "variant": "candidate",
+    "seconds": 0.015093708,
+    "checksum": 1082315243520
+  },
+  {
+    "case": "near_dense",
+    "variant": "candidate",
+    "seconds": 0.015225917,
+    "checksum": 1082315243520
+  },
+  {
+    "case": "near_dense",
+    "variant": "after",
+    "seconds": 0.015474334,
+    "checksum": 1082315243520
+  },
+  {
+    "case": "near_dense",
+    "variant": "before",
+    "seconds": 0.005003,
+    "checksum": 1082315243520
+  }
+]

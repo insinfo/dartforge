@@ -2,6 +2,24 @@
 
 ## Atualização de 20/10/2026
 
+- O iterador privado dos conjuntos de raízes do GC percorre agora só os bits
+  ligados, mantendo ordem crescente e o mesmo resultado de liveness/slots.
+  Após profiling do explorador real, duas rodadas ABBA com cache aquecido,
+  quatro amostras por versão e compiladores debug reduziram a mediana de
+  emissão de IR completa de 99,62749 para 95,57189 s (4,1%); a etapa LLVM
+  caiu de 30,43604 para 26,54618 s (12,8%). Os 1.082 vínculos de fontes e
+  os 293.412.654 bytes de IR são idênticos nas dez execuções, incluindo
+  aquecimentos. Não é medição de compilador release, Clang/link ou execução
+  do aplicativo. O microbenchmark release de redução de checksum melhora
+  conjuntos vazios/esparsos, mas piora os totalmente densos em cerca de 3,09×;
+  essa limitação fica registrada, sem alegação de ganho universal. Passaram
+  a equivalência do iterador, 1.046 testes nativos com ignorados, Clippy
+  estrito, docs, runtime e fmt. Fixture AOT produção/desenvolvimento/sem poda
+  e JIT macOS passou normal/sob estresse, com os três IRs montados idênticos.
+  Sem mudança de runtime/bundles ou nova matriz dos hóspedes; VMs suspensas.
+  O gate original de backends continua falhando, sem alterar a expectativa.
+  Evidências: `bench/results/2026-10-20-root-bit-iteration/README.md`.
+
 - Corrigidas referências falsas do leitor LLVM de poda: `c"@nome"` contém
   bytes, não um endereço. Referências reais no mesmo agregado, identificadores
   entre aspas e o tratamento conservador de assembly/literais incompletos ficam

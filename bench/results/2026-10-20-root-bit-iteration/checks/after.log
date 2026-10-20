@@ -1,0 +1,8 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.57s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 1 test
+test llvm::roots::tests::set_bit_iteration_matches_membership_in_ascending_order ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1045 filtered out; finished in 0.00s

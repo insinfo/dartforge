@@ -1,0 +1,11 @@
+{
+  "scope": "macOS ARM64 debug CLI, warm optimized Dart program LLVM IR emission; excludes clang/link/runtime",
+  "measurement_order": "ABBAABBA after separate before/after warmups",
+  "host": "ProductName:\t\tmacOS\nProductVersion:\t\t27.2\nBuildVersion:\t\t26B5101f\n",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "llvm": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+  "sdk_lib": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+  "sdkroot": "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk",
+  "macosx_deployment_target": "15.0",
+  "vms": "both suspended during all benchmark runs"
+}
