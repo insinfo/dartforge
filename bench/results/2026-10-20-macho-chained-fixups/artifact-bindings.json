@@ -1,0 +1,41 @@
+{
+  "base_commit": "a6e89a47394756d258b13ffc919a6bbb405ed52a",
+  "prior_manifest": "bench/results/2026-10-20-macho-relocation-spans/artifact-bindings.json",
+  "prior_manifest_sha256": "4d9135ce61441182ec898c0942a14423ceb7956ab40f33dca08b7f75d4c63496",
+  "layout_header": "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk/usr/include/mach-o/fixup-chains.h",
+  "layout_header_sha256": "90bd2b316ada7fc5fe47c2872ea679f0c6cc6d249ed5965dbbdc5bea5afdd21a",
+  "images": [
+    {
+      "path": "target/desktop-matrix/macos-arm64/explorer",
+      "bytes": 25291280,
+      "sha256": "956bbb5f602e7f29e8d0f3583b94a88e3450147487e1e5f725392cab0f993027",
+      "executed": false,
+      "prior_sha256": "956bbb5f602e7f29e8d0f3583b94a88e3450147487e1e5f725392cab0f993027",
+      "matches_prior_publication": true
+    },
+    {
+      "path": "/tmp/forge-chained-fixups/arm64",
+      "bytes": 50048,
+      "sha256": "fb6bd8bc307aecdeb09280bcdcf5ece10a1259b80938ca7310007cbb4b31847c",
+      "executed": false
+    },
+    {
+      "path": "/tmp/forge-chained-fixups/x86_64",
+      "bytes": 16728,
+      "sha256": "7934278553aebb341a3101938610fc8a25b350f45e62e821b494d2bbfa275431",
+      "executed": false
+    },
+    {
+      "path": "/tmp/forge-chained-fixups/multi-arm64",
+      "bytes": 66608,
+      "sha256": "f86ba76526a1c7dab1935a65f12fff98bfd3d00a4185cd20e7eb01a2e5205526",
+      "executed": false
+    },
+    {
+      "path": "/tmp/forge-chained-fixups/multi-x86_64",
+      "bytes": 33160,
+      "sha256": "96b48bdb226b19b90dbfe7893cda3b0358e18a2c1f83812cadbe0757e066f774",
+      "executed": false
+    }
+  ]
+}

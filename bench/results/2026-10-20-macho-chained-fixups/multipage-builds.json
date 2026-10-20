@@ -1,0 +1,88 @@
+[
+  {
+    "command": [
+      "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+      "-target",
+      "aarch64-apple-darwin",
+      "-mmacosx-version-min=13.0",
+      "-c",
+      "/tmp/forge-chained-fixups/multipage.c",
+      "-o",
+      "/tmp/forge-chained-fixups/multi-arm64.o"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/ld64.lld",
+      "-arch",
+      "arm64",
+      "-platform_version",
+      "macos",
+      "13.0",
+      "13.0",
+      "-e",
+      "_entry",
+      "-undefined",
+      "dynamic_lookup",
+      "-fixup_chains",
+      "/tmp/forge-chained-fixups/multi-arm64.o",
+      "-o",
+      "/tmp/forge-chained-fixups/multi-arm64"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "image": "/tmp/forge-chained-fixups/multi-arm64",
+    "bytes": 66608,
+    "sha256": "f86ba76526a1c7dab1935a65f12fff98bfd3d00a4185cd20e7eb01a2e5205526",
+    "executed": false
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+      "-target",
+      "x86_64-apple-darwin",
+      "-mmacosx-version-min=13.0",
+      "-c",
+      "/tmp/forge-chained-fixups/multipage.c",
+      "-o",
+      "/tmp/forge-chained-fixups/multi-x86_64.o"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/ld64.lld",
+      "-arch",
+      "x86_64",
+      "-platform_version",
+      "macos",
+      "13.0",
+      "13.0",
+      "-e",
+      "_entry",
+      "-undefined",
+      "dynamic_lookup",
+      "-fixup_chains",
+      "/tmp/forge-chained-fixups/multi-x86_64.o",
+      "-o",
+      "/tmp/forge-chained-fixups/multi-x86_64"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "image": "/tmp/forge-chained-fixups/multi-x86_64",
+    "bytes": 33160,
+    "sha256": "96b48bdb226b19b90dbfe7893cda3b0358e18a2c1f83812cadbe0757e066f774",
+    "executed": false
+  }
+]

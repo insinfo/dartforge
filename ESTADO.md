@@ -2,6 +2,20 @@
 
 ## Atualização de 20/10/2026
 
+- A auditoria Mach-O agora cobre chained fixups de 64 bits e ARM64E, com limites
+  de segmentos/páginas, múltiplos inícios, imports e nomes, bits reservados e spans
+  completos. Corrigida também uma falha anterior: o leitor aceitava flags de
+  mapeamento não revistas e escritas clássicas sobre cabeçalhos/LINKEDIT; o teste
+  novo falhou antes da correção. Escritas que podem alterar o próprio controle
+  das cadeias são recusadas. Passaram nove testes novos, os 959 testes nativos
+  com ignorados, 35 dirigidos de imagens, um doctest, Clippy estrito e docs sem
+  avisos. Imagens ARM64/x64 com 2.100 ponteiros adicionais tiveram exatamente
+  2.101 rebases e um bind, atravessando duas/cinco páginas, sem atingir strings
+  estáticas. Os arquivos foram inspecionados, sem execução. Isso não autoriza
+  registro de imagens nem poda; provas de limites reais/callbacks/memória bruta,
+  remoção dos backends, fmt global e aprovação integral continuam pendentes.
+  Evidências: `bench/results/2026-10-20-macho-chained-fixups/README.md`.
+
 - Acrescentada auditoria dos spans de escrita declarados pelas tabelas clássicas
   de rebase/bind Mach-O, uma etapa da prova ainda pendente de registro de imagens
   do SDK. Confere mapeamentos, comandos, operandos e limites; conta repetições sem

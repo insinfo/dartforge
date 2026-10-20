@@ -1,4 +1,6 @@
-//! Audit classic Mach-O dyld opcode write spans, without certifying loader behavior.
+//! Audit declared Mach-O dyld fixup write spans, without certifying loader behavior.
+mod chained;
+pub use chained::{ChainWrite, ChainsAudit, SegmentChains};
 use object::{Object, ObjectSection, macho as m};
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -34,6 +36,8 @@ pub struct Audit {
     pub managed_bytes: u64,
     pub managed_initial_protection: u32,
     pub managed_maximum_protection: u32,
+    pub managed_segment_flags: u32,
+    pub chained: Option<ChainsAudit>,
     pub tables: Vec<Table>,
     pub other_load_commands: Vec<u32>,
     pub initializer_sections_present: bool,
@@ -48,6 +52,8 @@ struct Segment {
     stored: u64,
     maximum: u32,
     initial: u32,
+    flags: u32,
+    header_bytes: u64,
 }
 
 fn range(bytes: &[u8], offset: u64, size: u64) -> Result<&[u8], String> {
@@ -138,6 +144,9 @@ fn run(
     let segment = segments
         .get(state.segment.ok_or("Mach-O relocation has no segment")?)
         .ok_or("Mach-O relocation segment is out of range")?;
+    if segment.name == b"__LINKEDIT" || add(segment.offset, state.offset)? < segment.header_bytes {
+        return Err("Mach-O relocation targets loader control data".into());
+    }
     let step = add(8, skip)?;
     let last = add(state.offset, product(count - 1, step)?)?;
     if add(last, width)? > segment.memory {
@@ -300,7 +309,7 @@ fn disjoint(mut ranges: Vec<(u64, u64)>) -> bool {
     ranges.windows(2).all(|pair| pair[0].1 <= pair[1].0)
 }
 
-/// Inspect classic rebase, bind, weak-bind and lazy-bind opcode write spans in a
+/// Inspect classic opcode and user-space 64-bit chained fixup write spans in a
 /// linked 64-bit little-endian ARM64/x64 Mach-O image with valid static strings.
 /// Checks complete stream bounds, segment mapping and every potentially written
 /// span. Symbol resolution and implicit/native loader writes are not certified.
@@ -312,7 +321,8 @@ fn disjoint(mut ranges: Vec<(u64, u64)>) -> bool {
 /// # Errors
 /// Rejects malformed/truncated images, ambiguous mappings, malformed LEB values,
 /// unsupported opcode/relocation forms, arithmetic overflow and writes outside
-/// segments. Chained fixups and legacy relocation tables require separate audits.
+/// segments. Legacy/kernel/32-bit fixups and unsupported segment mapping flags
+/// require separate audits; symbol resolution/authentication remains unproved.
 pub fn inspect(bytes: &[u8]) -> Result<Audit, String> {
     let image = super::inspect(bytes)?;
     if image.format != "MachO" || field(bytes, 0)? != m::MH_MAGIC_64 {
@@ -323,6 +333,7 @@ pub fn inspect(bytes: &[u8]) -> Result<Audit, String> {
     let mut position = 32;
     let mut segments = Vec::new();
     let mut info = None;
+    let mut chain_info = None;
     let mut other_load_commands = Vec::new();
     let mut initializer_sections_present = false;
     for _ in 0..field(bytes, 16)? {
@@ -345,7 +356,16 @@ pub fn inspect(bytes: &[u8]) -> Result<Audit, String> {
                     stored: word(data, 48)?,
                     maximum: field(data, 56)?,
                     initial: field(data, 60)?,
+                    flags: field(data, 68)?,
+                    header_bytes: if word(data, 40)? == 0 && word(data, 48)? >= commands_end {
+                        commands_end
+                    } else {
+                        0
+                    },
                 };
+                if segment.flags & !0x14 != 0 {
+                    return Err("unsupported Mach-O segment mapping flags".into());
+                }
                 add(segment.address, segment.memory)?;
                 range(bytes, segment.offset, segment.stored)?;
                 if segment.stored > segment.memory || segment.initial & !segment.maximum != 0 {
@@ -370,7 +390,10 @@ pub fn inspect(bytes: &[u8]) -> Result<Audit, String> {
                 info = Some(data.to_vec());
             }
             m::LC_DYLD_CHAINED_FIXUPS => {
-                return Err("Mach-O chained fixups require a separate audit".into());
+                if size != 16 || chain_info.is_some() {
+                    return Err("duplicate or malformed Mach-O chained fixups command".into());
+                }
+                chain_info = Some((u64::from(field(data, 8)?), u64::from(field(data, 12)?)));
             }
             m::LC_DYSYMTAB => {
                 if size != 80 || field(data, 68)? != 0 || field(data, 76)? != 0 {
@@ -436,6 +459,9 @@ pub fn inspect(bytes: &[u8]) -> Result<Audit, String> {
         {
             let offset = u64::from(field(&info, 8 + index as u64 * 8)?);
             let size = u64::from(field(&info, 12 + index as u64 * 8)?);
+            if chain_info.is_some() && size != 0 {
+                return Err("mixed classic and chained Mach-O fixups".into());
+            }
             let data = if size == 0 {
                 &[]
             } else {
@@ -469,12 +495,39 @@ pub fn inspect(bytes: &[u8]) -> Result<Audit, String> {
     if !disjoint(ranges) {
         return Err("overlapping Mach-O dyld opcode tables".into());
     }
+    let chained = if let Some((offset, size)) = chain_info {
+        let end = add(offset, size)?;
+        let mut matching = segments
+            .iter()
+            .filter(|s| s.offset <= offset && end <= s.offset + s.stored);
+        if matching.next().is_none_or(|s| s.name != b"__LINKEDIT") || matching.next().is_some() {
+            return Err("Mach-O chained data is not uniquely mapped in LINKEDIT".into());
+        }
+        let base = segments
+            .iter()
+            .find(|s| s.offset == 0 && s.stored >= commands_end)
+            .ok_or("Mach-O header has no complete segment mapping")?
+            .address;
+        Some(chained::inspect(
+            bytes,
+            offset,
+            size,
+            &segments,
+            base,
+            managed,
+            image.architecture == "Aarch64",
+        )?)
+    } else {
+        None
+    };
     Ok(Audit {
         image_digest: image.digest,
         managed_address: managed.0,
         managed_bytes: image.section.size,
         managed_initial_protection: owner.initial,
         managed_maximum_protection: owner.maximum,
+        managed_segment_flags: owner.flags,
+        chained,
         tables,
         other_load_commands,
         initializer_sections_present,

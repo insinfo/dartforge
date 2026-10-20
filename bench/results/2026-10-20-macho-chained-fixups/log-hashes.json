@@ -1,0 +1,52 @@
+[
+  {
+    "file": "control-before.log",
+    "original_sha256": "85a8393e3adf6ad9527e44c9a1c681061127f489b5a35d74e4c5f3f987cac6f7",
+    "stored_sha256": "85a8393e3adf6ad9527e44c9a1c681061127f489b5a35d74e4c5f3f987cac6f7"
+  },
+  {
+    "file": "directed-initial.log",
+    "original_sha256": "8d69349ad980f0c8a48e8baf70dfcd93609ff348e6aa77bd93a02b6df4b7cea6",
+    "stored_sha256": "ecb6d646736859bc12487ecfe0d16a8ff77ac717cb0bfa1aab92c12ec3047794"
+  },
+  {
+    "file": "directed.log",
+    "original_sha256": "e887744be591ff3dbbe532dbae99e8b204f3ad15c439364c1557e167c11a290c",
+    "stored_sha256": "cff34e73c97803e4c968d6e5f98f426d76a55c724d689f4117c419eb31940156"
+  },
+  {
+    "file": "clippy.log",
+    "original_sha256": "ef0f427e36857f45415d902bb8b390d44f69c715795d0b4f732339abf6415fa5",
+    "stored_sha256": "ef0f427e36857f45415d902bb8b390d44f69c715795d0b4f732339abf6415fa5"
+  },
+  {
+    "file": "feature-clippy.log",
+    "original_sha256": "c8870cd09d86f7b32ef76cee437c3e2ebd0458a2f61ccbb53560198f0f46d765",
+    "stored_sha256": "c8870cd09d86f7b32ef76cee437c3e2ebd0458a2f61ccbb53560198f0f46d765"
+  },
+  {
+    "file": "doc.log",
+    "original_sha256": "a2c22c1e4bc191e92ab84da72d6e08c2b3c21e28d1add2cfdceb421d903cc6ad",
+    "stored_sha256": "a2c22c1e4bc191e92ab84da72d6e08c2b3c21e28d1add2cfdceb421d903cc6ad"
+  },
+  {
+    "file": "native-lib.log",
+    "original_sha256": "ff2e55881d90b1bca331f4e1bca9c9a2432de0d249c6da46da0ce9ea874ec2c2",
+    "stored_sha256": "9a63700f79f51de6e5c71427fea570b927051165006d1a9ade353e516c8b967b"
+  },
+  {
+    "file": "image-directed.log",
+    "original_sha256": "19676964819cbda788c8f5df4c09a231828957549e4f324ef2423844f378de39",
+    "stored_sha256": "47c91b3ce2bc62b833fd86ddbe8ce8524dc6e16964cf1444b8b4a12bd09fd574"
+  },
+  {
+    "file": "doc-test.log",
+    "original_sha256": "4b92745d6fc19eb682d2600cec600f4205c2c6b8c2b77668542f81060c1183f8",
+    "stored_sha256": "4b92745d6fc19eb682d2600cec600f4205c2c6b8c2b77668542f81060c1183f8"
+  },
+  {
+    "file": "example.log",
+    "original_sha256": "57a9fcd9b2d40fdb0cdeb652c09db08b0b459a13cd08b8177fd695bb74c56206",
+    "stored_sha256": "57a9fcd9b2d40fdb0cdeb652c09db08b0b459a13cd08b8177fd695bb74c56206"
+  }
+]

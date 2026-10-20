@@ -1,0 +1,19 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.95s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 1 test
+
+thread 'linked_images::macho_relocations::tests::nonlinear_mappings_and_writes_to_loader_control_data_are_refused' (2626177) panicked at crates/emit_native/src/linked_images/macho_relocations/tests.rs:473:5:
+unproved mappings/control writes accepted: ["segment flag 0x1", "segment flag 0x2", "segment flag 0x8", "segment flag 0x80000000", "control write in segment 0", "control write in segment 2"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test linked_images::macho_relocations::tests::nonlinear_mappings_and_writes_to_loader_control_data_are_refused ... FAILED
+
+failures:
+
+failures:
+    linked_images::macho_relocations::tests::nonlinear_mappings_and_writes_to_loader_control_data_are_refused
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 950 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

@@ -1,0 +1,234 @@
+[
+  {
+    "architecture": "Aarch64",
+    "bytes": 25291280,
+    "digest": "9ea00072e5ddc08aca0c318ffc9f1b936772a795b335e8afa8e5f7f8ac7075a3",
+    "format": "MachO",
+    "loader_memory_verified": false,
+    "macho_relocations": {
+      "chained": null,
+      "image_digest": "9ea00072e5ddc08aca0c318ffc9f1b936772a795b335e8afa8e5f7f8ac7075a3",
+      "initializer_sections_present": false,
+      "managed_address": 4319139920,
+      "managed_bytes": 850904,
+      "managed_initial_protection": 3,
+      "managed_maximum_protection": 3,
+      "managed_segment_flags": 16,
+      "other_load_commands": [
+        2,
+        11,
+        14,
+        27,
+        50,
+        2147483688,
+        12,
+        12,
+        12,
+        41,
+        29
+      ],
+      "tables": [
+        {
+          "bytes": 16960,
+          "digest": "f289757e32cd1d5cee08d8ef16bbc44bb291c1ee9877c8683f5941f8b719b02e",
+          "kind": "rebase",
+          "offset": 25067520,
+          "opcodes": 8603,
+          "overlap_examples": [],
+          "overlapping_writes": 0,
+          "potential_writes": 51472,
+          "types": {
+            "1": 51472
+          }
+        },
+        {
+          "bytes": 304,
+          "digest": "8d167a54418056093cfd5c72cb72faebc64ca905573344aea9c0eaf74b116818",
+          "kind": "bind",
+          "offset": 25084480,
+          "opcodes": 142,
+          "overlap_examples": [],
+          "overlapping_writes": 0,
+          "potential_writes": 66,
+          "types": {
+            "1": 66
+          }
+        },
+        {
+          "bytes": 0,
+          "digest": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+          "kind": "weak_bind",
+          "offset": 0,
+          "opcodes": 0,
+          "overlap_examples": [],
+          "overlapping_writes": 0,
+          "potential_writes": 0,
+          "types": {}
+        },
+        {
+          "bytes": 3616,
+          "digest": "2ee32af4c5dd27d49e3bcf4f6f486663222d4581a76d145959c6b81acbf509ce",
+          "kind": "lazy_bind",
+          "offset": 25084784,
+          "opcodes": 847,
+          "overlap_examples": [],
+          "overlapping_writes": 0,
+          "potential_writes": 168,
+          "types": {
+            "1": 168
+          }
+        }
+      ]
+    },
+    "path": "target/desktop-matrix/macos-arm64/explorer",
+    "relocations": null,
+    "string_classes": {
+      "6": 14360,
+      "7": 36
+    },
+    "string_section_bytes": 850904,
+    "string_section_digest": "27a7faf5b18881f31608969a644298811928cb8b8687055e3dcac5859d31f6a2",
+    "strings": 14396
+  },
+  {
+    "architecture": "Aarch64",
+    "bytes": 50048,
+    "digest": "0d2e3d4443c1a93388931139f8fbfc49961e000823c8ebbe4792144c716fe6f7",
+    "format": "MachO",
+    "loader_memory_verified": false,
+    "macho_relocations": {
+      "chained": {
+        "bytes": 120,
+        "digest": "49fde7bd10c69f6e90ff45b7c1d43efd8b01b9a6e04affcd7c0922207b8b1889",
+        "imports": 1,
+        "imports_format": 1,
+        "offset": 49152,
+        "segments": [
+          {
+            "authenticated_writes": 0,
+            "binds": 1,
+            "chains": 1,
+            "overlap_examples": [],
+            "overlapping_writes": 0,
+            "page_count": 1,
+            "page_size": 16384,
+            "pointer_format": 2,
+            "rebases": 0,
+            "segment_index": 2
+          },
+          {
+            "authenticated_writes": 0,
+            "binds": 0,
+            "chains": 1,
+            "overlap_examples": [],
+            "overlapping_writes": 0,
+            "page_count": 1,
+            "page_size": 16384,
+            "pointer_format": 2,
+            "rebases": 1,
+            "segment_index": 3
+          }
+        ],
+        "symbols_bytes": 12
+      },
+      "image_digest": "0d2e3d4443c1a93388931139f8fbfc49961e000823c8ebbe4792144c716fe6f7",
+      "initializer_sections_present": false,
+      "managed_address": 4294983688,
+      "managed_bytes": 48,
+      "managed_initial_protection": 3,
+      "managed_maximum_protection": 3,
+      "managed_segment_flags": 16,
+      "other_load_commands": [
+        2147483699,
+        2,
+        11,
+        14,
+        27,
+        50,
+        2147483688,
+        38,
+        41,
+        29
+      ],
+      "tables": []
+    },
+    "path": "/tmp/forge-chained-fixups/arm64",
+    "relocations": null,
+    "string_classes": {
+      "6": 1
+    },
+    "string_section_bytes": 48,
+    "string_section_digest": "89561bbb3ffaa9ba4e75fd14f14a74134799eadba09a8de1944100954a60bf44",
+    "strings": 1
+  },
+  {
+    "architecture": "X86_64",
+    "bytes": 16728,
+    "digest": "d284238cb0fdf95f60c1e373674ec0286cd00ef89a134e219c080eb62e784773",
+    "format": "MachO",
+    "loader_memory_verified": false,
+    "macho_relocations": {
+      "chained": {
+        "bytes": 120,
+        "digest": "cf91d2b35e5fd9ea1a1b11957aa4dd65875fb9daeb737a5ab23eb1abedb9248e",
+        "imports": 1,
+        "imports_format": 1,
+        "offset": 16384,
+        "segments": [
+          {
+            "authenticated_writes": 0,
+            "binds": 1,
+            "chains": 1,
+            "overlap_examples": [],
+            "overlapping_writes": 0,
+            "page_count": 1,
+            "page_size": 4096,
+            "pointer_format": 2,
+            "rebases": 0,
+            "segment_index": 2
+          },
+          {
+            "authenticated_writes": 0,
+            "binds": 0,
+            "chains": 1,
+            "overlap_examples": [],
+            "overlapping_writes": 0,
+            "page_count": 1,
+            "page_size": 4096,
+            "pointer_format": 2,
+            "rebases": 1,
+            "segment_index": 3
+          }
+        ],
+        "symbols_bytes": 12
+      },
+      "image_digest": "d284238cb0fdf95f60c1e373674ec0286cd00ef89a134e219c080eb62e784773",
+      "initializer_sections_present": false,
+      "managed_address": 4294975496,
+      "managed_bytes": 48,
+      "managed_initial_protection": 3,
+      "managed_maximum_protection": 3,
+      "managed_segment_flags": 16,
+      "other_load_commands": [
+        2147483699,
+        2,
+        11,
+        14,
+        27,
+        50,
+        2147483688,
+        38,
+        41
+      ],
+      "tables": []
+    },
+    "path": "/tmp/forge-chained-fixups/x86_64",
+    "relocations": null,
+    "string_classes": {
+      "6": 1
+    },
+    "string_section_bytes": 48,
+    "string_section_digest": "89561bbb3ffaa9ba4e75fd14f14a74134799eadba09a8de1944100954a60bf44",
+    "strings": 1
+  }
+]

@@ -22,6 +22,8 @@ fn segment() -> Segment {
         stored: 0x1000,
         maximum: 3,
         initial: 3,
+        flags: 0,
+        header_bytes: 0,
     }
 }
 fn put32(bytes: &mut [u8], offset: usize, value: u32) {
@@ -372,7 +374,7 @@ fn all_four_tables_and_legacy_relocation_sources_remain_distinct() {
 
 #[test]
 #[ignore = "requires Clang and ld64.lld for fresh ARM64/x64 linked images"]
-fn fresh_classic_images_have_real_rebases_and_binds_and_chained_images_are_explicitly_refused() {
+fn fresh_classic_and_chained_images_cover_real_rebases_and_binds() {
     let directory = tempfile::tempdir().unwrap();
     let literal = image([&[], &[], &[], &[]]);
     let words: Vec<_> = literal[0x240..0x260]
@@ -433,7 +435,15 @@ fn fresh_classic_images_have_real_rebases_and_binds_and_chained_images_are_expli
             );
             let bytes = std::fs::read(&output).unwrap();
             if chained {
-                assert!(inspect(&bytes).unwrap_err().contains("chained fixups"));
+                let audit = inspect(&bytes).unwrap();
+                let chains = audit.chained.as_ref().unwrap();
+                assert!(chains.segments.iter().any(|s| s.rebases > 0));
+                assert!(chains.segments.iter().any(|s| s.binds > 0));
+                assert!(chains.segments.iter().all(|s| s.overlapping_writes == 0));
+                println!(
+                    "{}",
+                    serde_json::json!({"fresh_target":target,"chained":true,"executed":false,"audit":audit})
+                );
             } else {
                 let audit = inspect(&bytes).unwrap();
                 assert!(
@@ -457,3 +467,27 @@ fn fresh_classic_images_have_real_rebases_and_binds_and_chained_images_are_expli
         }
     }
 }
+
+#[test]
+fn nonlinear_mappings_and_writes_to_loader_control_data_are_refused() {
+    let mut accepted = Vec::new();
+    for flag in [1, 2, 8, 0x80000000] {
+        let mut bytes = image([&[0], &[], &[], &[]]);
+        put32(&mut bytes, 104 + 68, flag);
+        if inspect(&bytes).is_ok() {
+            accepted.push(format!("segment flag {flag:#x}"));
+        }
+    }
+    for (index, offset) in [(0, 0x20), (2, 0x10)] {
+        let bytes = image([&[0x11, 0x20 | index, offset, 0x51, 0], &[], &[], &[]]);
+        if inspect(&bytes).is_ok() {
+            accepted.push(format!("control write in segment {index}"));
+        }
+    }
+    assert!(
+        accepted.is_empty(),
+        "unproved mappings/control writes accepted: {accepted:?}"
+    );
+}
+
+mod chained_tests;

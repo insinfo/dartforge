@@ -1,0 +1,22 @@
+[
+  {
+    "file": "crates/emit_native/src/linked_images/macho_relocations.rs",
+    "sha256": "1fc00d43dd20f187c13c26566b3c8618e04b0fff37cf19164c7a8dbf15aaba1d"
+  },
+  {
+    "file": "crates/emit_native/src/linked_images/macho_relocations/chained.rs",
+    "sha256": "493e589b12d94a8a9a34bb76b7e2027faecce83e80e88bd5376d15c1404f4d47"
+  },
+  {
+    "file": "crates/emit_native/src/linked_images/macho_relocations/tests.rs",
+    "sha256": "24a861def23be1afca6091f788f1666c28eac63d00408890e34aeb8a7d794a18"
+  },
+  {
+    "file": "crates/emit_native/src/linked_images/macho_relocations/tests/chained_tests.rs",
+    "sha256": "632d443a7c3cdc877e7e16aef4bbc1273c231700455768656132d1de57f0b539"
+  },
+  {
+    "file": "ESTADO.md",
+    "sha256": "d275aba6238672e93e8b321de12fe9d53df20f7efcbfc2a5a9a56d284575d351"
+  }
+]
