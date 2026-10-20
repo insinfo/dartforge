@@ -1,0 +1,12 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running unittests src/lib.rs (target/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 6 tests
+test sdk_module::selected_source_cache_tests::selected_library_outside_historical_directory_list_changes_sdk_key ... ok
+test sdk_module::selected_source_cache_tests::external_replacement_and_logical_parts_change_sdk_key ... ok
+test sdk_module::selected_source_cache_tests::external_original_entry_and_patch_track_selected_parts ... ok
+test sdk_module::selected_source_cache_tests::generated_entry_temp_alias_does_not_contaminate_sdk_key ... ok
+test sdk_module::selected_source_cache_tests::relr_link_policy_changes_only_the_linux_shared_sdk_key ... ok
+test sdk_module::selected_source_cache_tests::installed_native_sdk_selected_closure_is_accepted ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 910 filtered out; finished in 0.65s

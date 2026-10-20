@@ -1,0 +1,14 @@
+  HIR pruning: 38477 of 146307 functions, 39874 of 176819 pairs, 316 FFI signatures (33.406336542s)
+  HIR:       baixar 47.610873791s, otimizar 7.840597209s
+  Pruning:   4107 of 4420 tables live, 49037 of 89908 pairs, 66233 of 124779 symbols; outside the IR: 9278 functions, 13860 globals, 34 MB (1.435222958s)
+  Parts:     15 objects
+--- Native Compilation Timings ---
+  Front-end: 1.518744042s
+  World:     89.735709ms (30876 of 64332 program functions live)
+  HIR:       55.451579666s
+  LLVM IR:   9.713463583s
+  IR:        297251320 bytes, 20586 from the SDK (0.0%)
+  Objeto:    16.9175985s
+  Link:      41.042428375s
+  Total:     127.008301208s
+  Pico Mem:  0 KB

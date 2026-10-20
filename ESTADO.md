@@ -2,6 +2,19 @@
 
 ## Atualização de 19/10/2026
 
+- Compactação RELR Linux opcional (`DARTFORGE_PACK_RELR=1`), com dependência de
+  versão glibc e cache separado apenas para o SDK compartilhado afetado.
+  Ligação controlada do explorador com os mesmos 47 insumos: 37.624.936 para
+  36.011.472 bytes, menos 1.613.464 bytes (4,29%). Usa compilador retido com
+  hash registrado, não rebuild completo desta revisão. Ambas as versões passaram
+  em dois frames no Ubuntu ARM64/glibc 2.39; fixture de ponteiros passou nos dois
+  modos, e o controle sem dependência de versão foi corretamente recusado.
+  Cinco testes RELR e seis de cache passaram (dez distintos, três novos).
+  Clippy estrito do workspace e do backend com LLVM embutido e documentação sem
+  avisos passaram; fmt global e suíte integral continuam pendentes. Não houve
+  nova matriz Windows/macOS/JIT, ganho de velocidade ou autorização de poda.
+  Evidências: `bench/results/2026-10-19-linux-relr-packing/README.md`.
+
 
 - `linked_images::elf_relocations::inspect` observa REL/RELA/RELR/JMPREL via
   PT_DYNAMIC e mapeamentos PT_LOAD, incluindo escritas que atravessam a borda

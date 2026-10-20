@@ -1,0 +1,24 @@
+{
+  "explicit_inputs_checked": 47,
+  "explicit_input_bytes": 213612680,
+  "same_link_arguments_except_mode_and_output": true,
+  "four_guest_hashes_match_host": true,
+  "negative_control_expected_rejection": true,
+  "same_string_section_bytes_by_digest": true,
+  "observed_declared_relocations_overlap_strings": false,
+  "loader_memory_verified": false,
+  "tools": {
+    "clang": {
+      "path": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+      "sha256": "9a690e9e11d4774d63e95ed2ab90abd82889f949b0bb9db8208f7e18f278ea50",
+      "version": "clang version 22.1.8 (https://github.com/llvm/llvm-project ca7933e47d3a3451d81e72ac174dcb5aa28b59d1)\nTarget: arm64-apple-darwin27.2.0\nThread model: posix\nInstalledDir: /Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin"
+    },
+    "ld.lld": {
+      "path": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/ld.lld",
+      "sha256": "0b81335f7c0b7f2834e8e64ec47e78fd558ca72d8851f262ebfe90648bfaeab3",
+      "version": "LLD 22.1.8 (https://github.com/llvm/llvm-project ca7933e47d3a3451d81e72ac174dcb5aa28b59d1) (compatible with GNU linkers)"
+    }
+  },
+  "dart_ui_revision": "15aff7042318d2fa56661ffed4360c81a41a86b8",
+  "base_revision": "3a5812668a3291cc81e947486c81f633d62bd3d5"
+}

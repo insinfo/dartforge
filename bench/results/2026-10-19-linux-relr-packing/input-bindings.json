@@ -1,0 +1,284 @@
+[
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64/sysroot/Scrt1.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/9-Scrt1.o",
+    "sha256": "d03fc7a1a0b7cdbc1fb0a5c25425d3e1d2971a193c52f0ccdc40049234b7daae",
+    "bytes": 1704
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64/sysroot/crti.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/12-crti.o",
+    "sha256": "93bb05d2d87f3464fd89a70d26d8ed29f0797e4b97a60786a2724a7e3ffbeba5",
+    "bytes": 1328
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64/sysroot/crtbeginS.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/13-crtbeginS.o",
+    "sha256": "2d0881b2018ca7b1c7a7af19ef91b9f42739d8f51c214f0faf22a2dc49c4c002",
+    "bytes": 3656
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/.df_tmp/standard.parte0.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/23-standard.parte0.o",
+    "sha256": "62b74549e498589e3d610af2fd51a7a4aacc96cb54c0fbd4a7bc4d5df1ed35d1",
+    "bytes": 6863020
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/.df_tmp/standard.parte1.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/24-standard.parte1.o",
+    "sha256": "70aa6804a783ef3acc2bed5b2f684d7b3ffbde9504c631564fabf66db2f2b1d1",
+    "bytes": 6856548
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/.df_tmp/standard.parte2.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/25-standard.parte2.o",
+    "sha256": "268674772bac5570740b878e8940d59a6fb9c8a39ddf9023f05a6304a2d9f584",
+    "bytes": 7118004
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/.df_tmp/standard.parte3.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/26-standard.parte3.o",
+    "sha256": "e4e006e7c364509099e8bf0d66446897c1f02dce284d6ce106a068b5049b9759",
+    "bytes": 6131044
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/.df_tmp/standard.parte4.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/27-standard.parte4.o",
+    "sha256": "7adb25aa516358a6d97cc2adf67009a1f936d4183da43d373a216187df4ff3f2",
+    "bytes": 6283724
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/.df_tmp/standard.parte5.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/28-standard.parte5.o",
+    "sha256": "9428a79a06c6db2e67fcb4b63d471f232b4235d6cc3ad22baaba4a0a1a0eec01",
+    "bytes": 5963364
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/.df_tmp/standard.parte6.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/29-standard.parte6.o",
+    "sha256": "af20c16e4c7c012a594dac0b0e4426bf07485f593873d9d987d443acfab8a69f",
+    "bytes": 6776720
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/.df_tmp/standard.parte7.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/30-standard.parte7.o",
+    "sha256": "98b12a0a682290641382f0611263e69916e4d33a5769402c16d13c7c3dc1f8d7",
+    "bytes": 6289892
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/.df_tmp/standard.parte8.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/31-standard.parte8.o",
+    "sha256": "7315948a4dfb6482f6ecd1f4fdaeb82f757e0d5621d3ab290ba54c5dc4811374",
+    "bytes": 6504632
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/.df_tmp/standard.parte9.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/32-standard.parte9.o",
+    "sha256": "bd6ebfc9ede4d52b6886f070a8d3dea2517faba275ad0b4724fd55200e49f3da",
+    "bytes": 6418232
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/.df_tmp/standard.parte10.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/33-standard.parte10.o",
+    "sha256": "1e0b337e87684cfb61c709d938600bb3f2200bdf91b680b922190d6025ff8bc5",
+    "bytes": 6697168
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/.df_tmp/standard.parte11.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/34-standard.parte11.o",
+    "sha256": "23ed8ef5c621db73511e9ea54d2c6c08c3757001014f08ce284ba49ab220d4e4",
+    "bytes": 7946776
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/.df_tmp/standard.parte12.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/35-standard.parte12.o",
+    "sha256": "66620d9c2f8f1658ba7da029b165d5d6ea5e3e6b0b6a0eef975e0046b24d244c",
+    "bytes": 8260872
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/.df_tmp/standard.parte13.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/36-standard.parte13.o",
+    "sha256": "cee491dde34c73b55aa00cd7128b92b2d670eb6c647ae7de1341bf9ea8882b76",
+    "bytes": 8877612
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/.df_tmp/standard.parte14.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/37-standard.parte14.o",
+    "sha256": "0592d0a2ce6541ec104949be886a6d2e9ebd35f41ad5209f4b5f1c7129a83e2f",
+    "bytes": 9420852
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/aarch64-unknown-linux-gnu/sdk/6a314b778ca0a53f970e0b50ad5cd64a/_internal.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/38-_internal.o",
+    "sha256": "93323714ce070a94ba0d4d746f9051ee63c33e770db81a6b98e1dabf91c65abd",
+    "bytes": 4233356
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/aarch64-unknown-linux-gnu/sdk/6a314b778ca0a53f970e0b50ad5cd64a/core.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/39-core.o",
+    "sha256": "e806bc896370822bc22505951e16b30ffec1fb53ddbb3e483c9f223b66443661",
+    "bytes": 8795292
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/aarch64-unknown-linux-gnu/sdk/6a314b778ca0a53f970e0b50ad5cd64a/_compact_hash.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/40-_compact_hash.o",
+    "sha256": "d215b76f89372d15a9873a2a60b9074a107eabf3505e85bd2a7cb0c16479c09e",
+    "bytes": 1549056
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/aarch64-unknown-linux-gnu/sdk/6a314b778ca0a53f970e0b50ad5cd64a/collection.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/41-collection.o",
+    "sha256": "0e9c135d8da110f55b06502c3123d31cb40ec3e91696ae78f999529291261108",
+    "bytes": 4499232
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/aarch64-unknown-linux-gnu/sdk/6a314b778ca0a53f970e0b50ad5cd64a/math.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/42-math.o",
+    "sha256": "c8542b57ef18fab6f74e132cab0730ea13f2155ee23519524f283b8483db1276",
+    "bytes": 518236
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/aarch64-unknown-linux-gnu/sdk/6a314b778ca0a53f970e0b50ad5cd64a/convert.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/43-convert.o",
+    "sha256": "115a265024177579a1eca646f4eddeafad1855ac8e16017cd99af0227415244a",
+    "bytes": 4576984
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/aarch64-unknown-linux-gnu/sdk/6a314b778ca0a53f970e0b50ad5cd64a/async.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/44-async.o",
+    "sha256": "fcdefca19e44de94eac2e99eca0ea4a0294bd1e53dc96fe76082db163f63a361",
+    "bytes": 5950200
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/aarch64-unknown-linux-gnu/sdk/6a314b778ca0a53f970e0b50ad5cd64a/typed_data.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/45-typed_data.o",
+    "sha256": "07b75c8f2f159cf384f7cf11b3b8f7d5007f41fedec806ece6ab84796c0ec817",
+    "bytes": 8466404
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/aarch64-unknown-linux-gnu/sdk/6a314b778ca0a53f970e0b50ad5cd64a/isolate.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/46-isolate.o",
+    "sha256": "fd46c769d05ff150be5e1860a597a645a9501acc5f9ba4d871c79526df0224ea",
+    "bytes": 616912
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/aarch64-unknown-linux-gnu/sdk/6a314b778ca0a53f970e0b50ad5cd64a/developer.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/47-developer.o",
+    "sha256": "ec22d466f93404aba65d7a74f96c40bf7b0a7d8bfc2a1d8ff75a0ec40b16c6c5",
+    "bytes": 361536
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/aarch64-unknown-linux-gnu/sdk/6a314b778ca0a53f970e0b50ad5cd64a/nativewrappers.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/48-nativewrappers.o",
+    "sha256": "77a75b8d9d83d9dce8b3d9da5a29adefbcad025bfa018b80dd04febf6de54847",
+    "bytes": 9168
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/aarch64-unknown-linux-gnu/sdk/6a314b778ca0a53f970e0b50ad5cd64a/ffi.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/49-ffi.o",
+    "sha256": "0ba729af73873152cfa57ced5d38a36208e8faa0875548fedb887f99a72b1605",
+    "bytes": 1109492
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/aarch64-unknown-linux-gnu/sdk/6a314b778ca0a53f970e0b50ad5cd64a/_http.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/50-_http.o",
+    "sha256": "f7e1d362c13c988f9282a1d3e6e22a970f65faba2fc22678729b4b8c09975831",
+    "bytes": 7625944
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/aarch64-unknown-linux-gnu/sdk/6a314b778ca0a53f970e0b50ad5cd64a/io.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/51-io.o",
+    "sha256": "ce74396fa7e2c1ceb4c8dbd899bcb6e24009e190996b1fd40e4111088a0f307b",
+    "bytes": 11176668
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/aarch64-unknown-linux-gnu/sdk/6a314b778ca0a53f970e0b50ad5cd64a/mirrors.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/52-mirrors.o",
+    "sha256": "dd7ba737e11fad69b45d166e970f253ad34a03044d5c4de34190d906a938d68a",
+    "bytes": 271664
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64/runtime/dartforge_rtprod_adde849096c9779fbf55a395674cd50d.a",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/53-dartforge_rtprod_adde849096c9779fbf55a395674cd50d.a",
+    "sha256": "547fbd495e92f70cfe4759f92877e11d0147b02e83526414f9e2862bd9687934",
+    "bytes": 38307614
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64/sysroot/libm.so.6",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/55-libm.so.6",
+    "sha256": "5e0391562de36de323fb9cb0f2c1b6bd6d034c840b1dac018499f5fe4ded1b4a",
+    "bytes": 591800
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64/sysroot/libpthread.so.0",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/56-libpthread.so.0",
+    "sha256": "6f1ab9e7d7de142dc5e2feaf6d19faceff0a0f40d5e225c922899f5362b8c353",
+    "bytes": 67440
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64/sysroot/libdl.so.2",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/57-libdl.so.2",
+    "sha256": "1c16b2692a155191c97d7fdc5ce937d37c242435f05745046a794a9832b16af4",
+    "bytes": 67440
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64/sysroot/librt.so.1",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/58-librt.so.1",
+    "sha256": "93d0d5ab643b50ac1a61c2c7baf670e8aa94973fa5a2584d13db05295d5b5a0e",
+    "bytes": 67512
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64/sysroot/libutil.so.1",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/59-libutil.so.1",
+    "sha256": "c2c2f3733137b0acaee7b3abb9d6ee8ce05783013bce6e20da363cd7eb986703",
+    "bytes": 67440
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64/sysroot/libgcc_s.so.1",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/60-libgcc_s.so.1",
+    "sha256": "f2d3ad2bf0b61f6bc944cc37d7b6ab7f88d2582b41ff989ca164803f56cc5f20",
+    "bytes": 133696
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64/sysroot/libgcc.a",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/62-libgcc.a",
+    "sha256": "4bc354241987926aa0489ba1d925e8b10356556323307944f08209f370a28ad6",
+    "bytes": 3099922
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64/sysroot/libc.so.6",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/63-libc.so.6",
+    "sha256": "0f1905dc27dbc6715875c70527bc8da846a10084c9c483e9d8ff76dce8d69d0e",
+    "bytes": 1722920
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64/sysroot/libc_nonshared.a",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/64-libc_nonshared.a",
+    "sha256": "7a0595e07a7542493525a2fe4947272ab1840509d86d480ed6d239447c06d1ac",
+    "bytes": 5426
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64/sysroot/ld-linux-aarch64.so.1",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/66-ld-linux-aarch64.so.1",
+    "sha256": "390027e5f45f236bd1838bc54bf464c5ff01d260ab9f8b415ea8276641bce505",
+    "bytes": 203968
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64/sysroot/libgcc.a",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/68-libgcc.a",
+    "sha256": "4bc354241987926aa0489ba1d925e8b10356556323307944f08209f370a28ad6",
+    "bytes": 3099922
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64/sysroot/crtendS.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/69-crtendS.o",
+    "sha256": "3da9c42040eca63e3432014ee4b0a98a24ea1f7c4a33e1b40c2b02cc7a15c208",
+    "bytes": 1416
+  },
+  {
+    "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64/sysroot/crtn.o",
+    "copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/inputs/70-crtn.o",
+    "sha256": "1c741c1f9499461b6f1e531e21fc5f86a216cc5d0c49d18bdcf97d7d922342d5",
+    "bytes": 872
+  }
+]

@@ -1,0 +1,3 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.39s
+     Running `target/debug/examples/inspect_linked_images target/relr-explorer/standard target/relr-explorer/packed target/relr-validation/standard target/relr-validation/packed`

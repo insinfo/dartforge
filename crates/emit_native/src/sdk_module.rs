@@ -624,6 +624,31 @@ fn sdk_key_with_overlay(lib_dir: &Path, overlay: &Path, clang_id: &str, args: &[
     Ok(h.finalize().to_hex()[..32].to_string())
 }
 
+/// Link-only policy changes isolate the shared SDK, without rebuilding the
+/// production bitcode or changing the class-ID/source namespace.
+fn compiled_sdk_key_with_overlay(
+    lib_dir: &Path,
+    overlay: &Path,
+    clang_id: &str,
+    profile: SdkProfile,
+    flags: crate::DartFlags,
+) -> Result<String, String> {
+    let description = sdk_generation(profile).description();
+    let flags_tag = flags.cache_tag();
+    let packed =
+        crate::target::target_os() == crate::target::Os::Linux && crate::linker::relr_enabled()?;
+    if profile == SdkProfile::Development && packed {
+        sdk_key_with_overlay(
+            lib_dir,
+            overlay,
+            clang_id,
+            &[&description, &flags_tag, "sdk_dll_relr=glibc_v1"],
+        )
+    } else {
+        sdk_key_with_overlay(lib_dir, overlay, clang_id, &[&description, &flags_tag])
+    }
+}
+
 /// The generation of the SDK modules in the requested profile.
 ///
 /// Development: `-O0` objects for the shared library (position-independent
@@ -692,8 +717,13 @@ pub fn compiled_sdk_for(lib_dir: &Path, clang: &Path, profile: SdkProfile, flags
         Generator::choose(clang)
     };
     let generation = sdk_generation(profile);
-    let flags_tag = flags.cache_tag();
-    let key = sdk_key(lib_dir, &generator.identity()?, &[generation.description().as_str(), flags_tag.as_str()])?;
+    let key = compiled_sdk_key_with_overlay(
+        lib_dir,
+        &overlay_dir(),
+        &generator.identity()?,
+        profile,
+        flags,
+    )?;
     let root = crate::cache::native_cache_dir().join("sdk");
     let dir = root.join(&key);
     let dll_name = format!("dfsdk_{}", &key[..16]);
@@ -1521,6 +1551,77 @@ mod tests {
 #[cfg(test)]
 mod selected_source_cache_tests {
     use super::*;
+
+    #[test]
+    fn relr_link_policy_changes_only_the_linux_shared_sdk_key() {
+        const OUTPUT: &str = "DARTFORGE_TEST_RELR_KEY_OUTPUT";
+        const TARGET: &str = "DARTFORGE_TEST_RELR_KEY_TARGET";
+        const ROOT: &str = "DARTFORGE_TEST_RELR_KEY_ROOT";
+        if let Some(output) = std::env::var_os(OUTPUT) {
+            let target =
+                crate::target::NativeTarget::parse(&std::env::var(TARGET).unwrap()).unwrap();
+            crate::target::select(target).unwrap();
+            let directory = PathBuf::from(std::env::var_os(ROOT).unwrap());
+            let lib = directory.join("lib");
+            let overlay = directory.join("overlay");
+            std::fs::create_dir_all(lib.join("core")).unwrap();
+            std::fs::create_dir_all(&overlay).unwrap();
+            std::fs::write(
+                lib.join("libraries.json"),
+                r#"{"vm":{"libraries":{"core":{"uri":"core/core.dart"}}}}"#,
+            )
+            .unwrap();
+            std::fs::write(lib.join("core/core.dart"), "library dart.core;").unwrap();
+            std::fs::write(
+                overlay.join("libraries.json"),
+                r#"{"dartforge_native":{"base":"vm","replaces":{}}}"#,
+            )
+            .unwrap();
+            let keys = serde_json::json!({
+                "source": sdk_key_with_overlay(&lib, &overlay, "test-clang", &[]).unwrap(),
+                "production": compiled_sdk_key_with_overlay(&lib, &overlay, "test-clang", SdkProfile::Production, crate::DartFlags::PRODUCTION).unwrap(),
+                "development": compiled_sdk_key_with_overlay(&lib, &overlay, "test-clang", SdkProfile::Development, crate::DartFlags::DEVELOPMENT).unwrap(),
+            });
+            std::fs::write(output, serde_json::to_vec(&keys).unwrap()).unwrap();
+            return;
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let mut keys = Vec::new();
+        for (index, (target, mode)) in [
+            ("linux-arm64", None),
+            ("linux-arm64", Some("0")),
+            ("linux-arm64", Some("1")),
+            ("macos-arm64", None),
+            ("macos-arm64", Some("1")),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let output = directory.path().join(index.to_string());
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command.args(["--exact", "sdk_module::selected_source_cache_tests::relr_link_policy_changes_only_the_linux_shared_sdk_key", "--nocapture"])
+                .env(OUTPUT, &output).env(TARGET, target).env(ROOT, directory.path()).env_remove("DARTFORGE_PACK_RELR");
+            if let Some(mode) = mode {
+                command.env("DARTFORGE_PACK_RELR", mode);
+            }
+            let result = command.output().unwrap();
+            assert!(
+                result.status.success(),
+                "{}{}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr)
+            );
+            keys.push(
+                serde_json::from_slice::<serde_json::Value>(&std::fs::read(output).unwrap())
+                    .unwrap(),
+            );
+        }
+        assert_eq!(keys[0], keys[1]);
+        assert_eq!(keys[0]["source"], keys[2]["source"]);
+        assert_eq!(keys[0]["production"], keys[2]["production"]);
+        assert_ne!(keys[0]["development"], keys[2]["development"]);
+        assert_eq!(keys[3], keys[4]);
+    }
 
     #[test]
     fn external_replacement_and_logical_parts_change_sdk_key() {

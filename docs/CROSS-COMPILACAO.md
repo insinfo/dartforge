@@ -85,6 +85,48 @@ Arquivos referenciados pelo próprio programa (fontes, imagens, recursos e hosts
 auxiliares da `dart_ui`) continuam sendo responsabilidade do empacotamento da
 aplicação. O bundle serve à ligação, não é um instalador do aplicativo.
 
+## Compactação opcional de relocações no Linux
+
+`DARTFORGE_PACK_RELR=1` acrescenta `-z pack-relative-relocs` à ligação Linux,
+incluindo a biblioteca compartilhada do SDK no perfil de desenvolvimento.
+Ausente ou `0`, mantém os argumentos anteriores; outros valores são recusados
+no destino Linux. A variável não altera a ligação de Windows/macOS.
+
+```sh
+DARTFORGE_PACK_RELR=1 dartforge compile-native main.dart --optimize \
+  --target linux-arm64 --target-bundle /path/to/linux-arm64-bundle \
+  --sdk /path/to/dart-sdk/lib -o app-linux-arm64
+```
+
+O carregador precisa suportar RELR: na glibc, isso exige 2.36 ou posterior.
+As demais exigências de ABI do sysroot continuam valendo; essa versão não é
+uma garantia de compatibilidade universal. O argumento escolhido também registra
+a dependência `GLIBC_ABI_DT_RELR` ao ligar aplicações glibc com dependências
+`GLIBC_2.*`; usar somente `--pack-dyn-relocs=relr` não basta. Referências:
+[LLD 22.1.8](https://github.com/llvm/llvm-project/blob/llvmorg-22.1.8/lld/docs/ld.lld.1)
+e [integração na glibc](https://sourceware.org/pipermail/glibc-cvs/2022q2/078142.html).
+
+A opção muda a chave do SDK compartilhado Linux para separar os arquivos
+ligados. Não muda a chave das fontes/classes nem do bitcode de produção.
+
+Em uma comparação de ligação controlada do explorador Linux ARM64, os mesmos
+47 arquivos de entrada produziram 37.624.936 bytes sem compactação e 36.011.472
+com compactação: redução de 1.613.464 bytes (4,29%). As duas versões executaram
+dois frames na VM Ubuntu com glibc 2.39. Essa medição usa um compilador retido,
+identificado por hash, e não uma reconstrução completa do compilador desta
+alteração. Não mede velocidade nem certifica todas as interações da interface.
+Método, comandos, hashes e limites:
+[evidências](../bench/results/2026-10-19-linux-relr-packing/README.md).
+
+Para observar strings permanentes e relocações declaradas de um executável:
+
+```sh
+cargo run --locked -p dartforge-emit-native --example inspect_linked_images -- app-linux-arm64
+```
+
+O exemplo inspeciona os bytes do arquivo, sem provar o estado da memória do
+carregador ou a imutabilidade em execução. A compactação fica desativada por padrão.
+
 ## JIT e limites da validação
 
 JIT executa código no próprio processo: `dartforge run` e `reload` não aceitam

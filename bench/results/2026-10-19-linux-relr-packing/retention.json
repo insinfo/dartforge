@@ -1,0 +1,170 @@
+[
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/build.json",
+    "stored": "build.json",
+    "original_sha256": "58e176e19a5817cb177f89894268defafdec9ec9be0a6125ff168324c6597b0e",
+    "stored_sha256": "58e176e19a5817cb177f89894268defafdec9ec9be0a6125ff168324c6597b0e"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/baseline-link.json",
+    "stored": "baseline-link.json",
+    "original_sha256": "9325a9916b5a08b90ed797bf57c30e77baba123372a7a0509244a7e9c4d31c20",
+    "stored_sha256": "9325a9916b5a08b90ed797bf57c30e77baba123372a7a0509244a7e9c4d31c20"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/packed-link.json",
+    "stored": "packed-link.json",
+    "original_sha256": "c0d15d766a9cfb8099d47e4f5560507ad42758b49637848fc5c84c89eb50c136",
+    "stored_sha256": "c0d15d766a9cfb8099d47e4f5560507ad42758b49637848fc5c84c89eb50c136"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/comparison.json",
+    "stored": "comparison.json",
+    "original_sha256": "a54eead082fd3499f782a4427c0999515d20a3924da8786603050ef65398c329",
+    "stored_sha256": "a54eead082fd3499f782a4427c0999515d20a3924da8786603050ef65398c329"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/input-bindings.json",
+    "stored": "input-bindings.json",
+    "original_sha256": "d7b386ec6fafe963b0d6a2a3abebe0f77a8500d34341b1835266976d322747d0",
+    "stored_sha256": "d7b386ec6fafe963b0d6a2a3abebe0f77a8500d34341b1835266976d322747d0"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/vm-results.json",
+    "stored": "vm-results.json",
+    "original_sha256": "c12742f33ccfb96d3d7fe8946ff1464bc6a2bbf7bb2df8df94f29c312eb727a3",
+    "stored_sha256": "c12742f33ccfb96d3d7fe8946ff1464bc6a2bbf7bb2df8df94f29c312eb727a3"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/unversioned-control.json",
+    "stored": "unversioned-control.json",
+    "original_sha256": "5ee11936bee8d536b9972feec7add97bb6d02ee547c74e00d23a0da303ff3c4f",
+    "stored_sha256": "5ee11936bee8d536b9972feec7add97bb6d02ee547c74e00d23a0da303ff3c4f"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/version-info.log",
+    "stored": "version-info.log",
+    "original_sha256": "27386f98869f01c40d6c5e1afd313245eec884d1a0216a29b42950393caad4fa",
+    "stored_sha256": "7fc05194c105cfa9de8cd4a5741ba779b3478ad21d5453353e5fc64d29d3e4af"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/build.stdout",
+    "stored": "build.stdout",
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/build.stderr",
+    "stored": "build.stderr",
+    "original_sha256": "065ab30230bb7459fc753c6da9848373afe6729a80398b744c6668a7da8e388b",
+    "stored_sha256": "065ab30230bb7459fc753c6da9848373afe6729a80398b744c6668a7da8e388b"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/packed.stdout",
+    "stored": "packed.stdout",
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/packed.stderr",
+    "stored": "packed.stderr",
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/run-user.sh",
+    "stored": "run-user.sh",
+    "original_sha256": "4d034aead98190dbe50dac463657993f71f9b0e487f24e921a1659719f7bff41",
+    "stored_sha256": "4d034aead98190dbe50dac463657993f71f9b0e487f24e921a1659719f7bff41"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-validation/standard.command.json",
+    "stored": "fixture-standard.command.json",
+    "original_sha256": "fba6752cdce83449953e7756ab3eb1d5b5db7bf6b4a142143c1ec0d3d85d8d9f",
+    "stored_sha256": "046a786552ac35730233e566fd23f9849d3eb342e84d80cce16e9f2d17024e7d"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-validation/packed.command.json",
+    "stored": "fixture-packed.command.json",
+    "original_sha256": "1dc667ee5a2a917d7719cc6e59a3d8c153759ac17d2cbad89afdb9d474883acd",
+    "stored_sha256": "e82b47b85dc29f4eba5f40635d309be14323fc401d88ffedecd907dc240e5aa8"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-validation/unversioned.command.json",
+    "stored": "fixture-unversioned.command.json",
+    "original_sha256": "dcb8a635055af7cb38f3a6e3913794914189a57223ed4367f8fecf061ed8aede",
+    "stored_sha256": "dcb8a635055af7cb38f3a6e3913794914189a57223ed4367f8fecf061ed8aede"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-validation/relr.c",
+    "stored": "fixture-relr.c",
+    "original_sha256": "1774bd93d1cfb5f8185d8f49bfb70bdf9a73ae590cb3d15184bb242f3fbb51e9",
+    "stored_sha256": "1774bd93d1cfb5f8185d8f49bfb70bdf9a73ae590cb3d15184bb242f3fbb51e9"
+  },
+  {
+    "source": "/tmp/forge-relr-final-tests.log",
+    "stored": "relr-tests.log",
+    "original_sha256": "573110dbb2aef27b075a3345c6488dc4317c4a7a3b9e15ca0006f3d204b2d928",
+    "stored_sha256": "7820442458ea52405416928715a99088c745b157fd308223cd63ff265836c796"
+  },
+  {
+    "source": "/tmp/forge-relr-final-cache.log",
+    "stored": "cache-tests.log",
+    "original_sha256": "477e276605357eab6cad80e43a72c7ce16a4b2bd7a0e67ef00e19ad1dbf93915",
+    "stored_sha256": "8745b4e0824e1f0b6d0b4800c2527fe9135f83676adda0adf293e84e499d40af"
+  },
+  {
+    "source": "/tmp/forge-relr-final-image-audits.jsonl",
+    "stored": "image-audits.jsonl",
+    "original_sha256": "45deafcd67ff7cc2d7f582851ff55e0be2f9050a41979ba09ed379760e9ba0c0",
+    "stored_sha256": "45deafcd67ff7cc2d7f582851ff55e0be2f9050a41979ba09ed379760e9ba0c0"
+  },
+  {
+    "source": "/tmp/forge-relr-final-image-audits.stderr",
+    "stored": "image-audits.stderr",
+    "original_sha256": "bc6aa71aa0e7d7705dea66d2d0f59caab215e8c75c386ee8bbc567e117b8dc25",
+    "stored_sha256": "bc6aa71aa0e7d7705dea66d2d0f59caab215e8c75c386ee8bbc567e117b8dc25"
+  },
+  {
+    "source": "/tmp/forge-relr-run-vm.py",
+    "stored": "run-vm.py",
+    "original_sha256": "8255aff81ca81a63192721460dedd39eab73487d3372e8fbb29e2f2699ff71d7",
+    "stored_sha256": "8255aff81ca81a63192721460dedd39eab73487d3372e8fbb29e2f2699ff71d7"
+  },
+  {
+    "source": "target/relr-explorer/toolchain/ld.lld",
+    "stored": "capture-link.py",
+    "original_sha256": "81baffafe58b7196b8595379b2682bbf4948103ec7af2b9482bbc6aa330ed157",
+    "stored_sha256": "81baffafe58b7196b8595379b2682bbf4948103ec7af2b9482bbc6aa330ed157"
+  },
+  {
+    "source": "target/relr-explorer/toolchain/clang",
+    "stored": "clang-wrapper.sh",
+    "original_sha256": "9217ab6fc43165810896c0ff80423328b8a8a122f4707cf166123d4731cd3fd7",
+    "stored_sha256": "9217ab6fc43165810896c0ff80423328b8a8a122f4707cf166123d4731cd3fd7"
+  },
+  {
+    "source": "/tmp/forge-relr-final-checks/results.json",
+    "stored": "checks-results.json",
+    "original_sha256": "c30569094430f79cb243b14e92b8e1e08384598f3ee0898e0de3e1b7db5d7119",
+    "stored_sha256": "c30569094430f79cb243b14e92b8e1e08384598f3ee0898e0de3e1b7db5d7119"
+  },
+  {
+    "source": "/tmp/forge-relr-final-checks/clippy.log",
+    "stored": "checks-clippy.log",
+    "original_sha256": "bc4a3f79b9f518a8eb2dbb21577606d634fc3c2fa2386f8bb50e9f5e52c8621d",
+    "stored_sha256": "bc4a3f79b9f518a8eb2dbb21577606d634fc3c2fa2386f8bb50e9f5e52c8621d"
+  },
+  {
+    "source": "/tmp/forge-relr-final-checks/feature-clippy.log",
+    "stored": "checks-feature-clippy.log",
+    "original_sha256": "b66e104c82f7dfb4fcb18c573ed6ad181ffa006b4216101222167cf42e95be9b",
+    "stored_sha256": "b66e104c82f7dfb4fcb18c573ed6ad181ffa006b4216101222167cf42e95be9b"
+  },
+  {
+    "source": "/tmp/forge-relr-final-checks/doc.log",
+    "stored": "checks-doc.log",
+    "original_sha256": "bfc2a9b4709a2bed67217a317d9956f723f5a501a5381f22e4203431b59e3b64",
+    "stored_sha256": "bfc2a9b4709a2bed67217a317d9956f723f5a501a5381f22e4203431b59e3b64"
+  }
+]

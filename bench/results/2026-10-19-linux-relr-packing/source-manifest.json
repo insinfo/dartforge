@@ -1,0 +1,26 @@
+[
+  {
+    "path": "crates/emit_native/src/linker.rs",
+    "sha256": "f67cb4561fd6ac1e4974411baad508cd56c5d0b0a8196d56e36d4382a47a9f42"
+  },
+  {
+    "path": "crates/emit_native/src/linker/relr_tests.rs",
+    "sha256": "1f4ef706d47416493c36caa9c3e8fabeb5db63872a3c756bba7af10d7240fa51"
+  },
+  {
+    "path": "crates/emit_native/src/sdk_module.rs",
+    "sha256": "79f6cada77e2af2e419798b11990b99f1540246e51ec0187bb2aa663226c188c"
+  },
+  {
+    "path": "crates/emit_native/examples/inspect_linked_images.rs",
+    "sha256": "10da1062f3bffb6f0def315328c31007b871e243c4a8d61767acda33686f815c"
+  },
+  {
+    "path": "docs/CROSS-COMPILACAO.md",
+    "sha256": "47c99b8c1a5e681142759eb421dacf9fad2842ea8fd6ade8c0004f91883b2d7a"
+  },
+  {
+    "path": "ESTADO.md",
+    "sha256": "abda8e65aa6ce042803d42a4b58f8e1375957cc8eed1c0e095ec929ecc1ee83b"
+  }
+]

@@ -171,9 +171,27 @@ pub fn link(ld: &Path, sysroot: &SysrootLinux, l: &Linkage<'_>) -> Result<(), St
 /// The `ld.lld` command for link `l`, ready to run (the
 /// [`link`]) or to receive more options (the `--thinlto-index-only` of the
 /// distributed ThinLTO, `distributed_lto.rs`).
+///
+/// `DARTFORGE_PACK_RELR=1` opts into packed relocations and requires a compatible
+/// ELF loader (glibc 2.36 or newer, in addition to the sysroot's ABI requirements).
+/// An unset value or `0` preserves the default command; other values return an error.
 pub fn statement(ld: &Path, sysroot: &SysrootLinux, l: &Linkage<'_>) -> Result<Command, String> {
+    statement_with_relr(ld, sysroot, l, relr_enabled()?)
+}
+
+fn statement_with_relr(
+    ld: &Path,
+    sysroot: &SysrootLinux,
+    l: &Linkage<'_>,
+    packed: bool,
+) -> Result<Command, String> {
     let (loader, emulation) = loader_and_emulation();
     let mut cmd = Command::new(ld);
+    if packed {
+        // Unlike --pack-dyn-relocs=relr alone, this also records glibc's
+        // GLIBC_ABI_DT_RELR requirement when linking a glibc application.
+        cmd.args(["-z", "pack-relative-relocs"]);
+    }
     cmd.args(["-z", "relro", "--hash-style=gnu", "--eh-frame-hdr", "-m", emulation]);
     match &l.product {
         Product::Executable => {
@@ -283,3 +301,20 @@ pub fn request_link_maps() {
 pub fn keep_symbols() -> bool {
     std::env::var("DARTFORGE_KEEP_SYMBOLS").is_ok_and(|v| v == "1")
 }
+
+/// The Linux-only opt-in requires a loader that supports packed RELR records.
+pub(crate) fn relr_enabled() -> Result<bool, String> {
+    parse_relr(std::env::var_os("DARTFORGE_PACK_RELR").as_deref())
+}
+
+fn parse_relr(value: Option<&std::ffi::OsStr>) -> Result<bool, String> {
+    match value {
+        None => Ok(false),
+        Some(value) if value == "0" => Ok(false),
+        Some(value) if value == "1" => Ok(true),
+        _ => Err("DARTFORGE_PACK_RELR must be 0 or 1; packed relocations require a compatible ELF loader (glibc 2.36 or newer)".into()),
+    }
+}
+
+#[cfg(test)]
+mod relr_tests;

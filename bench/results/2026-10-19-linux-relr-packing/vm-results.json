@@ -1,0 +1,78 @@
+[
+  {
+    "category": "fixture",
+    "mode": "standard",
+    "command": [
+      "/tmp/dartforge-relr-fixture-standard"
+    ],
+    "exit": 0,
+    "stdout": "relr-ok\n",
+    "stderr": "",
+    "seconds": 0.08198970799999994,
+    "sha256": "7c412903357d991da797ba457a2951b6f066fce92f6c18fd48d5f7abc4cdd216",
+    "glibc": "glibc 2.39"
+  },
+  {
+    "category": "fixture",
+    "mode": "packed",
+    "command": [
+      "/tmp/dartforge-relr-fixture-packed"
+    ],
+    "exit": 0,
+    "stdout": "relr-ok\n",
+    "stderr": "",
+    "seconds": 0.08460033300000003,
+    "sha256": "1022e3f940a914641aa4fcfa03fe1859cdeede0c6f8c56308868da267664e44e",
+    "glibc": "glibc 2.39"
+  },
+  {
+    "category": "explorer",
+    "mode": "standard",
+    "command": [
+      "/usr/sbin/runuser",
+      "-u",
+      "isaque",
+      "--",
+      "/usr/bin/env",
+      "XDG_RUNTIME_DIR=/run/user/1000",
+      "WAYLAND_DISPLAY=wayland-0",
+      "XDG_SESSION_TYPE=wayland",
+      "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus",
+      "DART_UI_FONTS=/home/isaque/projects/dart_ui/assets/fonts",
+      "/bin/bash",
+      "/media/psf/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/run-user.sh",
+      "/tmp/dartforge-relr-explorer-standard"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": "",
+    "seconds": 0.23536912499999985,
+    "sha256": "a24dbf032168af36663c6b63a722cd58008fc5d866897f4393a12c7a15727a2c",
+    "glibc": "glibc 2.39"
+  },
+  {
+    "category": "explorer",
+    "mode": "packed",
+    "command": [
+      "/usr/sbin/runuser",
+      "-u",
+      "isaque",
+      "--",
+      "/usr/bin/env",
+      "XDG_RUNTIME_DIR=/run/user/1000",
+      "WAYLAND_DISPLAY=wayland-0",
+      "XDG_SESSION_TYPE=wayland",
+      "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus",
+      "DART_UI_FONTS=/home/isaque/projects/dart_ui/assets/fonts",
+      "/bin/bash",
+      "/media/psf/ssd_dock/MyRustProjects/dartforge/target/relr-explorer/run-user.sh",
+      "/tmp/dartforge-relr-explorer-packed"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": "",
+    "seconds": 0.19486862500000002,
+    "sha256": "71c002c3a096e6f5ae07d6cc722d41d96afc3b5c6736daf2e2339130a46e0dd2",
+    "glibc": "glibc 2.39"
+  }
+]

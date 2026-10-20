@@ -1,0 +1,7 @@
+{
+  "category": "negative-unversioned",
+  "exit": 127,
+  "stdout": "",
+  "stderr": "/tmp/dartforge-relr-unversioned: error while loading shared libraries: /tmp/dartforge-relr-unversioned: DT_RELR without GLIBC_ABI_DT_RELR dependency\n",
+  "sha256": "5fd5817766b02267e887c031cb78a830d0fca04031701fc262777c16eb09256a"
+}

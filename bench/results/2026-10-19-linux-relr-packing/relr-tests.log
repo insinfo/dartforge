@@ -1,0 +1,18 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.49s
+     Running unittests src/lib.rs (target/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 5 tests
+test linker::relr_tests::explicit_policy_keeps_default_commands_and_rejects_invalid_values ... ok
+test linked_images::elf_relocations::tests::relr_bitmaps_even_unaligned_addresses_and_overflow_are_checked ... ok
+test sdk_module::selected_source_cache_tests::relr_link_policy_changes_only_the_linux_shared_sdk_key ... ok
+{"encoded_entries":73,"executed":false,"fresh_target":"aarch64-unknown-linux-gnu","image_digest":"7fffbcb335e24645a6ef2e07bb235594302836ca47ebf121bff1e4df583fea20","mutated_target_detected":true,"packed_relr":false,"potential_writes":73}
+{"encoded_entries":5,"executed":false,"fresh_target":"aarch64-unknown-linux-gnu","image_digest":"370fa5e5e462702d5a6c8cc6547f8c7a31bb16c59b401d5c0a70a3420e56dcca","mutated_target_detected":true,"packed_relr":true,"potential_writes":73}
+{"bytes":138648,"digest":"f998c2aac111b8deb26c999a59f8d0bb21cef63e98cf89b1a604ae3de74958b2","executed":false,"glibc_relr_requirement":false,"packed":false,"path":"/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-validation/standard","relocation_bytes":98688,"string_section_digest":"cb35a154c144903b87194b944d4928158ed7b65d8f84f70429aba37665d2a8cd"}
+{"bytes":40832,"digest":"d929bdcbf818b1d4835eb716240a6995ac4497b56916baa8e3ff00fa09e0b42d","executed":false,"glibc_relr_requirement":true,"packed":true,"path":"/Volumes/ssd_dock/MyRustProjects/dartforge/target/relr-validation/packed","relocation_bytes":776,"string_section_digest":"cb35a154c144903b87194b944d4928158ed7b65d8f84f70429aba37665d2a8cd"}
+test linker::relr_tests::glibc_fixture_links_both_modes_with_versioned_relr_requirement ... ok
+{"encoded_entries":70,"executed":false,"fresh_target":"x86_64-unknown-linux-gnu","image_digest":"576e8b50a879757c3fa154e0a57eece7ab25acf09afc11fbb059cd47f4e436ae","mutated_target_detected":true,"packed_relr":false,"potential_writes":70}
+{"encoded_entries":3,"executed":false,"fresh_target":"x86_64-unknown-linux-gnu","image_digest":"6bf8bc5dae54cd0a627ac5b54c7b1cae13382480fb6d362c82d19c2a3cfe5505","mutated_target_detected":true,"packed_relr":true,"potential_writes":70}
+test linked_images::elf_relocations::tests::fresh_pie_rela_and_packed_relr_tables_match_targets_and_detect_corruption ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 911 filtered out; finished in 0.37s
