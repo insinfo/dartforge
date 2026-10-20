@@ -321,12 +321,56 @@ O limite é só a comparação do prólogo com um valor do contexto, sem custo n
 O A1 continua cerca de 1,5 µs por quadro desenrolado, contra quase nada em A0: um
 `StackOverflowError` profundo é o caso ruim desse modo.
 
+### 3.8 Quadro de raízes aberto onde é usado (`f6f0e0e2`)
+
+Toda função com slots zerava e encadeava o quadro de raízes na entrada. A folha de um
+construtor recursivo de árvores (`Node(null, null)`, metade das chamadas) pagava por um quadro
+que nunca usava. Agora o quadro abre no dominador comum mais próximo dos blocos que escrevem
+ou limpam um slot, se ele estiver fora de laços e começar sem `phi`; senão fica na entrada.
+Todo retorno restaura o topo lido na entrada. Ablação: `DARTFORGE_NO_FRAME_PLACEMENT=1`.
+
+### 3.9 Varredura jovem por palavra do mapa de bits (`e4e00d88`)
+
+A varredura jovem testava o bit de marca bloco a bloco. Quando os bits do resto de uma
+palavra dentro da faixa estão todos limpos, todos os blocos que começam ali estão mortos e
+são liberados de uma vez (16 blocos de 32 bytes por palavra). Qualquer bit ligado volta ao
+caminho bloco a bloco.
+
+| árvores (ms, melhor de 200) | DartForge | Dart AOT |
+|---|---:|---:|
+| antes de 3.8 | 16,8 | 10,3–11,5 |
+| com 3.8 | 15,1 | |
+| com 3.8 e 3.9 | 13,7 | |
+
+### 3.10 Tear-offs canônicos com corpo tipado (`101af6c9`)
+
+A chamada por tipo de função tenta primeiro o corpo tipado da closure, mas o tear-off canônico
+de uma função de topo ou estática não tinha nenhum. `f(v)` com `f = ifElse` passava pela
+entrada uniforme: argumentos num vetor, checagem de aridade, checagem de tipo de cada
+argumento e caixas. Agora uma função não genérica com ABI tipada ganha `<alvo>$tt`, e o
+runtime guarda esse corpo no tear-off canônico (`dartforge_tearoff_typed`). O programa 139 do
+corpus confere chamadas tipadas, dinâmicas, `Function.apply`, identidade e exceções contra a
+VM.
+
+| despacho, ns por chamada (macOS arm64) | Dart AOT | antes | agora |
+|---|---:|---:|---:|
+| OIDs aleatórios, if/else | 9,4 | 16,4 | 9,9 |
+| OIDs aleatórios, switch | 11,8 | 16,4 | 9,9 |
+| OIDs aleatórios, Map | 9,8 | 16,4 | 11,6 |
+| OIDs frequentes, if/else | 8,6 | 12,6 | 6,6 |
+| denso 0..19, switch | 10,6 | 7,6 | 2,5 |
+| enum, if `identical` | 9,6 | 16,9 | 15,7 |
+| enum, `.index` | 2,5 | 4,7 | 2,6 |
+
+O `identical` contra um valor de enum ainda lê o estático preguiçoso e chama `df.identical`
+em cada comparação.
+
 ### 3.7 Validação
 
 - `production_profile`: 3/3, incluindo `platform_constant_prunes_the_other_backends`.
 - Emissor: 1.020 testes de biblioteca (30 ignorados); runtime: 323 unitários; Clippy estrito
   e fmt nos dois crates.
-- Corpus nativo contra a VM, depois de `1fb44b6e`: **138/138** em `--optimize` com o
+- Corpus nativo contra a VM, depois de `101af6c9`: **139/139** em `--optimize` com o
   verificador de raízes ligado, em `--optimize --gc-stress`, em dev, em dev com
   `--gc-stress` (`--exec-limit 120`) e com `DARTFORGE_EXCEPTIONS=tables`.
 - O smoke do File Explorer AOT (`scripts/validate-native-desktop.py --mode aot`) passou em
