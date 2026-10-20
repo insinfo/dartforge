@@ -1,0 +1,31 @@
+{
+  "prior_manifest": "bench/results/2026-10-19-linked-string-sections/desktop-artifact-bindings.json",
+  "prior_manifest_sha256": "5c2d7a47ca5730cf1991f14d76bfa2b06e82474c6db7bbb67d12d9b12b827112",
+  "inspector_sha256": "c99dfc36cb01aefcde0cc4482baca3e7bf44acec46c5f27ca10ea02069d135de",
+  "images": [
+    {
+      "path": "target/desktop-matrix/macos-arm64/explorer",
+      "bytes": 25291280,
+      "sha256": "956bbb5f602e7f29e8d0f3583b94a88e3450147487e1e5f725392cab0f993027",
+      "prior_sha256": "956bbb5f602e7f29e8d0f3583b94a88e3450147487e1e5f725392cab0f993027",
+      "matches_prior_publication": true,
+      "executed_this_round": false
+    },
+    {
+      "path": "target/desktop-matrix/cross-linux-arm64/explorer",
+      "bytes": 37669568,
+      "sha256": "b31a923a500407218a3f8927940065f8b8d54cf3984978138c63669df9747dce",
+      "prior_sha256": "b31a923a500407218a3f8927940065f8b8d54cf3984978138c63669df9747dce",
+      "matches_prior_publication": true,
+      "executed_this_round": false
+    },
+    {
+      "path": "target/desktop-matrix/cross-windows-x64/explorer.exe",
+      "bytes": 37394944,
+      "sha256": "c6e117a3db66dbe73c040f38718bdb43ddc7e37fdbaf03a4f6ed9701acd993ff",
+      "prior_sha256": "c6e117a3db66dbe73c040f38718bdb43ddc7e37fdbaf03a4f6ed9701acd993ff",
+      "matches_prior_publication": true,
+      "executed_this_round": false
+    }
+  ]
+}

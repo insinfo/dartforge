@@ -1,0 +1,12 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "dartforge-emit-native",
+    "--doc",
+    "linked_images::macho_relocations"
+  ],
+  "exit": 0
+}

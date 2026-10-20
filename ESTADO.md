@@ -2,6 +2,21 @@
 
 ## Atualização de 20/10/2026
 
+- Acrescentada auditoria dos spans de escrita declarados pelas tabelas clássicas
+  de rebase/bind Mach-O, uma etapa da prova ainda pendente de registro de imagens
+  do SDK. Confere mapeamentos, comandos, operandos e limites; conta repetições sem
+  expandi-las, inclusive um caso com um bilhão de escritas. No explorador macOS
+  preservado, as 51.706 escritas potenciais não atingem os 850.904 bytes da seção
+  de strings estáticas. Onze testes novos cobrem os quatro streams, bordas,
+  mutações, arquivos ARM64/x64 recém-ligados e recusa explícita de chained fixups.
+  Passaram os 950 testes nativos com ignorados, 26 dirigidos de imagens, um doctest,
+  Clippy estrito do workspace/backend LLVM e docs sem avisos. O utilitário lê os
+  três artefatos desktop anteriores, com hashes conferidos; não houve nova
+  execução desktop. Registro completo de imagens, limites efetivamente publicados,
+  callbacks, poda de backends, fmt global e aprovação integral continuam pendentes.
+  Não há nova autorização de poda nem ganho de desempenho/tamanho demonstrado.
+  Evidências: `bench/results/2026-10-20-macho-relocation-spans/README.md`.
+
 - Corrigida uma falha na prova experimental de poda de classes: um campo com
   bits escalares podia ser lido como referência gerenciada e aceito como receptor
   de seletor. O teste novo falhou antes da correção. A prova agora acompanha

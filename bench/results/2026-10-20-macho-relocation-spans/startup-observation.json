@@ -1,0 +1,96 @@
+{
+  "base_commit": "05a1ce7bf48a0fd9d45cbc7519d8be8f205e01a5",
+  "inventory_path": "target/string-length-native-cache/sdk/8f0164f3eab9aae25d6839cd09e07327/allocation-inventory.json",
+  "inventory_sha256": "cab51cb0bd94a60c565be97c738af3bd4a049b98fb02c2dde1c25818a2dd0683",
+  "cache_key": "8f0164f3eab9aae25d6839cd09e07327",
+  "compiler": "7d8abdb36ddeabd8c46e4690505d48ecb06fafbb7f3b321317613e886fa66c07",
+  "body_digest": "727d309399c02b91d09fa517be9d0656f5724e198c7c71bb4b1f22375c185d4c",
+  "unknown_obligations": [
+    "global_or_function_address_argument:\\01section$end$__DATA_CONST$__dfimg",
+    "global_or_function_address_argument:\\01section$start$__DATA_CONST$__dfimg",
+    "global_or_function_address_argument:df.dart$3a_internal.._dartforgeIndexError",
+    "global_or_function_address_argument:df.dart$3a_internal.._dartforgeLateError",
+    "global_or_function_address_argument:df.dart$3a_internal.._dartforgeStackOverflowError",
+    "image_registry_or_helper_binding:dartforge_register_argument_name",
+    "image_registry_or_helper_binding:dartforge_register_class_name",
+    "image_registry_or_helper_binding:dartforge_register_helper",
+    "image_registry_or_helper_binding:dartforge_register_image",
+    "image_registry_or_helper_binding:dartforge_register_subclass"
+  ],
+  "exposure_obligations": [
+    "global_or_function_address",
+    "image_registry_or_helper_binding"
+  ],
+  "call_counts": {
+    "dartforge_register_class_name": 85,
+    "dartforge_register_subclass": 207,
+    "dartforge_register_image": 1,
+    "dartforge_register_helper": 3,
+    "dartforge_register_argument_name": 4
+  },
+  "image_and_helper_calls": [
+    {
+      "abi": {
+        "parameters": [
+          "ptr",
+          "ptr"
+        ],
+        "result": "void"
+      },
+      "arguments": [
+        "ptr @\"\\01section$start$__DATA_CONST$__dfimg\"",
+        "ptr @\"\\01section$end$__DATA_CONST$__dfimg\""
+      ],
+      "symbol": "dartforge_register_image"
+    },
+    {
+      "abi": {
+        "parameters": [
+          "ptr",
+          "i64",
+          "ptr"
+        ],
+        "result": "void"
+      },
+      "arguments": [
+        "ptr @df.ajn.0",
+        "i64 20",
+        "ptr @df.dart$3a_internal.._dartforgeIndexError"
+      ],
+      "symbol": "dartforge_register_helper"
+    },
+    {
+      "abi": {
+        "parameters": [
+          "ptr",
+          "i64",
+          "ptr"
+        ],
+        "result": "void"
+      },
+      "arguments": [
+        "ptr @df.ajn.1",
+        "i64 19",
+        "ptr @df.dart$3a_internal.._dartforgeLateError"
+      ],
+      "symbol": "dartforge_register_helper"
+    },
+    {
+      "abi": {
+        "parameters": [
+          "ptr",
+          "i64",
+          "ptr"
+        ],
+        "result": "void"
+      },
+      "arguments": [
+        "ptr @df.ajn.2",
+        "i64 28",
+        "ptr @df.dart$3a_internal.._dartforgeStackOverflowError"
+      ],
+      "symbol": "dartforge_register_helper"
+    }
+  ],
+  "startup_authorized": false
+}
