@@ -1017,6 +1017,9 @@ impl<'a> LlvmEmitter<'a> {
                 self.tables_registered_at_startup && self.module.closed_class_tables.is_none();
             self.out.push_str(&new_instance(registered));
         }
+        if !self.maps && !self.module.arc_memory {
+            self.out.push_str(&rti_set_cached_helper());
+        }
         if self.compact_selector {
             self.out.push_str(SELECTOR_BY_DESCRIPTOR);
         }
@@ -1317,8 +1320,7 @@ impl<'a> LlvmEmitter<'a> {
                         Some((b.id.0, format!("xc{v}.fim")))
                     } else if !self.maps && Self::rti_evaluate_cached(i) {
                         Some((b.id.0, format!("ra{v}.fim")))
-                    } else if self.rti_set_cached(i) {
-                        Some((b.id.0, format!("rs{v}.fim")))
+
                     } else if Self::rti_test_cached(i) {
                         Some((b.id.0, format!("rt{v}.fim")))
                     } else {
@@ -3644,7 +3646,8 @@ impl<'a> LlvmEmitter<'a> {
 
     /// `dartforge_rti_set` with a cache at the use site
     /// ([`Self::emit_rti_set_cached`]): tracing memory, shadow roots, not
-    /// under `DARTFORGE_EFFECTS=check` nor `DARTFORGE_NO_RTI_CACHE=1`.
+    /// under `DARTFORGE_EFFECTS=check` nor `DARTFORGE_NO_RTI_CACHE=1` (all three RTI
+    /// caches) nor `DARTFORGE_NO_RTI_SET_CACHE=1` (only this one, for measurement).
     fn rti_set_cached(&self, i: &Instruction) -> bool {
         !self.maps && !self.module.arc_memory && Self::rti_set_cached_shape(i)
     }
@@ -3657,81 +3660,30 @@ impl<'a> LlvmEmitter<'a> {
             if name == "dartforge_rti_set" && args.len() == 2)
             && !externs::check_effects()
             && !*OFF.get_or_init(|| {
-                std::env::var_os("DARTFORGE_NO_RTI_CACHE")
-                    .is_some_and(|v| !v.is_empty() && v != "0")
+                ["DARTFORGE_NO_RTI_CACHE", "DARTFORGE_NO_RTI_SET_CACHE"]
+                    .iter()
+                    .any(|name| std::env::var_os(name).is_some_and(|v| !v.is_empty() && v != "0"))
             })
     }
 
     /// The reified type of a new object stored through the cache of the use
     /// site: two words of the area keep `class << 32 | type` and the metadata
     /// the runtime stored for that pair (`dartforge_rti_set_cache`, which fills
-    /// them only for objects that are neither image statics nor lists). An
-    /// object of the space, not `PERMANENT`, whose class and requested type
-    /// match gets the metadata with one store; a value that is not an object
-    /// needs nothing (the runtime returns at once); the rest calls the runtime.
+    /// them only for objects that are neither image statics nor lists). The site
+    /// calls the module's shared helper [`rti_set_cached_helper`] (`noinline`: a few
+    /// bytes per site), which on a hit stores the metadata itself instead of
+    /// entering the runtime (thread-local access, `RefCell`, the memo).
     fn emit_rti_set_cached(&mut self, v: u32, args: &[(Operand, Type)]) {
         let obj = self.coerce(&args[0].0, Type::I64);
         let ty = self.coerce(&args[1].0, Type::I64);
         let slot = self.cache_slot();
-        let state = layout::offsets::STATE as i64 - layout::HANDLE_OFFSET;
-        let class = layout::offsets::CLASS as i64 - layout::HANDLE_OFFSET;
-        let metadata = layout::offsets::METADATA as i64 - layout::HANDLE_OFFSET;
-        let permanent = layout::state::PERMANENT;
         let o = &mut self.out;
         writeln!(o, "  %rs{v}c = getelementptr i64, ptr %area, i64 {slot}").unwrap();
-        writeln!(o, "  %rs{v}m = and i64 {obj}, {OBJECT_MASK}").unwrap();
-        writeln!(o, "  %rs{v}o = icmp eq i64 %rs{v}m, 2").unwrap();
-        writeln!(o, "  br i1 %rs{v}o, label %rs{v}.obj, label %rs{v}.fim").unwrap();
-        writeln!(o, "rs{v}.obj:").unwrap();
-        writeln!(o, "  %rs{v}p = inttoptr i64 {obj} to ptr").unwrap();
         writeln!(
             o,
-            "  %rs{v}sp = getelementptr inbounds i8, ptr %rs{v}p, i64 {state}"
+            "  call void @df.rti_set_cached(ptr %rs{v}c, i64 {obj}, i64 {ty})"
         )
         .unwrap();
-        writeln!(o, "  %rs{v}s = load i8, ptr %rs{v}sp, align 1").unwrap();
-        writeln!(
-            o,
-            "  %rs{v}cp = getelementptr inbounds i8, ptr %rs{v}p, i64 {class}"
-        )
-        .unwrap();
-        writeln!(o, "  %rs{v}cl = load i32, ptr %rs{v}cp, align 4").unwrap();
-        writeln!(o, "  %rs{v}cz = zext i32 %rs{v}cl to i64").unwrap();
-        writeln!(o, "  %rs{v}ch = shl i64 %rs{v}cz, 32").unwrap();
-        writeln!(o, "  %rs{v}k = or i64 %rs{v}ch, {ty}").unwrap();
-        writeln!(o, "  %rs{v}k0 = load i64, ptr %rs{v}c, align 8").unwrap();
-        writeln!(o, "  %rs{v}eq = icmp eq i64 %rs{v}k0, %rs{v}k").unwrap();
-        writeln!(o, "  %rs{v}np = icmp ne i8 %rs{v}s, {permanent}").unwrap();
-        writeln!(o, "  %rs{v}ok = and i1 %rs{v}eq, %rs{v}np").unwrap();
-        writeln!(
-            o,
-            "  br i1 %rs{v}ok, label %rs{v}.acerto, label %rs{v}.lenta"
-        )
-        .unwrap();
-        writeln!(o, "rs{v}.acerto:").unwrap();
-        writeln!(
-            o,
-            "  %rs{v}rp = getelementptr inbounds i64, ptr %rs{v}c, i64 1"
-        )
-        .unwrap();
-        writeln!(o, "  %rs{v}r = load i64, ptr %rs{v}rp, align 8").unwrap();
-        writeln!(o, "  %rs{v}rt = trunc i64 %rs{v}r to i32").unwrap();
-        writeln!(
-            o,
-            "  %rs{v}mp = getelementptr inbounds i8, ptr %rs{v}p, i64 {metadata}"
-        )
-        .unwrap();
-        writeln!(o, "  store i32 %rs{v}rt, ptr %rs{v}mp, align 4").unwrap();
-        writeln!(o, "  br label %rs{v}.fim").unwrap();
-        writeln!(o, "rs{v}.lenta:").unwrap();
-        writeln!(
-            o,
-            "  call void @dartforge_rti_set_cache(ptr %rs{v}c, i64 {obj}, i64 {ty})"
-        )
-        .unwrap();
-        writeln!(o, "  br label %rs{v}.fim").unwrap();
-        writeln!(o, "rs{v}.fim:").unwrap();
-        self.current_label = format!("rs{v}.fim");
     }
 
     /// `dartforge_rti_e` (`v is T`) with a cache at the use site
@@ -6872,6 +6824,54 @@ fn body_helper(per_call: bool, production: bool, without_outside: bool) -> Strin
   ret ptr %r
 }}
 "
+    )
+}
+
+/// `@df.rti_set_cached(cache, obj, ty)`: [`LlvmEmitter::emit_rti_set_cached`].
+/// A value that is not an object needs nothing (the runtime returns at once);
+/// an object of the space, not `PERMANENT`, whose `class << 32 | ty` matches
+/// the first word gets the metadata of the second; the rest calls
+/// `dartforge_rti_set_cache`, which stores the type and fills the cache.
+fn rti_set_cached_helper() -> String {
+    use layout::{offsets, state};
+    let d = |x: usize| x as i64 - layout::HANDLE_OFFSET;
+    format!(
+        "define internal void @df.rti_set_cached(ptr %c, i64 %o, i64 %t) noinline {{\n\
+  %m = and i64 %o, {mask}\n\
+  %ob = icmp eq i64 %m, 2\n\
+  br i1 %ob, label %obj, label %done\n\
+obj:\n\
+  %p = inttoptr i64 %o to ptr\n\
+  %sp = getelementptr inbounds i8, ptr %p, i64 {state_h}\n\
+  %s = load i8, ptr %sp, align 1\n\
+  %cp = getelementptr inbounds i8, ptr %p, i64 {class_h}\n\
+  %cl = load i32, ptr %cp, align 4\n\
+  %cz = zext i32 %cl to i64\n\
+  %ch = shl i64 %cz, 32\n\
+  %k = or i64 %ch, %t\n\
+  %k0 = load i64, ptr %c, align 8\n\
+  %eq = icmp eq i64 %k0, %k\n\
+  %np = icmp ne i8 %s, {permanent}\n\
+  %ok = and i1 %eq, %np\n\
+  br i1 %ok, label %hit, label %slow\n\
+hit:\n\
+  %rp = getelementptr inbounds i64, ptr %c, i64 1\n\
+  %r = load i64, ptr %rp, align 8\n\
+  %rt = trunc i64 %r to i32\n\
+  %mp = getelementptr inbounds i8, ptr %p, i64 {metadata_h}\n\
+  store i32 %rt, ptr %mp, align 4\n\
+  br label %done\n\
+slow:\n\
+  call void @dartforge_rti_set_cache(ptr %c, i64 %o, i64 %t)\n\
+  br label %done\n\
+done:\n\
+  ret void\n\
+}}\n",
+        mask = OBJECT_MASK,
+        state_h = d(offsets::STATE),
+        class_h = d(offsets::CLASS),
+        metadata_h = d(offsets::METADATA),
+        permanent = state::PERMANENT,
     )
 }
 
