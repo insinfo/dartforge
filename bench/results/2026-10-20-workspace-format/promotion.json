@@ -1,0 +1,48 @@
+[
+  {
+    "target": "windows-x64",
+    "previous": "../batch-tables/windows-x64",
+    "current": "../workspace-format/windows-x64",
+    "runtime_sources": "e0a3c8b04d39eeb559a7e217fe3b4df86978b29ee7bf93f8ac9abf2a17e6f9be",
+    "runs": [
+      {
+        "stdout": "parent=45\nchild=45\n",
+        "stderr": "",
+        "sha256": "19f3a421a263cab7d8bf783c0442edd398e938e2576b010f0379b9e6833e4529",
+        "stress": false,
+        "exit": 0
+      },
+      {
+        "stdout": "parent=45\nchild=45\n",
+        "stderr": "",
+        "sha256": "19f3a421a263cab7d8bf783c0442edd398e938e2576b010f0379b9e6833e4529",
+        "stress": true,
+        "exit": 0
+      }
+    ]
+  },
+  {
+    "target": "linux-arm64",
+    "previous": "../batch-tables/linux-arm64",
+    "current": "../workspace-format/linux-arm64",
+    "runtime_sources": "e0a3c8b04d39eeb559a7e217fe3b4df86978b29ee7bf93f8ac9abf2a17e6f9be",
+    "runs": [
+      {
+        "stress": false,
+        "exit": 0,
+        "stdout": "parent=45\nchild=45\n",
+        "stderr": "",
+        "sha256": "5f5119a2b4f95b662768e55ad4e9de2fcfc3beced6f8fdda75c19de7a84e998c",
+        "uid": 0
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "stdout": "parent=45\nchild=45\n",
+        "stderr": "",
+        "sha256": "5f5119a2b4f95b662768e55ad4e9de2fcfc3beced6f8fdda75c19de7a84e998c",
+        "uid": 0
+      }
+    ]
+  }
+]

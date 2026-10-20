@@ -1,0 +1,9 @@
+{
+  "before_exit": 1,
+  "before_log_bytes": 15804562,
+  "before_log_sha256": "1092b3aff02d26354ac74396b74f10512380fcf1731a5c14475deef489b03639",
+  "applications": 2,
+  "after_exit": 0,
+  "after_log_bytes": 0,
+  "modified_files": 700
+}

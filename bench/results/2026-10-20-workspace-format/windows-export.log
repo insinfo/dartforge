@@ -1,0 +1,12 @@
+#< CLIXML
+{
+  "runtime": {
+    "dll": "dartforge_rtdll_50a125fc5299f0b08e513a0911946cfa.lib",
+    "main": "dartforge_runtime_03f2bb146f02d17cd991d88fdf4f456b.lib",
+    "production": "dartforge_rtprod_c747068b72dac92406e03ffca9966894.lib"
+  },
+  "runtime_sources": "e0a3c8b04d39eeb559a7e217fe3b4df86978b29ee7bf93f8ac9abf2a17e6f9be",
+  "schema": 1,
+  "target": "x86_64-pc-windows-msvc"
+}
+<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04"><Obj S="progress" RefId="0"><TN RefId="0"><T>System.Management.Automation.PSCustomObject</T><T>System.Object</T></TN><MS><I64 N="SourceId">2</I64><PR N="Record"><AV>Preparing modules for first use.</AV><AI>0</AI><Nil /><PI>-1</PI><PC>-1</PC><T>Completed</T><SR>-1</SR><SD> </SD></PR></MS></Obj></Objs>

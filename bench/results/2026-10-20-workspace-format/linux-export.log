@@ -1,0 +1,10 @@
+{
+  "runtime": {
+    "dll": "dartforge_rtdll_e70ea4eaf8e3bd94ff40bc200184a36e.a",
+    "main": "dartforge_runtime_ccbdde19ebb7c3ec3af319d549f79bb0.a",
+    "production": "dartforge_rtprod_7fe68979d92910d1c420c53089493691.a"
+  },
+  "runtime_sources": "e0a3c8b04d39eeb559a7e217fe3b4df86978b29ee7bf93f8ac9abf2a17e6f9be",
+  "schema": 1,
+  "target": "aarch64-unknown-linux-gnu"
+}

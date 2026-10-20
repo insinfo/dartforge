@@ -1,0 +1,14 @@
+{
+  "command": [
+    "cargo",
+    "build",
+    "--locked",
+    "-p",
+    "dartforge-cli",
+    "--features",
+    "jit"
+  ],
+  "exit": 0,
+  "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-workspace-format",
+  "sha256": "27ab814cefbec1506cd3aa70c33ad12c753fa9b47d054341fbec3948e9c3ceba"
+}

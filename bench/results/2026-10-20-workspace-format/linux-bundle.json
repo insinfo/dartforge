@@ -1,0 +1,29 @@
+{
+  "manifest": {
+    "runtime": {
+      "dll": "dartforge_rtdll_e70ea4eaf8e3bd94ff40bc200184a36e.a",
+      "main": "dartforge_runtime_ccbdde19ebb7c3ec3af319d549f79bb0.a",
+      "production": "dartforge_rtprod_7fe68979d92910d1c420c53089493691.a"
+    },
+    "runtime_sources": "e0a3c8b04d39eeb559a7e217fe3b4df86978b29ee7bf93f8ac9abf2a17e6f9be",
+    "schema": 1,
+    "target": "aarch64-unknown-linux-gnu"
+  },
+  "runtimes": {
+    "dll": {
+      "file": "dartforge_rtdll_e70ea4eaf8e3bd94ff40bc200184a36e.a",
+      "bytes": 35982398,
+      "sha256": "0be24724b198beb20918690a044f32890b804a2e69ee2fb886c4d4956c100a32"
+    },
+    "main": {
+      "file": "dartforge_runtime_ccbdde19ebb7c3ec3af319d549f79bb0.a",
+      "bytes": 34742962,
+      "sha256": "45333b994f0e1b1d79bb7e248c5ef8a461eb8a2ad9b0b9620ad1dacb9bd107f6"
+    },
+    "production": {
+      "file": "dartforge_rtprod_7fe68979d92910d1c420c53089493691.a",
+      "bytes": 34742506,
+      "sha256": "d64aa3e83808caf1ea50dfc7827deef851e87084dddec5dd4077f9d90569186e"
+    }
+  }
+}

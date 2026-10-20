@@ -1,0 +1,9 @@
+    Checking dartforge-diagnostics v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/diagnostics)
+    Checking dartforge-intern v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/intern)
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Checking dartforge-frontend v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/frontend)
+    Checking dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+    Checking dartforge-elements v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/elements)
+    Checking dartforge-types v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/types)
+    Checking dartforge-world v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/world)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 19s

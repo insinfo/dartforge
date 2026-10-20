@@ -1,0 +1,1 @@
+[{"stdout":"parent=45\nchild=45\n","stderr":"","sha256":"19f3a421a263cab7d8bf783c0442edd398e938e2576b010f0379b9e6833e4529","stress":false,"exit":0},{"stdout":"parent=45\nchild=45\n","stderr":"","sha256":"19f3a421a263cab7d8bf783c0442edd398e938e2576b010f0379b9e6833e4529","stress":true,"exit":0}]

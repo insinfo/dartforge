@@ -1,0 +1,10 @@
+   Compiling dartforge-diagnostics v0.1.0 (/tmp/dartforge-workspace-format-source.H7jAl5/crates/diagnostics)
+   Compiling dartforge-intern v0.1.0 (/tmp/dartforge-workspace-format-source.H7jAl5/crates/intern)
+   Compiling dartforge-frontend v0.1.0 (/tmp/dartforge-workspace-format-source.H7jAl5/crates/frontend)
+   Compiling dartforge-runtime v0.1.0 (/tmp/dartforge-workspace-format-source.H7jAl5/crates/runtime)
+   Compiling dartforge-emit-native v0.1.0 (/tmp/dartforge-workspace-format-source.H7jAl5/crates/emit_native)
+   Compiling dartforge-elements v0.1.0 (/tmp/dartforge-workspace-format-source.H7jAl5/crates/elements)
+   Compiling dartforge-types v0.1.0 (/tmp/dartforge-workspace-format-source.H7jAl5/crates/types)
+   Compiling dartforge-world v0.1.0 (/tmp/dartforge-workspace-format-source.H7jAl5/crates/world)
+   Compiling dartforge-abi v0.1.0 (/tmp/dartforge-workspace-format-source.H7jAl5/crates/abi)
+    Finished `dev` profile [unoptimized] target(s) in 1m 28s

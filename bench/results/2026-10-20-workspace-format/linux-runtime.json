@@ -1,0 +1,18 @@
+[
+  {
+    "stress": false,
+    "exit": 0,
+    "stdout": "parent=45\nchild=45\n",
+    "stderr": "",
+    "sha256": "5f5119a2b4f95b662768e55ad4e9de2fcfc3beced6f8fdda75c19de7a84e998c",
+    "uid": 0
+  },
+  {
+    "stress": true,
+    "exit": 0,
+    "stdout": "parent=45\nchild=45\n",
+    "stderr": "",
+    "sha256": "5f5119a2b4f95b662768e55ad4e9de2fcfc3beced6f8fdda75c19de7a84e998c",
+    "uid": 0
+  }
+]

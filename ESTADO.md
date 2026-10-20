@@ -2,6 +2,24 @@
 
 ## Atualização de 20/10/2026
 
+- Corrigida a formatação global no commit isolado `1013f38d`: 700 arquivos Rust
+  processados pelo formatter fixado no projeto, sem exclusões nem configuração
+  nova. `cargo fmt --all -- --check` agora passa. Passaram Clippy estrito do
+  workspace e com LLVM embutido, docs sem avisos, 324 unitários/25 integrações/
+  88 doctests do runtime e 1.043 testes nativos com ignorados. Fixture aprovada
+  em AOT produção/desenvolvimento/sem poda e JIT macOS, normal/sob estresse;
+  os três IRs montados ficaram idênticos aos anteriores. Os fingerprints de
+  bytes mudaram: bundles Linux/Windows reexportados nas VMs, com vínculo de
+  fontes igual ao host. O compilador atual compilou a fixture para os dois
+  destinos; passou nas VMs normal/sob estresse, com cópias conferidas por hash.
+  Caminhos current promovidos atomicamente, bundles anteriores preservados e
+  ambas as VMs suspensas. Evidências em
+  `bench/results/2026-10-20-workspace-format/README.md`.
+  Sem nova matriz GUI/JIT dos hóspedes ou ganho de tamanho/desempenho alegado.
+  O gate original foi repetido após a formatação e ainda retorna 101 por manter
+  corpos WindowsBackend no IR macOS, com log preservado e sem alterar a
+  expectativa. A poda dos backends e a aprovação integral continuam pendentes.
+
 - Concluída a validação CLI com `native,jit` e todos os ignorados: 82 testes
   passaram em 14 executáveis, zero falhas/ignorados/filtros, saída 0 em 361,75 s
   incluindo compilação. Cobriu sete regressões de I/O (TLS/HTTPS/sinais/sockets),
