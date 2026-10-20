@@ -572,6 +572,7 @@ impl JitSession {
         let parsed = ffi::parse_module(name, &generation_ir)
             .map_err(|detail| JitError::new("parse-ir", "invalid IR", detail))?;
         self.check_target(&parsed)?;
+        self.import_sdk_runtime_data(&parsed)?;
         let (mut layouts, mut async_frames) = parsed.frame_contract(ir, &prior_frames)
             .map_err(|message| JitError { stage: "contract", message })?;
         let callback_registration = parsed.callback_registration_plan(self.lljit.supports_callback_owners());

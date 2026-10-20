@@ -1172,6 +1172,13 @@ fn exported_data() -> LLVMJITSymbolFlags {
     }
 }
 
+/// Runtime-owned data read directly by generated code, never callable exports.
+/// The SDK manifest lists functions; these globals have their own ABI contract.
+pub(crate) const RUNTIME_DATA_SYMBOLS: &[&str] = &[
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    "dartforge_context_slot",
+];
+
 /// The JIT target machine: host triple, generic `x86-64` CPU and code
 /// generation **without optimization**, the counterpart of the AOT's `clang -O0`. It is the same for the
 /// session ([`Lljit::new`]) and for the cached object ([`compile_object`]): an
@@ -2126,6 +2133,34 @@ pub(crate) fn call_embedded_entry(address: u64) -> i32 {
 }
 
 impl Lljit {
+    /// Publishes only reviewed runtime data from the selected SDK's own handle.
+    /// A process-wide search can find the embedded runtime's homonymous global,
+    /// whose thread state is unrelated to the SDK runtime used by the program.
+    pub(crate) fn define_runtime_data_from_dll(
+        &self,
+        dll: &std::path::Path,
+        names: &[String],
+    ) -> Result<(), String> {
+        if names.iter().any(|name| !RUNTIME_DATA_SYMBOLS.contains(&name.as_str())) {
+            return Err("unreviewed runtime data import".to_owned());
+        }
+        let module = load_library(dll);
+        if module.is_null() {
+            return Err(format!("could not load the SDK library {}", dll.display()));
+        }
+        let mut pairs = Vec::with_capacity(names.len());
+        for name in names {
+            let name = CString::new(name.as_str()).map_err(|_| "runtime data name contains NUL".to_owned())?;
+            let address = address_in_library(module, &name);
+            if address.is_null() {
+                return Err(format!("the SDK library does not export runtime data {}", name.to_string_lossy()));
+            }
+            pairs.push((name, address as u64));
+        }
+        let borrowed: Vec<_> = pairs.iter().map(|(name, address)| (name.as_c_str(), *address)).collect();
+        self.define_absolute(&borrowed, exported_data())
+    }
+
     /// Requested names that appear in the SDK DLL's export list.
     /// The list is consulted before publishing a new generation, so that
     /// an unknown reference refuses the reload without changing the pointers.

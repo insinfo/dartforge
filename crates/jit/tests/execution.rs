@@ -541,3 +541,70 @@ fn windows_constant_pool_symbols_materialize_across_objects() {
         assert_ne!(session.lookup(&format!("scaled{index}")).unwrap(), 0);
     }
 }
+
+/// AOT-style context reads must bind to the SDK's offset, not the host runtime's.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[test]
+#[ignore = "requires LLVM and the source SDK shared library"]
+fn sdk_context_data_matches_its_runtime() {
+    let dir = OutputDir::new("sdk-context-data");
+    let fixture = include_str!("fixtures/sdk_context_owner.ll");
+    for ir in [fixture.to_owned(), fixture.replace("@dartforge_context_slot", "@\"dartforge_context_slot\"")] {
+        let result = run_through_jit(&dir.0, &ir);
+        assert_eq!(result.code, Some(0), "{result:?}");
+    }
+}
+
+/// Imported data is shared across modules and is not zeroed between executions.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[test]
+#[ignore = "requires LLVM and the source SDK shared library"]
+fn sdk_context_data_survives_modules_and_repeated_runs() {
+    let dll = std::env::var_os("DARTFORGE_SDK_DLL").map(PathBuf::from)
+        .unwrap_or_else(|| dartforge_emit_native::sdk_module::source_sdk_dll().unwrap());
+    let mut session = JitSession::new_with_sdk(&dll, &["dartforge_context".into(), "dartforge_init".into()]).unwrap();
+    let probe = include_str!("fixtures/sdk_context_owner.ll").replace("@main()", "@probe_context_owner()");
+    session.add_ir_module("probe", &probe).unwrap();
+    session.add_ir_module("main", "@dartforge_context_slot = external global i64, align 8\n\
+        declare i32 @probe_context_owner()\n\
+        define i32 @main() {\n  %result = call i32 @probe_context_owner()\n  ret i32 %result\n}\n").unwrap();
+    assert_eq!(session.run_main().unwrap().exit_code, 0);
+    assert_eq!(session.run_main().unwrap().exit_code, 0);
+}
+
+/// The first reloadable module binds SDK data before its external-data precheck.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[test]
+#[ignore = "requires LLVM and the source SDK shared library"]
+fn sdk_context_data_binds_before_first_reload() {
+    let dll = std::env::var_os("DARTFORGE_SDK_DLL").map(PathBuf::from)
+        .unwrap_or_else(|| dartforge_emit_native::sdk_module::source_sdk_dll().unwrap());
+    let mut session = JitSession::new_with_sdk(&dll, &["dartforge_context".into(), "dartforge_init".into()]).unwrap();
+    let fixture = include_str!("fixtures/sdk_context_owner.ll");
+    session.add_reloadable_module("context", fixture).unwrap();
+    assert_eq!(session.run_reloadable_main().unwrap().exit_code, 0);
+    let changed = fixture.replace("ret i32 %result", "%same_result = or i32 %result, %result\n  ret i32 %same_result");
+    session.hot_reload("context", &changed).unwrap();
+    assert_eq!(session.run_reloadable_main().unwrap().exit_code, 0);
+}
+
+/// A missing SDK-owned cell must not resolve by chance in the host process.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[test]
+#[ignore = "requires LLVM and Clang"]
+fn sdk_context_data_missing_from_library_is_rejected() {
+    let dir = OutputDir::new("missing-sdk-data");
+    let source = dir.0.join("stub.c");
+    let dll = dir.0.join("libstub.dylib");
+    std::fs::write(&source, "void dartforge_set_main_arguments(const char *data, long long count) { (void)data; (void)count; }\n").unwrap();
+    let clang = std::env::var_os("DARTFORGE_CLANG").unwrap_or_else(|| "clang".into());
+    let result = Command::new(clang).arg("-dynamiclib").arg(&source).arg("-o").arg(&dll).output().unwrap();
+    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+    std::fs::write(dir.0.join("exportados.def"), "EXPORTS\n").unwrap();
+    let mut session = JitSession::new_with_sdk(&dll, &[]).unwrap();
+    let error = session.add_ir_module("missing", "@dartforge_context_slot = external global i64, align 8\n\
+        define void @dartforge_entry() { ret void }\n").unwrap_err();
+    assert_eq!(error.stage, "sdk");
+    assert!(error.message.contains("dartforge_context_slot"), "{error}");
+    assert!(session.module_names().is_empty());
+}

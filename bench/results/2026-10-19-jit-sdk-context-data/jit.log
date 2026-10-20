@@ -1,0 +1,306 @@
+   Compiling dartforge-llvm v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/llvm)
+   Compiling dartforge-jit v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/jit)
+warning: linker stderr: ld64.lld: directory not found for option -L/usr/local/lib
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-jit` (bin "dartforge-run-ir" test) generated 1 warning
+warning: linker stderr: ld64.lld: directory not found for option -L/usr/local/lib
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_common.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(error_private.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(fse_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(entropy_common.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(fse_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(hist.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(huf_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(xxhash.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_compress_literals.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_compress_sequences.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_compress_superblock.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_double_fast.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_fast.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_lazy.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_ldm.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_opt.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_preSplit.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstdmt_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(pool.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(huf_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_ddict.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_decompress_block.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_v05.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_v06.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_v07.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-jit` (test "callback_retention") generated 1 warning
+warning: linker stderr: ld64.lld: directory not found for option -L/usr/local/lib
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libblake3-95b90383f2838080.rlib(a1edd97dd51cd48d-blake3_neon.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_common.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(error_private.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(fse_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(entropy_common.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(fse_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(hist.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(huf_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(xxhash.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_compress_literals.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_compress_sequences.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_compress_superblock.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_double_fast.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_fast.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_lazy.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_ldm.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_opt.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_preSplit.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstdmt_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(pool.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(huf_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_ddict.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_decompress_block.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_v05.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_v06.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_v07.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-jit` (test "hot_reload") generated 1 warning
+warning: linker stderr: ld64.lld: directory not found for option -L/usr/local/lib
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_common.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(error_private.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(fse_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(entropy_common.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(fse_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(hist.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(huf_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(xxhash.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_compress_literals.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_compress_sequences.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_compress_superblock.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_double_fast.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_fast.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_lazy.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_ldm.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_opt.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_preSplit.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstdmt_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(pool.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(huf_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_ddict.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_decompress_block.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_v05.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_v06.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_v07.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libblake3-95b90383f2838080.rlib(a1edd97dd51cd48d-blake3_neon.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-jit` (test "plain_sdk_residency") generated 1 warning
+warning: `dartforge-jit` (test "execution") generated 1 warning (1 duplicate)
+warning: `dartforge-jit` (test "async_frame_reload") generated 1 warning (1 duplicate)
+warning: `dartforge-jit` (lib test) generated 1 warning (1 duplicate)
+warning: `dartforge-jit` (bin "dartforge-run-ir") generated 1 warning (1 duplicate)
+warning: `dartforge-jit` (test "persistent_session") generated 1 warning (1 duplicate)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6m 42s
+     Running unittests src/lib.rs (target/debug/deps/dartforge_jit-9e7b138d967dab8c)
+
+running 45 tests
+test ffi::tests::only_listed_externals_are_known ... ok
+test ffi::tests::symbol_table_matches_the_announced_names ... ok
+test frame_layouts::tests::duplicate_and_malformed_markers_fail_closed ... ok
+test delta::tests_mod::signature_without_names_or_linkage ... ok
+test frame_layouts::tests::nominal_and_generated_reserved_cid_cannot_change_domains ... ok
+test frame_layouts::tests::declared_resume_requires_the_exact_previously_certified_abi ... ok
+test frame_layouts::tests::same_owner_and_size_do_not_certify_a_different_allocation_site ... ok
+test frame_layouts::tests::heterogeneous_generated_frames_are_not_nominal_class_layouts ... ok
+test frame_layouts::tests::unmarked_or_mismatched_reserved_cid_stays_nominal ... ok
+test migration::tests_mod::ambiguous_legacy_fields_and_changed_identity_format_are_refused ... ok
+test migration::tests_mod::declaring_owners_distinguish_reordered_and_removed_homonymous_fields ... ok
+test migration::tests_mod::migrates_by_name_and_accepts_nullable_and_late ... ok
+test migration::tests_mod::preserved_legacy_empty_unknown_and_trailing_type_metadata_are_refused ... ok
+test migration::tests_mod::reads_the_ir_layouts ... ok
+test migration::tests_mod::rejects_new_field_without_value_and_changed_type ... ok
+test migration::tests_mod::same_display_type_cannot_hide_library_or_argument_identity_changes ... ok
+test reload::tests::class_names_reject_a_renumbered_class ... ok
+test reload::tests::contract_accepts_a_body_change ... ok
+test reload::tests::contract_keeps_a_vanished_function ... ok
+test reload::tests::contract_rejects_a_changed_class_layout ... ok
+test reload::tests::contract_rejects_a_changed_signature ... ok
+test reload::tests::contract_rejects_variadics ... ok
+test delta::tests_mod::changed_callee_signature_recompiles_caller ... ok
+test delta::tests_mod::changed_local_recompiles_users ... ok
+test delta::tests_mod::excluded_and_non_live_are_compiled ... ok
+test delta::tests_mod::keeps_unchanged_and_compiles_rest ... ok
+test reload::tests::references_must_be_resolvable ... ok
+test reload::tests::references_accept_exports_of_the_sdk_loaded_in_this_session ... ok
+test reload::tests::references_reject_unimplemented_trampoline ... ok
+test reload::tests::stub_module_carries_the_signature ... ok
+test target_tests::different_targets_are_rejected ... ok
+test target_tests::spellings_of_same_target_are_compatible ... ok
+test ffi::tests::function_version_in_comdat_produces_coff_object ... ok
+test tests::entry_symbol_is_not_a_runtime_symbol ... ok
+test tests::error_display_keeps_stage_and_detail ... ok
+test reload::tests::promotion_rejects_incompatible_contract_without_destroying_anything ... ok
+test tests::registry_declaration_does_not_change_runtime_profile ... ok
+test reload::tests::simple_module_promotion ... ok
+test reload::tests::full_cycle_with_direct_ir ... ok
+test tests::cached_object_accepts_external_authorized_by_sdk ... ok
+test reload::tests::eager_stubs_preserve_running_code_and_reuse_zero_slot_orphans_after_failure ... ok
+ld: warning: ignoring -lto_library '/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/lib/libLTO.dylib', file does not exist
+102
+103
+33
+303
+test migration::tests_mod::emitted_private_fields_migrate_by_declaration_not_spelling ... ok
+104
+test migration::tests_mod::emitted_same_spelling_field_type_change_rejects_before_publication ... ok
+test ffi::callback_lifetime_tests::captured_closure_survives_replacement_before_callback_publication ... ok
+ld: warning: ignoring -lto_library '/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/lib/libLTO.dylib', file does not exist
+test ffi::callback_lifetime_tests::closed_native_callable_survives_reload_and_session_drop ... ok
+
+test result: ok. 45 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.22s
+
+     Running unittests src/bin/run_ir.rs (target/debug/deps/dartforge_run_ir-7f493a7c0741fb1d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/async_frame_reload.rs (target/debug/deps/async_frame_reload-8328e8c55310d351)
+
+running 1 test
+test suspended_frame_resumes_old_body_after_frame_size_changes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.23s
+
+     Running tests/callback_retention.rs (target/debug/deps/callback_retention-a0f653649420733d)
+
+running 5 tests
+test address_taken_registration_remains_conservatively_resident ... ok
+test escaping_internal_closure_code_remains_conservatively_resident ... ok
+test unused_callback_declaration_does_not_pin_ordinary_code ... ok
+test cached_callback_metadata_can_be_unloaded ... ok
+test metadata_registration_does_not_pin_its_generation ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/execution.rs (target/debug/deps/execution-a56f6bf2555288c6)
+
+running 17 tests
+[differential   1.4ms] emitir_ir
+test every_emitter_extern_exists_in_runtime ... ok
+test ir_rejected_by_verifier_does_not_run ... ok
+test duplicate_entry_becomes_result ... ok
+test invalid_ir_becomes_result_with_message ... ok
+test divergent_target_fails_loudly ... ok
+[differential 173.3µs] emitir_ir
+test removing_module_unloads_entry ... ok
+test two_modules_in_one_session ... ok
+test unknown_external_fails_loudly ... ok
+test sdk_context_data_survives_modules_and_repeated_runs ... ok
+test sdk_context_data_missing_from_library_is_rejected ... ok
+test runner_jit_failure_exits_with_70 ... ok
+test runner_prints_through_runtime ... ok
+test runner_double_and_large_frame ... ok
+test runner_uncaught_exception_exits_with_255 ... ok
+test sdk_context_data_matches_its_runtime ... ok
+[differential    1.1s] IR with 236393 bytes; run through the JIT
+[differential    1.1s] IR with 275545 bytes; run through the JIT
+[differential    1.2s] JIT finished (Some(0)); compile and link through the AOT
+[differential    1.2s] JIT finished (Some(0)); compile and link through the AOT
+[differential    1.9s] executar o AOT
+[differential    2.4s] executar o AOT
+[differential    2.6s] AOT terminou (Some(0))
+test shared_cases_deliver_variables_to_body ... ok
+[differential    2.9s] AOT terminou (Some(0))
+[differential 222.7µs] emitir_ir
+[differential    1.0s] IR with 254144 bytes; run through the JIT
+[differential    1.1s] JIT finished (Some(0)); compile and link through the AOT
+[differential    1.7s] executar o AOT
+[differential    2.3s] AOT terminou (Some(0))
+[differential 224.1µs] emitir_ir
+[differential    1.0s] IR with 236559 bytes; run through the JIT
+[differential    1.1s] JIT finished (Some(0)); compile and link through the AOT
+[differential    1.7s] executar o AOT
+[differential    2.3s] AOT terminou (Some(0))
+[differential 230.4µs] emitir_ir
+[differential    1.0s] IR with 238958 bytes; run through the JIT
+[differential    1.1s] JIT finished (Some(0)); compile and link through the AOT
+[differential    1.7s] executar o AOT
+[differential    2.3s] AOT terminou (Some(0))
+test jit_and_aot_agree_on_same_ir ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.66s
+
+     Running tests/hot_reload.rs (target/debug/deps/hot_reload-55d46e81da21daed)
+
+running 17 tests
+test missing_external_global_does_not_destroy_promotion ... ok
+test collision_with_other_module_does_not_destroy_promotion ... ok
+test internal_helpers_do_not_become_trampolines ... ok
+test reload_failure_does_not_destroy_good_version ... ok
+test equal_statics_in_distinct_modules_stay_independent ... ok
+test live_counter_survives_reload ... ok
+test generation_of_removed_function_is_retained ... ok
+test changed_signature_gets_new_entry ... ok
+test five_reloads_preserve_stable_entry ... ok
+test reload_preserves_globals_with_current_emitter_name ... ok
+test unknown_name_does_not_promote_the_only_module ... ok
+test reload_preserves_program_statics_without_copying_caches ... ok
+test reloadable_main_resets_active_generation_statics ... ok
+test unchanged_function_stays_in_live_implementation ... ok
+test current_and_legacy_rti_entries_are_republished_on_every_generation ... ok
+warning: overriding the module target triple with arm64-apple-macosx15.0.0 [-Woverride-module]
+warning: overriding the module target triple with arm64-apple-macosx15.0.0 [-Woverride-module]
+1 warning generated.
+1 warning generated.
+ld: warning: ignoring -lto_library '/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/lib/libLTO.dylib', file does not exist
+ld: warning: ignoring -lto_library '/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/lib/libLTO.dylib', file does not exist
+ld: warning: ignoring duplicate libraries: '-lSystem'
+ld: warning: ignoring duplicate libraries: '-lSystem'
+test session_main_with_dll_calls_new_generation ... ok
+test reload_publishes_new_dll_external ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.44s
+
+     Running tests/persistent_session.rs (target/debug/deps/persistent_session-2cb6d2017dfd401e)
+
+running 5 tests
+test main_resets_jit_module_globals_between_runs ... ok
+test sequential_runs_start_clean ... ok
+test compiled_module_passes_preverification ... ok
+test compiled_module_enters_several_sessions ... ok
+test persistent_session_measurement ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.44s
+
+     Running tests/plain_sdk_residency.rs (target/debug/deps/plain_sdk_residency-ea0ee47a1ae552ad)
+
+running 1 test
+plain:1
+plain:1
+plain:3
+test ordinary_dart_with_full_sdk_reclaims_metadata_only_generations ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.76s
+
+   Doc-tests dartforge_jit
+
+running 6 tests
+test crates/jit/src/lib.rs - (line 30) - compile ... ok
+test crates/jit/src/lib.rs - JitSession::new (line 287) - compile ... ok
+test crates/jit/src/reload.rs - reload::JitSession::add_reloadable_module (line 323) - compile ... ok
+test crates/jit/src/reload.rs - reload::JitSession::hot_reload (line 416) - compile ... ok
+test crates/jit/src/reload.rs - reload::StableEntry (line 212) - compile ... ok
+test crates/jit/src/lib.rs - RUNTIME_SYMBOLS (line 89) ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+all doctests ran in 48.74s; merged doctests compilation took 48.28s

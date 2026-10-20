@@ -1,0 +1,73 @@
+warning: linker stderr: ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_common.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(error_private.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(fse_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(entropy_common.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(fse_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(hist.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(huf_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(xxhash.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_compress_literals.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_compress_sequences.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_compress_superblock.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_double_fast.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_fast.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_lazy.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_ldm.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_opt.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_preSplit.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstdmt_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(pool.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(huf_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_ddict.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_decompress_block.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_v05.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_v06.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_v07.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-jit` (bin "dartforge-run-ir") generated 1 warning
+   Compiling dartforge-jit v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/jit)
+warning: linker stderr: ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libblake3-95b90383f2838080.rlib(a1edd97dd51cd48d-blake3_neon.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_common.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(error_private.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(fse_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(entropy_common.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(fse_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(hist.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(huf_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(xxhash.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_compress_literals.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_compress_sequences.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_compress_superblock.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_double_fast.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_fast.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_lazy.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_ldm.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_opt.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_preSplit.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstdmt_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(pool.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(huf_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_ddict.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_decompress_block.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_v05.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_v06.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-e907ee1c45268e06.rlib(zstd_v07.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-jit` (test "execution") generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 49.14s
+     Running tests/execution.rs (target/debug/deps/execution-a56f6bf2555288c6)
+
+running 3 tests
+test sdk_context_data_survives_modules_and_repeated_runs ... ok
+test sdk_context_data_matches_its_runtime ... ok
+test sdk_context_data_missing_from_library_is_rejected ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.25s

@@ -1,0 +1,122 @@
+[
+  {
+    "name": "owner-before-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-run-ir-before-sdk-data",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/jit/tests/fixtures/sdk_context_owner.ll"
+    ],
+    "exit": 1,
+    "expected_exit": 1,
+    "correct": true,
+    "sdk_dll": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-native-cache/sdk/6b6831042293752baa4cd97534016ec3/libdfsdk_6b6831042293752b.dylib",
+    "gc_stress": null
+  },
+  {
+    "name": "owner-before-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-run-ir-before-sdk-data",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/jit/tests/fixtures/sdk_context_owner.ll"
+    ],
+    "exit": 1,
+    "expected_exit": 1,
+    "correct": true,
+    "sdk_dll": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-native-cache/sdk/6b6831042293752baa4cd97534016ec3/libdfsdk_6b6831042293752b.dylib",
+    "gc_stress": "1"
+  },
+  {
+    "name": "owner-after-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-run-ir-sdk-data-fixed",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/jit/tests/fixtures/sdk_context_owner.ll"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "correct": true,
+    "sdk_dll": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-native-cache/sdk/6b6831042293752baa4cd97534016ec3/libdfsdk_6b6831042293752b.dylib",
+    "gc_stress": null
+  },
+  {
+    "name": "owner-after-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-run-ir-sdk-data-fixed",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/jit/tests/fixtures/sdk_context_owner.ll"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "correct": true,
+    "sdk_dll": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-native-cache/sdk/6b6831042293752baa4cd97534016ec3/libdfsdk_6b6831042293752b.dylib",
+    "gc_stress": "1"
+  },
+  {
+    "name": "pruned-after-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-run-ir-sdk-data-fixed",
+      "/tmp/forge-string-length-reuse/development.ll"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "correct": true,
+    "sdk_dll": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-native-cache/sdk/6b6831042293752baa4cd97534016ec3/libdfsdk_6b6831042293752b.dylib",
+    "gc_stress": null
+  },
+  {
+    "name": "pruned-after-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-run-ir-sdk-data-fixed",
+      "/tmp/forge-string-length-reuse/development.ll"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "correct": true,
+    "sdk_dll": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-native-cache/sdk/6b6831042293752baa4cd97534016ec3/libdfsdk_6b6831042293752b.dylib",
+    "gc_stress": "1"
+  },
+  {
+    "name": "old-pruned-after-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-run-ir-sdk-data-fixed",
+      "/tmp/forge-string-length-reuse/old-development.ll"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "correct": true,
+    "sdk_dll": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native_cache/sdk/397fd30f2d6130097a559a4fc95d3a5c/libdfsdk_397fd30f2d613009.dylib",
+    "gc_stress": null
+  },
+  {
+    "name": "old-pruned-after-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-run-ir-sdk-data-fixed",
+      "/tmp/forge-string-length-reuse/old-development.ll"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "correct": true,
+    "sdk_dll": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native_cache/sdk/397fd30f2d6130097a559a4fc95d3a5c/libdfsdk_397fd30f2d613009.dylib",
+    "gc_stress": "1"
+  },
+  {
+    "name": "regular-after-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-run-ir-sdk-data-fixed",
+      "/tmp/forge-string-length-reuse/jit.ll"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "correct": true,
+    "sdk_dll": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-native-cache/sdk/6b6831042293752baa4cd97534016ec3/libdfsdk_6b6831042293752b.dylib",
+    "gc_stress": null
+  },
+  {
+    "name": "regular-after-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-run-ir-sdk-data-fixed",
+      "/tmp/forge-string-length-reuse/jit.ll"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "correct": true,
+    "sdk_dll": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-native-cache/sdk/6b6831042293752baa4cd97534016ec3/libdfsdk_6b6831042293752b.dylib",
+    "gc_stress": "1"
+  }
+]

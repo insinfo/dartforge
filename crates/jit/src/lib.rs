@@ -223,6 +223,8 @@ pub struct JitSession {
     /// exports (runtime and libraries), published in the session in place
     /// of this process's runtime. Empty on the usual path.
     sdk_externals: std::collections::HashSet<String>,
+    /// Runtime data published from the same SDK handle, separate from functions.
+    sdk_data: std::collections::HashSet<String>,
     /// DLL used by the session, to publish exports that a reload starts
     /// referencing. Absent when the runtime comes from this process.
     sdk_dll: Option<std::path::PathBuf>,
@@ -306,6 +308,7 @@ impl JitSession {
             poisoned: None,
             id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
             sdk_externals: std::collections::HashSet::new(),
+            sdk_data: std::collections::HashSet::new(),
             sdk_dll: None,
             lljit,
         })
@@ -359,6 +362,7 @@ impl JitSession {
             poisoned: None,
             id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
             sdk_externals: names.into_iter().collect(),
+            sdk_data: std::collections::HashSet::new(),
             sdk_dll: Some(dll.to_path_buf()),
             lljit,
         })
@@ -423,6 +427,22 @@ impl JitSession {
     /// counts, and `dartforge-run-ir --timings` records it.
     pub fn llvm_version() -> (u32, u32, u32) {
         ffi::llvm_version()
+    }
+
+    /// Binds reviewed external data to the SDK runtime before materialization.
+    /// Keep data separate from callable imports and never reset imported cells.
+    fn import_sdk_runtime_data(&mut self, parsed: &ffi::ParsedModule) -> Result<(), JitError> {
+        let Some(dll) = &self.sdk_dll else { return Ok(()) };
+        let names: Vec<_> = parsed.external_globals().into_iter()
+            .filter(|name| ffi::RUNTIME_DATA_SYMBOLS.contains(&name.as_str()) && !self.sdk_data.contains(name))
+            .collect();
+        if names.is_empty() {
+            return Ok(());
+        }
+        self.lljit.define_runtime_data_from_dll(dll, &names)
+            .map_err(|detail| JitError::new("sdk", "could not publish the SDK runtime data", detail))?;
+        self.sdk_data.extend(names);
+        Ok(())
     }
 
     /// Checks the module's target against the `LLJIT`'s.
@@ -511,6 +531,7 @@ impl JitSession {
             parsed.internalize_functions(keep);
         }
         self.check_target(&parsed)?;
+        self.import_sdk_runtime_data(&parsed)?;
         let signatures = parsed.signatures();
         let defined = self.defined_names();
         if let Some(unknown) = parsed.declarations().into_iter().find(|reference| {

@@ -1,0 +1,324 @@
+[
+  {
+    "source": "/tmp/forge-jit-sdk-context/bindings.json",
+    "stored": "bindings.json",
+    "original_sha256": "279a17d75defa437f830bfd7ecceae575d4be87b3c4602cf59f957023a86f32b",
+    "stored_sha256": "279a17d75defa437f830bfd7ecceae575d4be87b3c4602cf59f957023a86f32b",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/regular-after-normal.stderr",
+    "stored": "regular-after-normal.stderr",
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/regular-after-stress.stderr",
+    "stored": "regular-after-stress.stderr",
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/bindings-first-build.json",
+    "stored": "bindings-first-build.json",
+    "original_sha256": "46813a9215fcf9aff88182df336a442891abe26cc8cc9bc20685b696b4f44e28",
+    "stored_sha256": "46813a9215fcf9aff88182df336a442891abe26cc8cc9bc20685b696b4f44e28",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/context-owner-before.stderr",
+    "stored": "context-owner-before.stderr",
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/bindings-second-build.json",
+    "stored": "bindings-second-build.json",
+    "original_sha256": "5ee250da8c749907a7da88c4f5a7a21542cbc608a42f61ec6a22cdd6dbf47e30",
+    "stored_sha256": "5ee250da8c749907a7da88c4f5a7a21542cbc608a42f61ec6a22cdd6dbf47e30",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/pruned-after-normal.stderr",
+    "stored": "pruned-after-normal.stderr",
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/pruned-after-stress.stderr",
+    "stored": "pruned-after-stress.stderr",
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/fixture-after.stdout",
+    "stored": "fixture-after.stdout",
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/pruned-after-stress.stdout",
+    "stored": "pruned-after-stress.stdout",
+    "original_sha256": "d2c242a6fd05fbd4797b5938ac7ff7d848825092183619616679ec534bfef70b",
+    "stored_sha256": "d2c242a6fd05fbd4797b5938ac7ff7d848825092183619616679ec534bfef70b",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/fixture-after.stderr",
+    "stored": "fixture-after.stderr",
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/pruned-after-normal.stdout",
+    "stored": "pruned-after-normal.stdout",
+    "original_sha256": "d2c242a6fd05fbd4797b5938ac7ff7d848825092183619616679ec534bfef70b",
+    "stored_sha256": "d2c242a6fd05fbd4797b5938ac7ff7d848825092183619616679ec534bfef70b",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/execution-final.log",
+    "stored": "execution-final.log",
+    "original_sha256": "1bec240b04be999a546b76443b334edc9d7b179371259304eff0943e9e159bb8",
+    "stored_sha256": "0b4a82d40505629abcd2c68bc67011492da38b26883775f7c30ba654b58d0fe6",
+    "eof_normalized": true
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/jit.log",
+    "stored": "jit.log",
+    "original_sha256": "1c7bca94934d76b7f2d4d67a9f8c52586a19883b0929088fde3a9a5ad074f667",
+    "stored_sha256": "1c7bca94934d76b7f2d4d67a9f8c52586a19883b0929088fde3a9a5ad074f667",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/regular-after-stress.stdout",
+    "stored": "regular-after-stress.stdout",
+    "original_sha256": "d2c242a6fd05fbd4797b5938ac7ff7d848825092183619616679ec534bfef70b",
+    "stored_sha256": "d2c242a6fd05fbd4797b5938ac7ff7d848825092183619616679ec534bfef70b",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/regular-after-normal.stdout",
+    "stored": "regular-after-normal.stdout",
+    "original_sha256": "d2c242a6fd05fbd4797b5938ac7ff7d848825092183619616679ec534bfef70b",
+    "stored_sha256": "d2c242a6fd05fbd4797b5938ac7ff7d848825092183619616679ec534bfef70b",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/directed.log",
+    "stored": "directed.log",
+    "original_sha256": "f3593e1aa85234011e71ec42d4fe523a62fb470a6facfb0a25c70fd95adc4c63",
+    "stored_sha256": "411e1e3dd06bc13cd37ef03cff04b26f2a115086e737193c2b25a13bf74bef7b",
+    "eof_normalized": true
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/context-owner-before.stdout",
+    "stored": "context-owner-before.stdout",
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/clippy.log",
+    "stored": "clippy.log",
+    "original_sha256": "89c69ec06bc0c961bbc1528132ece351d189b3a4842554dea279aa8761827aaf",
+    "stored_sha256": "89c69ec06bc0c961bbc1528132ece351d189b3a4842554dea279aa8761827aaf",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/runtime-call.ll",
+    "stored": "runtime-call.ll",
+    "original_sha256": "94ade899b501c42fda6c6fdf01afc33e42884fa9069f70afbf455940cd30d6da",
+    "stored_sha256": "94ade899b501c42fda6c6fdf01afc33e42884fa9069f70afbf455940cd30d6da",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/context-owner.ll",
+    "stored": "context-owner.ll",
+    "original_sha256": "25ff00b703e55148da65192c9e47b8c6de2eb5ee318deff47990338a04eee2b7",
+    "stored_sha256": "25ff00b703e55148da65192c9e47b8c6de2eb5ee318deff47990338a04eee2b7",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/checks.json",
+    "stored": "checks.json",
+    "original_sha256": "4428ff5083f1a33ad1118a15db64fe0587a9285601996733aa30f5f8cc938fb9",
+    "stored_sha256": "4428ff5083f1a33ad1118a15db64fe0587a9285601996733aa30f5f8cc938fb9",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/owner-after-stress.stdout",
+    "stored": "owner-after-stress.stdout",
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/old-pruned-after-normal.stderr",
+    "stored": "old-pruned-after-normal.stderr",
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/directed-initial.log",
+    "stored": "directed-initial.log",
+    "original_sha256": "09535768a5fdd8d9319eb13220c8889492425309793c780d20f78786ec523cdf",
+    "stored_sha256": "09535768a5fdd8d9319eb13220c8889492425309793c780d20f78786ec523cdf",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/run-checks.py",
+    "stored": "run-checks.py",
+    "original_sha256": "e067c9cc7ee28e0a52c9a54888885b7796447429ab8dad42496e78575723d16c",
+    "stored_sha256": "e067c9cc7ee28e0a52c9a54888885b7796447429ab8dad42496e78575723d16c",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/old-pruned-after-stress.stderr",
+    "stored": "old-pruned-after-stress.stderr",
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/owner-after-normal.stdout",
+    "stored": "owner-after-normal.stdout",
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/validate.py",
+    "stored": "validate.py",
+    "original_sha256": "5b6a59b256d987139ac60492633dade1d2ca385e2fd8b3efbbaccfa5901c863e",
+    "stored_sha256": "5b6a59b256d987139ac60492633dade1d2ca385e2fd8b3efbbaccfa5901c863e",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/fixture-before.stdout",
+    "stored": "fixture-before.stdout",
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/execution-first-build.json",
+    "stored": "execution-first-build.json",
+    "original_sha256": "3b010909c8d95138f005b1e5ed7c88ce9d588b81f9bc94c6ad9ef3318b174e35",
+    "stored_sha256": "3b010909c8d95138f005b1e5ed7c88ce9d588b81f9bc94c6ad9ef3318b174e35",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/runtime-call.stderr",
+    "stored": "runtime-call.stderr",
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/owner-before-normal.stdout",
+    "stored": "owner-before-normal.stdout",
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/owner-before-stress.stdout",
+    "stored": "owner-before-stress.stdout",
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/owner-before-stress.stderr",
+    "stored": "owner-before-stress.stderr",
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/owner-before-normal.stderr",
+    "stored": "owner-before-normal.stderr",
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/runtime-call.stdout",
+    "stored": "runtime-call.stdout",
+    "original_sha256": "d2c242a6fd05fbd4797b5938ac7ff7d848825092183619616679ec534bfef70b",
+    "stored_sha256": "d2c242a6fd05fbd4797b5938ac7ff7d848825092183619616679ec534bfef70b",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/directed-final.log",
+    "stored": "directed-final.log",
+    "original_sha256": "c44e87326293f659e883f619134e0ebfebee48e3d43f70aff9dc8cd7b4879709",
+    "stored_sha256": "96364cbf9266d30680235822e4382938c9738b3a6a0249d72436dd1430f84dbb",
+    "eof_normalized": true
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/execution-second-build.json",
+    "stored": "execution-second-build.json",
+    "original_sha256": "3b010909c8d95138f005b1e5ed7c88ce9d588b81f9bc94c6ad9ef3318b174e35",
+    "stored_sha256": "3b010909c8d95138f005b1e5ed7c88ce9d588b81f9bc94c6ad9ef3318b174e35",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/fixture-before.stderr",
+    "stored": "fixture-before.stderr",
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/execution.json",
+    "stored": "execution.json",
+    "original_sha256": "c7a7b4d766403c3a067c83c1cb01c87c528edaa2042137f7b1d95743f6b43d8e",
+    "stored_sha256": "c7a7b4d766403c3a067c83c1cb01c87c528edaa2042137f7b1d95743f6b43d8e",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/owner-after-normal.stderr",
+    "stored": "owner-after-normal.stderr",
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/old-pruned-after-stress.stdout",
+    "stored": "old-pruned-after-stress.stdout",
+    "original_sha256": "d2c242a6fd05fbd4797b5938ac7ff7d848825092183619616679ec534bfef70b",
+    "stored_sha256": "d2c242a6fd05fbd4797b5938ac7ff7d848825092183619616679ec534bfef70b",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/old-pruned-after-normal.stdout",
+    "stored": "old-pruned-after-normal.stdout",
+    "original_sha256": "d2c242a6fd05fbd4797b5938ac7ff7d848825092183619616679ec534bfef70b",
+    "stored_sha256": "d2c242a6fd05fbd4797b5938ac7ff7d848825092183619616679ec534bfef70b",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/owner-after-stress.stderr",
+    "stored": "owner-after-stress.stderr",
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "eof_normalized": false
+  },
+  {
+    "source": "/tmp/forge-jit-sdk-context/doc.log",
+    "stored": "doc.log",
+    "original_sha256": "33625c0c8a8fb0f066c3530496d6d62e708194546864da0ddbbf3f0d9fc5ab59",
+    "stored_sha256": "33625c0c8a8fb0f066c3530496d6d62e708194546864da0ddbbf3f0d9fc5ab59",
+    "eof_normalized": false
+  }
+]

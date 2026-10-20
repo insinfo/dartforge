@@ -59,6 +59,15 @@ continua recusado, com a mesma mensagem; o que ele baixa está em
 `docs/NATIVO.md` §1. O job `jit` do `heavy.yml` exige saída idêntica JIT × AOT
 no corpus inteiro (ver «JIT × AOT no corpus inteiro» abaixo e `ESTADO.md` §1.5).
 
+Os dados revisados do runtime também pertencem à biblioteca selecionada do SDK.
+No macOS ARM64, o IR AOT pode ler `dartforge_context_slot` para localizar o contexto
+da thread. O JIT importa essa variável como **dado**, pelo handle da mesma biblioteca
+que fornece as funções do runtime, antes de materializar o módulo ou conferir os
+dados externos de uma recarga. A variável homônima do runtime embutido no executor
+não representa o contexto do SDK. A importação usa as declarações estruturadas do
+LLVM, inclusive nomes citados, e a célula externa não é zerada entre execuções.
+Uma biblioteca sem o dado requerido é recusada na etapa `sdk`.
+
 > **Histórico (até 2026-09-27).** Esta seção descrevia o JIT sobre
 > `dartforge_compiler::compile_llvm_with_options`, da trilha velha: só
 > `int`/`bool`/`String`, classes, enums, controle de fluxo e `print`, e

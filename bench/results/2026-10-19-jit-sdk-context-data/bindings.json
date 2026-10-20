@@ -1,0 +1,10 @@
+{
+  "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-run-ir-sdk-data-fixed": "e9b09a968bc736908243ca96729ef173946e69504f4ab59f26ec4e57024c5e74",
+  "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-run-ir-before-sdk-data": "6ddd51410cee2df92dad48ebd88e2455cd1c5551aa381ec2e3de0528c09fe6ce",
+  "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-native-cache/sdk/6b6831042293752baa4cd97534016ec3/libdfsdk_6b6831042293752b.dylib": "1f95431dfc3ed00cfebb41dd0afafabee19fc6d2d654492805ad8ea7ab015f0e",
+  "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native_cache/sdk/397fd30f2d6130097a559a4fc95d3a5c/libdfsdk_397fd30f2d613009.dylib": "25c7a99655344b2affb76f8048cea46603f2eadc30ccb6281e985606a231167c",
+  "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/jit/tests/fixtures/sdk_context_owner.ll": "773ad1800630cf662a7f70479802ff524bad345804189d4773f448aea5bd8f0f",
+  "/tmp/forge-string-length-reuse/development.ll": "5c8f6faeb90a3c59e2640fcf4651bf954aa4f48699090415966ac5bd34bc7d30",
+  "/tmp/forge-string-length-reuse/old-development.ll": "fff3cd35b8218e1af3e89551d282110f4899593670dac6a2bc504acfe90fb168",
+  "/tmp/forge-string-length-reuse/jit.ll": "f2f58f02259fa552230cd242ea0a374d805938e5eca37b7594aea6fb643c769f"
+}

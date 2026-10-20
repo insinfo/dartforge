@@ -2,6 +2,19 @@
 
 ## Atualização de 19/10/2026
 
+- Corrigido o crash do JIT com IR AOT de desenvolvimento no macOS ARM64:
+  `dartforge_context_slot` agora vem da mesma biblioteca do SDK que fornece as
+  funções do runtime, como dado não chamável. A importação inspeciona globais
+  externos do LLVM, também antes da primeira recarga, sem zerar a célula do SDK.
+  O teste mínimo retornava 1 por contexto divergente e agora retorna 0; os dois
+  IRs anteriormente problemáticos, com SDKs intactos, coincidem com a VM normal
+  e sob estresse de GC. A API JIT regular também passa. Foram aprovados 92 testes
+  JIT distintos e seis exemplos de documentação, contando a suíte final de
+  execução 18/18 e quatro regressões novas; Clippy estrito e docs sem avisos
+  passaram. Sem nova matriz desktop/Windows/Linux ou ganho de desempenho medido.
+  A poda de backends, o fmt global e a aprovação integral continuam pendentes.
+  Evidências: `bench/results/2026-10-19-jit-sdk-context-data/README.md`.
+
 - O HIR reutiliza `df.string_len` dominante e move prefixos de leitura para
   entradas incondicionais de laços quando o receptor é invariável. Não muda o
   helper LLVM nem acrescenta metadados de invariância de memória; preserva

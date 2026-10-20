@@ -1,0 +1,25 @@
+{
+  "base_revision": "9a95938f24923b83e025f1b3a11efdc40b7de9db",
+  "source_sha256": {
+    "crates/jit/src/ffi.rs": "f891f9c065156f95288ea8c72123d8a503fa8a445ea3660d72553db3d4e562be",
+    "crates/jit/src/lib.rs": "0a7be24e0ee9686ba1dd692782a552388db070f4352e62cdfb15511990cc7c3d",
+    "crates/jit/src/reload.rs": "0855c61b21e56c98e9299650d18bd2b7030b9bfa68dee1ba87c1d69e4d08a8a4",
+    "crates/jit/tests/execution.rs": "a706031e27ac810d439f13ab01ae65ffc6a699b113e29e442eadcd599b8481f3",
+    "crates/jit/tests/fixtures/sdk_context_owner.ll": "773ad1800630cf662a7f70479802ff524bad345804189d4773f448aea5bd8f0f"
+  },
+  "host": "macOS-27.2-arm64-arm-64bit",
+  "llvm_prefix": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+  "SDKROOT": "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk",
+  "MACOSX_DEPLOYMENT_TARGET": "15.0",
+  "scope": "macOS ARM64; selected SDK-owned runtime data, AOT-style development IR and regular JIT API IR; no cross-OS or desktop matrix",
+  "tests": {
+    "full_cargo_regular": 91,
+    "full_cargo_doctests": 6,
+    "full_cargo_execution_component": 17,
+    "final_execution_component": 18,
+    "final_directed_component": 4,
+    "distinct_regular_union": 92
+  },
+  "full_suite_source_note": "The full Cargo run started before the fourth test was appended. Production code was unchanged; the final 18-test execution binary and four directed tests cover the final test source.",
+  "global_workspace": "not approved; production backend pruning failure and formatting remain pending"
+}

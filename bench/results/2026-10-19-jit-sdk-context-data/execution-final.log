@@ -1,0 +1,47 @@
+
+running 18 tests
+[differential 397.5µs] emitir_ir
+test every_emitter_extern_exists_in_runtime ... ok
+test ir_rejected_by_verifier_does_not_run ... ok
+test divergent_target_fails_loudly ... ok
+test duplicate_entry_becomes_result ... ok
+test invalid_ir_becomes_result_with_message ... ok
+test removing_module_unloads_entry ... ok
+[differential 355.2µs] emitir_ir
+test sdk_context_data_survives_modules_and_repeated_runs ... ok
+test two_modules_in_one_session ... ok
+test unknown_external_fails_loudly ... ok
+test runner_uncaught_exception_exits_with_255 ... ok
+test sdk_context_data_binds_before_first_reload ... ok
+test runner_jit_failure_exits_with_70 ... ok
+test runner_prints_through_runtime ... ok
+test runner_double_and_large_frame ... ok
+test sdk_context_data_matches_its_runtime ... ok
+test sdk_context_data_missing_from_library_is_rejected ... ok
+[differential    1.2s] IR with 236393 bytes; run through the JIT
+[differential    1.2s] IR with 275548 bytes; run through the JIT
+[differential    1.3s] JIT finished (Some(0)); compile and link through the AOT
+[differential    1.3s] JIT finished (Some(0)); compile and link through the AOT
+[differential    1.9s] executar o AOT
+[differential    2.4s] executar o AOT
+[differential    2.5s] AOT terminou (Some(0))
+[differential 143.3µs] emitir_ir
+[differential    2.9s] AOT terminou (Some(0))
+test shared_cases_deliver_variables_to_body ... ok
+[differential 969.1ms] IR with 254149 bytes; run through the JIT
+[differential    1.1s] JIT finished (Some(0)); compile and link through the AOT
+[differential    1.7s] executar o AOT
+[differential    2.2s] AOT terminou (Some(0))
+[differential 234.6µs] emitir_ir
+[differential 976.2ms] IR with 236559 bytes; run through the JIT
+[differential    1.1s] JIT finished (Some(0)); compile and link through the AOT
+[differential    1.6s] executar o AOT
+[differential    2.2s] AOT terminou (Some(0))
+[differential 236.3µs] emitir_ir
+[differential 970.9ms] IR with 238958 bytes; run through the JIT
+[differential    1.1s] JIT finished (Some(0)); compile and link through the AOT
+[differential    1.6s] executar o AOT
+[differential    2.2s] AOT terminou (Some(0))
+test jit_and_aot_agree_on_same_ir ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.04s
