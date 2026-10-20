@@ -1,0 +1,12 @@
+[
+  {
+    "path": "crates/emit_native/src/sdk_module.rs",
+    "bytes": 93254,
+    "sha256": "a605c1fb4aba7fca416d657a2720730aef201584059b8d3fde55e13d993201e4"
+  },
+  {
+    "path": "crates/emit_native/src/sdk_module/function_attributes.rs",
+    "bytes": 7596,
+    "sha256": "0e62f9ebe728a045deae06da47c55750181595addf7eb06bf32113c4b74470bc"
+  }
+]

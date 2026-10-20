@@ -1,0 +1,16 @@
+[
+    {
+        "stdout":  "call ptr @dartforge_context()\n29\n\"call ptr @dartforge_context()\"; café\n",
+        "stderr":  "",
+        "sha256":  "8656a423d92f3a2a62452a3263eecec6ef3dd47d9cc154d5129d867bc5c28218",
+        "stress":  false,
+        "exit":  0
+    },
+    {
+        "stdout":  "call ptr @dartforge_context()\n29\n\"call ptr @dartforge_context()\"; café\n",
+        "stderr":  "",
+        "sha256":  "8656a423d92f3a2a62452a3263eecec6ef3dd47d9cc154d5129d867bc5c28218",
+        "stress":  true,
+        "exit":  0
+    }
+]

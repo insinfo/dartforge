@@ -1,0 +1,221 @@
+[
+  {
+    "label": "dart-vm",
+    "exit": 0,
+    "stdout": "call ptr @dartforge_context()\n29\n\"call ptr @dartforge_context()\"; caf\u00e9\n",
+    "stderr": ""
+  },
+  {
+    "label": "production-compile",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-function-attributes",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/context_literal/main.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--timings",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/function-attributes-validation/after-production",
+      "--optimize"
+    ],
+    "exit": 0,
+    "seconds": 102.85057754200001,
+    "stdout": "",
+    "stderr": "  HIR pruning: 5 of 41 functions, 7 of 22 pairs, 0 FFI signatures, 1 reachability rounds (98.287925458s)\n  HIR:       baixar 98.415322958s, otimizar 4.618ms\n  Pruning:   156 of 663 tables live, 2885 of 50111 pairs, 5272 of 46710 symbols; outside the IR: 46 functions, 3 globals, 0 MB (178.549459ms)\n--- Native Compilation Timings ---\n  Front-end: 1.791494458s\n  World:     36.964125ms (1 of 1 program functions live)\n  HIR:       98.419950791s\n  LLVM IR:   9.178584ms\n  IR:        111460 bytes, 0 from the SDK (0.0%)\n  Objeto:    8.163417ms (cache)\n  Link:      312.487625ms\n  Total:     101.535168s\n  Pico Mem:  0 KB\n",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null,
+      "DARTFORGE_NO_TABLE_PRUNING": null,
+      "DARTFORGE_KEEP_IR": "1"
+    },
+    "compiler_sha256": "d536231b673558fc76710496fc9c7071332bb3b0d0313cef37eb7dc94a96dc08"
+  },
+  {
+    "label": "production-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/function-attributes-validation/after-production"
+    ],
+    "exit": 0,
+    "seconds": 0.24038629199999662,
+    "stdout": "call ptr @dartforge_context()\n29\n\"call ptr @dartforge_context()\"; caf\u00e9\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null,
+      "DARTFORGE_NO_TABLE_PRUNING": null,
+      "DARTFORGE_KEEP_IR": "1"
+    },
+    "compiler_sha256": "d536231b673558fc76710496fc9c7071332bb3b0d0313cef37eb7dc94a96dc08",
+    "executable_sha256": "095a0d2dd4fda0a0c133da0129ebdc58f84b3bba1d4b48e2c3817d89fbde9dea"
+  },
+  {
+    "label": "production-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/function-attributes-validation/after-production"
+    ],
+    "exit": 0,
+    "seconds": 0.007021667000003617,
+    "stdout": "call ptr @dartforge_context()\n29\n\"call ptr @dartforge_context()\"; caf\u00e9\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": "1",
+      "DARTFORGE_NO_TABLE_PRUNING": null,
+      "DARTFORGE_KEEP_IR": "1"
+    },
+    "compiler_sha256": "d536231b673558fc76710496fc9c7071332bb3b0d0313cef37eb7dc94a96dc08",
+    "executable_sha256": "095a0d2dd4fda0a0c133da0129ebdc58f84b3bba1d4b48e2c3817d89fbde9dea"
+  },
+  {
+    "label": "development-compile",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-function-attributes",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/context_literal/main.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--timings",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/function-attributes-validation/after-development"
+    ],
+    "exit": 0,
+    "seconds": 47.933707791,
+    "stdout": "",
+    "stderr": "  HIR pruning: 5 of 41 functions, 7 of 22 pairs, 0 FFI signatures, 1 reachability rounds (46.23872s)\n  HIR:       baixar 46.313542375s, otimizar 4.718375ms\n--- Native Compilation Timings ---\n  Front-end: 996.417ms\n  World:     27.056917ms (1 of 1 program functions live)\n  HIR:       46.318268583s\n  LLVM IR:   4.711166ms\n  IR:        111275 bytes, 0 from the SDK (0.0%)\n  Objeto:    2.328917ms (cache)\n  Link:      19.756916ms\n  Total:     47.916916375s\n  Pico Mem:  0 KB\n",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null,
+      "DARTFORGE_NO_TABLE_PRUNING": null,
+      "DARTFORGE_KEEP_IR": "1"
+    },
+    "compiler_sha256": "d536231b673558fc76710496fc9c7071332bb3b0d0313cef37eb7dc94a96dc08"
+  },
+  {
+    "label": "development-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/function-attributes-validation/after-development"
+    ],
+    "exit": 0,
+    "seconds": 1.3580706669999927,
+    "stdout": "call ptr @dartforge_context()\n29\n\"call ptr @dartforge_context()\"; caf\u00e9\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null,
+      "DARTFORGE_NO_TABLE_PRUNING": null,
+      "DARTFORGE_KEEP_IR": "1"
+    },
+    "compiler_sha256": "d536231b673558fc76710496fc9c7071332bb3b0d0313cef37eb7dc94a96dc08",
+    "executable_sha256": "42d74294700f79168315c8c34718c0c3916cd1b971754401df52fa9ceb35ab98"
+  },
+  {
+    "label": "development-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/function-attributes-validation/after-development"
+    ],
+    "exit": 0,
+    "seconds": 0.03030279100002531,
+    "stdout": "call ptr @dartforge_context()\n29\n\"call ptr @dartforge_context()\"; caf\u00e9\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": "1",
+      "DARTFORGE_NO_TABLE_PRUNING": null,
+      "DARTFORGE_KEEP_IR": "1"
+    },
+    "compiler_sha256": "d536231b673558fc76710496fc9c7071332bb3b0d0313cef37eb7dc94a96dc08",
+    "executable_sha256": "42d74294700f79168315c8c34718c0c3916cd1b971754401df52fa9ceb35ab98"
+  },
+  {
+    "label": "unpruned-compile",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-function-attributes",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/context_literal/main.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--timings",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/function-attributes-validation/after-unpruned",
+      "--optimize"
+    ],
+    "exit": 0,
+    "seconds": 85.90862041599999,
+    "stdout": "",
+    "stderr": "  HIR pruning: 5 of 41 functions, 7 of 22 pairs, 0 FFI signatures, 1 reachability rounds (83.244347875s)\n  HIR:       baixar 83.318737458s, otimizar 3.558958ms\n  Pruning:   337 of 663 tables live, 29654 of 50111 pairs, 20661 of 46710 symbols; outside the IR: 0 functions, 0 globals, 0 MB (280.693375ms) [no pruning]\n--- Native Compilation Timings ---\n  Front-end: 1.323763s\n  World:     27.496792ms (1 of 1 program functions live)\n  HIR:       83.322303666s\n  LLVM IR:   4.524208ms\n  IR:        111460 bytes, 0 from the SDK (0.0%)\n  Objeto:    41.270125ms (cache)\n  Link:      211.789042ms\n  Total:     85.882348125s\n  Pico Mem:  0 KB\n",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null,
+      "DARTFORGE_NO_TABLE_PRUNING": "1",
+      "DARTFORGE_KEEP_IR": "1"
+    },
+    "compiler_sha256": "d536231b673558fc76710496fc9c7071332bb3b0d0313cef37eb7dc94a96dc08"
+  },
+  {
+    "label": "unpruned-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/function-attributes-validation/after-unpruned"
+    ],
+    "exit": 0,
+    "seconds": 0.2703190419999828,
+    "stdout": "call ptr @dartforge_context()\n29\n\"call ptr @dartforge_context()\"; caf\u00e9\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null,
+      "DARTFORGE_NO_TABLE_PRUNING": null,
+      "DARTFORGE_KEEP_IR": "1"
+    },
+    "compiler_sha256": "d536231b673558fc76710496fc9c7071332bb3b0d0313cef37eb7dc94a96dc08",
+    "executable_sha256": "e659380c4bc925875d27d54b76d08e0661d4baa621d1ee9c7312b7bb4d5d72e1"
+  },
+  {
+    "label": "unpruned-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/function-attributes-validation/after-unpruned"
+    ],
+    "exit": 0,
+    "seconds": 0.0071264169999949445,
+    "stdout": "call ptr @dartforge_context()\n29\n\"call ptr @dartforge_context()\"; caf\u00e9\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": "1",
+      "DARTFORGE_NO_TABLE_PRUNING": null,
+      "DARTFORGE_KEEP_IR": "1"
+    },
+    "compiler_sha256": "d536231b673558fc76710496fc9c7071332bb3b0d0313cef37eb7dc94a96dc08",
+    "executable_sha256": "e659380c4bc925875d27d54b76d08e0661d4baa621d1ee9c7312b7bb4d5d72e1"
+  },
+  {
+    "label": "jit-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-function-attributes",
+      "run",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/context_literal/main.dart"
+    ],
+    "exit": 0,
+    "seconds": 2.876770250000021,
+    "stdout": "call ptr @dartforge_context()\n29\n\"call ptr @dartforge_context()\"; caf\u00e9\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null,
+      "DARTFORGE_NO_TABLE_PRUNING": null,
+      "DARTFORGE_KEEP_IR": "1"
+    },
+    "compiler_sha256": "d536231b673558fc76710496fc9c7071332bb3b0d0313cef37eb7dc94a96dc08"
+  },
+  {
+    "label": "jit-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-function-attributes",
+      "run",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/context_literal/main.dart"
+    ],
+    "exit": 0,
+    "seconds": 1.7199234170000182,
+    "stdout": "call ptr @dartforge_context()\n29\n\"call ptr @dartforge_context()\"; caf\u00e9\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": "1",
+      "DARTFORGE_NO_TABLE_PRUNING": null,
+      "DARTFORGE_KEEP_IR": "1"
+    },
+    "compiler_sha256": "d536231b673558fc76710496fc9c7071332bb3b0d0313cef37eb7dc94a96dc08"
+  }
+]

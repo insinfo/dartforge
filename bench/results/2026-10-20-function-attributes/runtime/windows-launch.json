@@ -1,0 +1,38 @@
+[
+  {
+    "command": [
+      "prlctl",
+      "start",
+      "Windows11"
+    ],
+    "exit": 0,
+    "stdout": "Starting the VM...\nThe VM has been successfully started.\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "prlctl",
+      "exec",
+      "Windows11",
+      "--current-user",
+      "powershell",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      "\\\\Mac\\ssd_dock\\MyRustProjects\\dartforge\\target\\function-attributes-validation\\windows-run.ps1"
+    ],
+    "exit": 0,
+    "stdout": "[{\"stdout\":\"call ptr @dartforge_context()\\n29\\n\\\"call ptr @dartforge_context()\\\"; caf\u00e9\\n\",\"stderr\":\"\",\"sha256\":\"8656a423d92f3a2a62452a3263eecec6ef3dd47d9cc154d5129d867bc5c28218\",\"stress\":false,\"exit\":0},{\"stdout\":\"call ptr @dartforge_context()\\n29\\n\\\"call ptr @dartforge_context()\\\"; caf\u00e9\\n\",\"stderr\":\"\",\"sha256\":\"8656a423d92f3a2a62452a3263eecec6ef3dd47d9cc154d5129d867bc5c28218\",\"stress\":true,\"exit\":0}]\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "prlctl",
+      "suspend",
+      "Windows11"
+    ],
+    "exit": 0,
+    "stdout": "Suspending the VM...\nThe VM has been successfully suspended.\n",
+    "stderr": ""
+  }
+]

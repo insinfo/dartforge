@@ -1,0 +1,26 @@
+[
+  {
+    "profile": "production",
+    "before_bytes": 574181,
+    "after_bytes": 574181,
+    "identical": true,
+    "before_sha256": "0bd728f57543f73a114ba4c9ee2604852a2b9061cc218d9dcde969111c40f20d",
+    "after_sha256": "0bd728f57543f73a114ba4c9ee2604852a2b9061cc218d9dcde969111c40f20d"
+  },
+  {
+    "profile": "development",
+    "before_bytes": 111275,
+    "after_bytes": 111275,
+    "identical": true,
+    "before_sha256": "5d507a11fd157f84b280e5e7ab778d7f7b910240ceabe39c2733d774256ad609",
+    "after_sha256": "5d507a11fd157f84b280e5e7ab778d7f7b910240ceabe39c2733d774256ad609"
+  },
+  {
+    "profile": "unpruned",
+    "before_bytes": 3423086,
+    "after_bytes": 3423086,
+    "identical": true,
+    "before_sha256": "5a5a54bf3f4fec8143cb345b9ed902c23756a08acb9ac0994da319c4a029b780",
+    "after_sha256": "5a5a54bf3f4fec8143cb345b9ed902c23756a08acb9ac0994da319c4a029b780"
+  }
+]

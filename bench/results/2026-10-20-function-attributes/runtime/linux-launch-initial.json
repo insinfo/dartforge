@@ -1,0 +1,34 @@
+[
+  {
+    "command": [
+      "prlctl",
+      "start",
+      "Ubuntu24.04_arm64"
+    ],
+    "exit": 0,
+    "stdout": "Starting the VM...\nThe VM has been successfully started.\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "prlctl",
+      "exec",
+      "Ubuntu24.04_arm64",
+      "python3",
+      "/media/psf/ssd_dock/MyRustProjects/dartforge/target/function-attributes-validation/linux-run.py"
+    ],
+    "exit": 0,
+    "stdout": "[{\"exit\": 0, \"stdout\": \"call ptr @dartforge_context()\\n29\\n\\\"call ptr @dartforge_context()\\\"; caf\\u00e9\\n\", \"stderr\": \"\", \"stress\": false, \"sha256\": \"6d2184ee1fe7455915cd36be01d1ee14b7b65a61489b24bc262cc6cbe5c660c1\"}, {\"exit\": 0, \"stdout\": \"call ptr @dartforge_context()\\n29\\n\\\"call ptr @dartforge_context()\\\"; caf\\u00e9\\n\", \"stderr\": \"\", \"stress\": true, \"sha256\": \"6d2184ee1fe7455915cd36be01d1ee14b7b65a61489b24bc262cc6cbe5c660c1\"}]\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "prlctl",
+      "suspend",
+      "Ubuntu24.04_arm64"
+    ],
+    "exit": 0,
+    "stdout": "Suspending the VM...\nThe VM has been successfully suspended.\n",
+    "stderr": ""
+  }
+]

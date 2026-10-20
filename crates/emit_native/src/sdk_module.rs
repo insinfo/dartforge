@@ -17,6 +17,7 @@ use dartforge_elements::sdk::SdkLayout;
 use std::path::{Path, PathBuf};
 
 mod context_calls;
+mod function_attributes;
 
 /// The overlay target in `native_sdk/libraries.json`.
 pub const OVERLAY_TARGET: &str = "dartforge_native";
@@ -1070,7 +1071,7 @@ pub fn measure_sdk_lowering(lib_dir: &Path) -> Result<Vec<SdkMember>, String> {
 /// );
 /// ```
 pub fn with_optsize(ir: &str) -> String {
-    with_attribute(ir, " optsize")
+    function_attributes::apply(ir, " optsize")
 }
 
 /// The IR with `uwtable` on every defined function: with exceptions by tables on
@@ -1079,7 +1080,7 @@ pub fn with_optsize(ir: &str) -> String {
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.11). On x64 COFF every
 /// function already has its own.
 pub fn with_uwtable(ir: &str) -> String {
-    with_attribute(ir, " uwtable")
+    function_attributes::apply(ir, " uwtable")
 }
 
 /// The IR with `nounwind` on every defined function that does not have it yet: with
@@ -1101,7 +1102,7 @@ pub fn with_uwtable(ir: &str) -> String {
 /// );
 /// ```
 pub fn with_nounwind(ir: &str) -> String {
-    with_absent_attribute(ir, " nounwind")
+    function_attributes::apply(ir, " nounwind")
 }
 
 /// How Dart code finds the thread context in [`with_context_in_tls`].
@@ -1234,50 +1235,6 @@ fn context_in_tsd(attribute: &str, single_image: bool) -> String {
     )
 }
 
-/// Adds a function attribute (with the leading space) to each
-/// `define` line.
-fn with_attribute(ir: &str, attribute: &str) -> String {
-    with_attribute_if(ir, attribute, false)
-}
-
-/// [`with_attribute`] only on the `define` lines that do not have the attribute yet.
-fn with_absent_attribute(ir: &str, attribute: &str) -> String {
-    with_attribute_if(ir, attribute, true)
-}
-
-fn with_attribute_if(ir: &str, attribute: &str, only_absent: bool) -> String {
-    let mut s = String::with_capacity(ir.len() + ir.len() / 64);
-    for l in ir.split_inclusive('\n') {
-        if only_absent && l.starts_with("define ") && l.contains(attribute) {
-            s.push_str(l);
-            continue;
-        }
-        // The attributes come after the parameters and before the `comdat` (or the
-        // brace that opens the body).
-        // The `gc "…"` (roots by maps), the personality (`personality ptr
-        // @…`, of exceptions by tables) and the metadata attachments (`!dbg
-        // !3`, with `--debug`) come after the attributes.
-        let point = l
-            .starts_with("define ")
-            .then(|| {
-                l.find(" comdat")
-                    .or_else(|| l.find(" gc \""))
-                    .or_else(|| l.find(" personality "))
-                    .or_else(|| l.find(" !"))
-                    .or_else(|| l.rfind(" {"))
-            })
-            .flatten();
-        match point {
-            Some(i) => {
-                s.push_str(&l[..i]);
-                s.push_str(attribute);
-                s.push_str(&l[i..]);
-            }
-            None => s.push_str(l),
-        }
-    }
-    s
-}
 
 #[cfg(test)]
 mod tests {

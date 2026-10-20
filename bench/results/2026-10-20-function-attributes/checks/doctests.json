@@ -1,0 +1,12 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "dartforge-emit-native",
+    "--doc",
+    "sdk_module::with"
+  ],
+  "exit": 0
+}

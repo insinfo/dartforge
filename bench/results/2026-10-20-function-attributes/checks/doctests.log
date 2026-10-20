@@ -1,0 +1,17 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.40s
+   Doc-tests dartforge_emit_native
+
+running 3 tests
+test crates/emit_native/src/sdk_module.rs - sdk_module::with_nounwind (line 1096) ... ok
+test crates/emit_native/src/sdk_module.rs - sdk_module::with_optsize (line 1065) ... ok
+test crates/emit_native/src/sdk_module.rs - sdk_module::with_context_in_tls (line 1131) ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 123 filtered out; finished in 0.01s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+all doctests ran in 1.30s; merged doctests compilation took 0.96s

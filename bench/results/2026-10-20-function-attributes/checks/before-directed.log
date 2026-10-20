@@ -1,0 +1,72 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+warning: function `apply` is never used
+ --> crates/emit_native/src/sdk_module/function_attributes.rs:4:15
+  |
+4 | pub(super) fn apply(ir: &str, attribute: &str) -> String {
+  |               ^^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `next_token` is never used
+  --> crates/emit_native/src/sdk_module/function_attributes.rs:64:4
+   |
+64 | fn next_token(ir: &str, cursor: &mut usize) -> Option<(usize, usize)> {
+   |    ^^^^^^^^^^
+
+warning: function `name_byte` is never used
+  --> crates/emit_native/src/sdk_module/function_attributes.rs:86:4
+   |
+86 | fn name_byte(byte: u8) -> bool {
+   |    ^^^^^^^^^
+
+warning: `dartforge-emit-native` (lib test) generated 3 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.59s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 4 tests
+test sdk_module::function_attributes::tests::function_attributes_handle_multiline_parameters_and_suffixes ... FAILED
+test sdk_module::function_attributes::tests::function_attributes_leave_inline_bodies_and_comments_intact ... FAILED
+test sdk_module::function_attributes::tests::function_attributes_are_idempotent_and_ignore_nondefinitions ... FAILED
+test sdk_module::function_attributes::tests::function_attributes_preserve_quoted_names_and_attributes ... FAILED
+
+failures:
+
+---- sdk_module::function_attributes::tests::function_attributes_handle_multiline_parameters_and_suffixes stdout ----
+
+thread 'sdk_module::function_attributes::tests::function_attributes_handle_multiline_parameters_and_suffixes' (3003040) panicked at crates/emit_native/src/sdk_module/function_attributes.rs:114:9:
+assertion `left == right` failed
+  left: "define\nvoid @f(\n ptr byval({i64, i64}) %x\n)\n gc \"statepoint-example\" {\n ret void\n}\n"
+ right: "define\nvoid @f(\n ptr byval({i64, i64}) %x\n) nounwind\n gc \"statepoint-example\" {\n ret void\n}\n"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- sdk_module::function_attributes::tests::function_attributes_leave_inline_bodies_and_comments_intact stdout ----
+
+thread 'sdk_module::function_attributes::tests::function_attributes_leave_inline_bodies_and_comments_intact' (3003041) panicked at crates/emit_native/src/sdk_module/function_attributes.rs:106:9:
+assertion `left == right` failed
+  left: "define void @f() { call void asm sideeffect \" nounwind {\", \"\"() ret void } ; personality comdat\n"
+ right: "define void @f() nounwind { call void asm sideeffect \" nounwind {\", \"\"() ret void } ; personality comdat\n"
+
+---- sdk_module::function_attributes::tests::function_attributes_are_idempotent_and_ignore_nondefinitions stdout ----
+
+thread 'sdk_module::function_attributes::tests::function_attributes_are_idempotent_and_ignore_nondefinitions' (3003039) panicked at crates/emit_native/src/sdk_module/function_attributes.rs:126:13:
+assertion `left == right` failed
+  left: "declare void @g()\n; define void @fake() {\n@text = constant [7 x i8] c\"define\\00\"\ndefine void @f() optsize optsize {\n ret void\n}\n"
+ right: "declare void @g()\n; define void @fake() {\n@text = constant [7 x i8] c\"define\\00\"\ndefine void @f() optsize {\n ret void\n}\n"
+
+---- sdk_module::function_attributes::tests::function_attributes_preserve_quoted_names_and_attributes stdout ----
+
+thread 'sdk_module::function_attributes::tests::function_attributes_preserve_quoted_names_and_attributes' (3003042) panicked at crates/emit_native/src/sdk_module/function_attributes.rs:99:13:
+assertion `left == right` failed
+  left: "define void @\" comdat personality gc  ! nounwind\"(ptr %\" nounwind\") \"note\"=\" nounwind\" {\n ret void\n}\n"
+ right: "define void @\" comdat personality gc  ! nounwind\"(ptr %\" nounwind\") \"note\"=\" nounwind\" nounwind {\n ret void\n}\n"
+
+
+failures:
+    sdk_module::function_attributes::tests::function_attributes_are_idempotent_and_ignore_nondefinitions
+    sdk_module::function_attributes::tests::function_attributes_handle_multiline_parameters_and_suffixes
+    sdk_module::function_attributes::tests::function_attributes_leave_inline_bodies_and_comments_intact
+    sdk_module::function_attributes::tests::function_attributes_preserve_quoted_names_and_attributes
+
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 1010 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

@@ -2,6 +2,21 @@
 
 ## Atualização de 20/10/2026
 
+- A inserção de `nounwind`, `optsize` e `uwtable` agora reconhece tokens e o
+  sufixo do cabeçalho LLVM: palavras dentro de nomes, parâmetros, atributos
+  entre aspas, comentários e corpos inline não alteram o ponto de inserção.
+  Cabeçalhos multilinha e cláusulas finais são preservados, e atributos
+  explícitos não são duplicados na reaplicação. Quatro regressões falharam
+  antes; cinco testes novos passaram, incluindo compilação LLVM real antes/depois.
+  Passaram 1.015 testes nativos com ignorados, três exemplos de documentação,
+  Clippy estrito e docs sem avisos. A fixture coincidiu com a VM em AOT macOS
+  produção/desenvolvimento/sem poda e JIT macOS, normal/sob estresse, e em AOT
+  cruzado Linux ARM64/Windows x64 nas duas condições. O IR montado dessa fixture
+  permaneceu idêntico nos três perfis macOS. VMs novamente suspensas; sem mudança
+  de runtime/bundles, nova matriz GUI/JIT dos hóspedes, permissão de poda ou ganho
+  geral medido. Fmt global, aprovação integral e poda dos backends continuam
+  pendentes. Evidências: `bench/results/2026-10-20-function-attributes/README.md`.
+
 - Corrigida a substituição textual do contexto AOT: uma string Dart contendo
   `call ptr @dartforge_context()` era alterada e fazia Clang rejeitar o tamanho
   do inicializador. O scanner agora preserva strings, comentários, identificadores

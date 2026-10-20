@@ -1,0 +1,12 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.10s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 5 tests
+test sdk_module::function_attributes::tests::function_attributes_are_idempotent_and_ignore_nondefinitions ... ok
+test sdk_module::function_attributes::tests::function_attributes_leave_inline_bodies_and_comments_intact ... ok
+test sdk_module::function_attributes::tests::function_attributes_preserve_quoted_names_and_attributes ... ok
+test sdk_module::function_attributes::tests::function_attributes_handle_multiline_parameters_and_suffixes ... ok
+test sdk_module::function_attributes::tests::function_attributes_keep_real_llvm_names_and_bodies_valid ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 1010 filtered out; finished in 0.05s
