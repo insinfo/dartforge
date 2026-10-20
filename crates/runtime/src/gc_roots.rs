@@ -164,10 +164,16 @@ fn stack_base() -> usize {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_stack_overflow() {
     let limit = crate::heap::CONTEXT.with(|c| c.stack_limit.replace(1));
+    // No collection while the error is built and thrown: the callers on the
+    // stack may hold live references outside their roots frames across a call
+    // the emitter proved non-collecting, and the overflow is the only
+    // allocation such a call can reach.
+    HEAP.with(|heap| heap.borrow_mut().defer_collection(true));
     let error = dartforge_stack_overflow_error_new();
     if dartforge_exception_pending() == 0 {
         with_roots(&[error], || dartforge_exception_throw(error, 3));
     }
+    HEAP.with(|heap| heap.borrow_mut().defer_collection(false));
     crate::heap::CONTEXT.with(|c| c.stack_limit.set(limit));
 }
 

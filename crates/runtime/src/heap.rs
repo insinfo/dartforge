@@ -1760,6 +1760,10 @@ pub struct Heap {
     /// collected" and passes with collection disabled is missing a root; one that
     /// dies the same way in both modes has a scalar used as a handle.
     gc_disabled: bool,
+    /// Nesting depth of the regions where no allocation may collect
+    /// ([`Heap::defer_collection`]). Allocations still count; the collection
+    /// they would have triggered waits for the next allocation outside.
+    collection_deferred: u32,
     /// Current value of each `Ref` global of the program (top-level variable or
     /// static field), by id: permanent roots (N6/G6 of the contract).
     globals: crate::hash::HashMap<i64, i64>,
@@ -1970,6 +1974,7 @@ impl Heap {
             constants: crate::hash::HashMap::default(),
             tearoff_code: crate::hash::HashMap::default(),
             gc_disabled: std::env::var("DARTFORGE_GC_OFF").as_deref() == Ok("1"),
+            collection_deferred: 0,
             globals: crate::hash::HashMap::default(),
             runtime_roots: [0, 0],
             message_owners: crate::hash::HashMap::default(),
@@ -2665,7 +2670,7 @@ impl Heap {
         // The old gate (`!self.frames.is_empty()`) existed because the generated
         // code did not register roots; with each function's frame (G1),
         // collecting without an open frame is just collecting with the permanent roots.
-        if !self.gc_disabled && self.needs_collection(bytes) {
+        if !self.gc_disabled && self.collection_deferred == 0 && self.needs_collection(bytes) {
             self.collect_automatic(bytes);
         }
         // After the collection: if it still exceeds the ceiling, there is nothing to reclaim.
@@ -3756,6 +3761,19 @@ impl Heap {
         }
     }
 
+    /// Enters (`true`) or leaves (`false`) a region where allocations never
+    /// collect. The stack overflow handler builds its error inside one
+    /// (`gc_roots.rs`, `dartforge_stack_overflow`): the overflow happens in the
+    /// prologue of a callee, and the emitter treats calls to functions without
+    /// any collection point as non-collecting (`llvm/mod.rs`, `non_collecting`),
+    /// so the caller's live references are not in its roots frame there.
+    pub fn defer_collection(&mut self, enter: bool) {
+        if enter {
+            self.collection_deferred += 1;
+        } else {
+            self.collection_deferred = self.collection_deferred.saturating_sub(1);
+        }
+    }
     /// The full collection (`dartforge_gc_collect` and the tests): marks
     /// from the roots and sweeps everything; what survives becomes old.
     pub fn collect(&mut self) {

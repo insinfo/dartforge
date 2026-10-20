@@ -2141,3 +2141,87 @@ fn closure_call_reads_the_entry_inline() {
 
 #[path = "tests/static_image_registration.rs"]
 mod static_image_registration;
+
+/// A recursive function without any allocation keeps its live references out of
+/// a roots frame: its calls to itself are not collection points
+/// (`non_collecting_functions`). A caller that allocates keeps its frame, and
+/// without the AOT guarantee (no outside bodies: a JIT reload could replace the
+/// callee) nothing changes.
+#[test]
+fn calls_to_non_collecting_functions_are_not_collection_points() {
+    let (n, inner, equal) = (ValueId(0), ValueId(1), ValueId(2));
+    let walk = function(
+        "walk",
+        vec![(n, "n".to_string(), Type::Ref)],
+        Type::Ref,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![
+                (
+                    inner,
+                    Instruction::CallStatic {
+                        symbol: "walk".to_string(),
+                        args: vec![Operand::Val(n)],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                ),
+                (
+                    equal,
+                    Instruction::ICmp(
+                        ICmpOp::Eq,
+                        Operand::Val(n),
+                        Operand::Constant(Constant::Null),
+                    ),
+                    Type::I1,
+                ),
+            ],
+            // `n` is live after the recursive call.
+            terminator: Terminator::Return(Some(Operand::Val(n))),
+        }],
+    );
+    let (s, joined, back) = (ValueId(0), ValueId(1), ValueId(2));
+    let joins = function(
+        "joins",
+        vec![(s, "s".to_string(), Type::Ref)],
+        Type::Ref,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![
+                (
+                    joined,
+                    Instruction::CallRuntime {
+                        name: "dartforge_string_concat".to_string(),
+                        args: vec![(Operand::Val(s), Type::Ref), (Operand::Val(s), Type::Ref)],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                ),
+                (
+                    back,
+                    Instruction::CallStatic {
+                        symbol: "walk".to_string(),
+                        args: vec![Operand::Val(joined)],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                ),
+            ],
+            terminator: Terminator::Return(Some(Operand::Val(joined))),
+        }],
+    );
+    let mut m = Module::new();
+    m.functions.push(walk);
+    m.functions.push(joins);
+    let aot = LlvmEmitter::new(&m)
+        .with_body_without_outside(true)
+        .emit_all();
+    assert!(
+        !body_of(&aot, "walk").contains("%gcq = alloca"),
+        "{}",
+        body_of(&aot, "walk")
+    );
+    assert!(body_of(&aot, "joins").contains("%gcq = alloca"));
+    let reloadable = LlvmEmitter::new(&m).emit_all();
+    assert!(body_of(&reloadable, "walk").contains("%gcq = alloca"));
+}

@@ -203,6 +203,10 @@ pub struct LlvmEmitter<'a> {
     fresh_maps: std::collections::HashMap<u32, u32>,
     /// No object has an outside body (`with_body_without_outside`).
     body_without_outside: bool,
+    /// The functions of the module without any collection point, directly or
+    /// through their callees ([`Self::non_collecting_functions`]): a direct
+    /// call to one of them is not a collection point of the caller.
+    non_collecting: std::collections::HashSet<String>,
     /// The `this` of the function being emitted, when its body is direct
     /// ([`Self::direct_body`]).
     this_object: Option<u32>,
@@ -385,6 +389,7 @@ impl<'a> LlvmEmitter<'a> {
             fresh_set: std::collections::HashSet::new(),
             fresh_maps: std::collections::HashMap::new(),
             body_without_outside: false,
+            non_collecting: std::collections::HashSet::new(),
             this_object: None,
             compact_selector: false,
             tables_registered_at_startup: false,
@@ -664,6 +669,7 @@ impl<'a> LlvmEmitter<'a> {
                 "compiler bug: the module's functions changed after the table exceptions pass"
             );
         }
+        self.non_collecting = self.non_collecting_functions();
         for (k, func) in module.functions.iter().enumerate() {
             self.tab = if module.table_exceptions {
                 module.tables.get(k)
@@ -5694,6 +5700,25 @@ impl<'a> LlvmEmitter<'a> {
             }
         };
         match inst {
+            Instruction::CallStatic { symbol, args, .. }
+                if self.non_collecting.contains(symbol) =>
+            {
+                !self.arguments_need_no_conversion(symbol, args)
+            }
+            // The comparison only reinterprets the bits of its operands
+            // (`coerce`): a `Ref` compared with null or with another `Ref`
+            // allocates nothing — unless a constant text has to be created
+            // outside the image (the JIT and development interns it).
+            Instruction::ICmp(_, a, b)
+                if [a, b].iter().all(|o| {
+                    !matches!(
+                        o,
+                        Operand::Constant(Constant::String(_) | Constant::StringWtf8(_))
+                    ) || (self.static_objects && !self.module.arc_memory)
+                }) =>
+            {
+                false
+            }
             Instruction::Const(
                 Constant::Int(_) | Constant::Double(_) | Constant::Bool(_) | Constant::Null,
             ) => false,
@@ -5823,6 +5848,127 @@ impl<'a> LlvmEmitter<'a> {
                 None => true,
             }
         })
+    }
+
+    /// Whether the arguments of a direct call to `symbol` reach the parameters
+    /// as they are: no constant text (a string object outside the image) and
+    /// no representation change at the call site (boxing allocates).
+    fn arguments_need_no_conversion(&self, symbol: &str, args: &[Operand]) -> bool {
+        let Some(target) = self.function_by_symbol.get(symbol).copied() else {
+            return false;
+        };
+        target.params.len() == args.len()
+            && args.iter().zip(&target.params).all(|(a, (_, _, p))| {
+                if matches!(
+                    a,
+                    Operand::Constant(Constant::String(_) | Constant::StringWtf8(_))
+                ) {
+                    return false;
+                }
+                let t = self.type_of(a);
+                *p == t || (*p != Type::Ref && t != Type::Ref && *p != Type::Void)
+            })
+    }
+
+    /// The functions of the module with no collection point at all: no
+    /// instruction that may collect ([`Self::may_collect`]) other than direct
+    /// calls to functions of the set with arguments that need no conversion,
+    /// no `throw` and no converting `phi` entry. The greatest fixpoint over
+    /// the module: it starts with every function and removes those with a
+    /// collection point until nothing changes, so recursion stays in the set.
+    ///
+    /// Only where the code never changes after linking and the collector
+    /// roots only through the shadow stack: AOT (no outside bodies, so no JIT
+    /// reload), tracing memory, shadow roots. A callee outside the module is
+    /// unknown and collects. The only allocation such a call can still reach
+    /// is the `StackOverflowError` of a callee's prologue, which the runtime
+    /// builds without collecting (`Heap::defer_collection`).
+    /// `DARTFORGE_NO_NON_COLLECTING_CALLS=1` turns it off.
+    fn non_collecting_functions(&mut self) -> std::collections::HashSet<String> {
+        let mut set = std::collections::HashSet::new();
+        if !self.body_without_outside
+            || self.maps
+            || self.module.arc_memory
+            || self.module.arc_prepared
+            || std::env::var("DARTFORGE_NO_NON_COLLECTING_CALLS").is_ok_and(|v| v == "1")
+        {
+            return set;
+        }
+        let module = self.module;
+        let mut seen = std::collections::HashSet::new();
+        let duplicated: std::collections::HashSet<&str> = module
+            .functions
+            .iter()
+            .filter(|f| !seen.insert(f.symbol.as_str()))
+            .map(|f| f.symbol.as_str())
+            .collect();
+        set.extend(
+            module
+                .functions
+                .iter()
+                .filter(|f| !duplicated.contains(f.symbol.as_str()))
+                .map(|f| f.symbol.clone()),
+        );
+        let trace = std::env::var("DARTFORGE_TRACE_NON_COLLECTING").ok();
+        let trace = trace.as_deref();
+        // One scan: with every candidate assumed non-collecting, a function
+        // collects by itself, or only through the candidates it calls.
+        self.non_collecting = set.clone();
+        let mut callers: std::collections::HashMap<&str, Vec<&str>> =
+            std::collections::HashMap::new();
+        let mut collecting: Vec<&str> = Vec::new();
+        for func in &module.functions {
+            if !set.contains(&func.symbol) {
+                continue;
+            }
+            self.prepare_types_and_phis(func);
+            let mut collects = !self.conv_phi.is_empty();
+            for b in &func.blocks {
+                collects |= matches!(b.terminator, Terminator::Throw(_));
+                for (_, i, _) in &b.instructions {
+                    if let Instruction::CallStatic { symbol, .. } = i
+                        && set.contains(symbol)
+                        && !self.may_collect(i)
+                    {
+                        callers
+                            .entry(symbol.as_str())
+                            .or_default()
+                            .push(func.symbol.as_str());
+                    } else if self.may_collect(i) {
+                        collects = true;
+                    }
+                }
+            }
+            if collects {
+                if trace.is_some_and(|t| func.symbol.contains(t)) {
+                    let first = func
+                        .blocks
+                        .iter()
+                        .flat_map(|b| &b.instructions)
+                        .find(|(_, i, _)| {
+                            self.may_collect(i)
+                                && !matches!(i, Instruction::CallStatic { symbol, .. } if set.contains(symbol))
+                        });
+                    eprintln!(
+                        "dartforge: {} collects (phi conversions {}): {first:?}",
+                        func.symbol,
+                        self.conv_phi.len()
+                    );
+                }
+                collecting.push(func.symbol.as_str());
+            }
+        }
+        // Collecting spreads to the callers, transitively.
+        while let Some(symbol) = collecting.pop() {
+            if !set.remove(symbol) {
+                continue;
+            }
+            if let Some(list) = callers.get(symbol) {
+                collecting.extend(list.iter().copied().filter(|c| set.contains(*c)));
+            }
+        }
+        self.non_collecting.clear();
+        set
     }
 
     fn type_of(&self, op: &Operand) -> Type {

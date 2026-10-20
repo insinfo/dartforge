@@ -123,6 +123,8 @@ fn collection(line: &str, helpers: &HashMap<&str, bool>) -> bool {
                     | "df.is_object"
                     | "df.young_child"
                     | "df.throw"
+                    // Builds the error without collecting (`Heap::defer_collection`).
+                    | "dartforge_stack_overflow"
             ) {
                 return false;
             }
@@ -135,18 +137,21 @@ fn collection(line: &str, helpers: &HashMap<&str, bool>) -> bool {
     }
 }
 
-/// The internal helpers of the module (`define internal … @df.<name>(`) and whether
-/// each one collects: some `call`/`invoke` of the body collects, by the rule of
-/// [`collection`] and by the other helpers. A fixpoint starting from "does not collect"
-/// (which only goes up), for those that call each other.
+/// The functions defined in the module (`define … @<name>(`: the internal
+/// `@df.*` helpers and the Dart functions) and whether each one collects: some
+/// `call`/`invoke` of the body collects, by the rule of [`collection`] and by
+/// the other definitions. A fixpoint starting from "does not collect" (which
+/// only goes up), for those that call each other — the same greatest fixpoint
+/// by which the emitter stops treating calls to such functions as collection
+/// points (`LlvmEmitter::non_collecting_functions`), recomputed here from the
+/// text alone.
 fn helpers_that_collect<'a>(lines: &[&'a str]) -> HashMap<&'a str, bool> {
     let mut bodies: Vec<(&str, &[&str])> = Vec::new();
     let mut i = 0;
     while i < lines.len() {
         let l = lines[i];
-        if let Some(rest) = l.strip_prefix("define internal ")
+        if let Some(rest) = l.strip_prefix("define ")
             && let Some(name) = rest.split('@').nth(1).and_then(|x| x.split('(').next())
-            && name.starts_with("df.")
         {
             let ini = i + 1;
             let mut end = ini;
