@@ -242,16 +242,96 @@ runtime agora o constrói com a coleta adiada (`Heap::defer_collection`). O veri
 raízes (`DARTFORGE_CHECK_SHADOW=1`) recalcula o mesmo conjunto a partir do texto do IR, sem
 confiar no emissor. Ablação: `DARTFORGE_NO_NON_COLLECTING_CALLS=1`.
 
-### 3.3 Validação
+### 3.3 Clamp e multiplicação primitivos certificados ligados por padrão (`4d848ce0`)
+
+Os dois passes só reescrevem quando as fontes do SDK escolhido batem com o certificado
+revisado e mantêm o caminho por seletor como recuo guardado. O validador dedicado bate com a
+VM e o AOT oficiais com os passes ligados e desligados, inclusive sob GC stress. O kernel de
+cor do dart_ui foi de 31,1 ms para 8,6 ms (Dart AOT 5,2 ms). Desligam com
+`DARTFORGE_PRIMITIVE_CLAMP=0` e `DARTFORGE_PRIMITIVE_MULTIPLY=0`. O clamp ainda recusa
+programas com FFI e o modo A1 (`closed()` em `optimize/primitive_clamp.rs`), o que inclui o
+File Explorer.
+
+### 3.4 Globais enraizados pelos slots e cache de `rti_set` por sítio (`7a3c178a` e `a0ead32d`)
+
+**Globais:** na área enxuta de produção com memória tracing, o store num global `Ref` virou
+um store simples. O descritor da área lista os slots `Ref` (`[chave, -n, m, slots…]`) e o
+coletor os lê a cada coleta, em vez de uma chamada ao runtime que atualizava um `HashMap` a
+cada escrita. JIT e ARC mantêm o registro por store.
+
+**`rti_set`:** o tipo reificado de um objeto genérico novo passa por um cache de duas palavras
+do sítio na área (`classe << 32 | tipo` e o metadado). Um objeto da mesma classe com o mesmo
+tipo pedido recebe o metadado com um store; listas e estáticos da imagem seguem pelo runtime
+(`dartforge_rti_set_cache`, que também preenche o cache). O microbenchmark async foi de 456
+para 352 ms (Dart AOT 247 ms).
+
+A primeira versão expandia o acerto em linha em cada um dos 4.351 sítios do File Explorer e
+custava cerca de 200 KB. O commit seguinte move o acerto para um helper `noinline` por
+módulo, `@df.rti_set_cached`: o sítio vira um `getelementptr` e uma chamada, sem perda
+medida no microbenchmark (348 ms). Ablação só deste cache: `DARTFORGE_NO_RTI_SET_CACHE=1`;
+`DARTFORGE_NO_RTI_CACHE=1` desliga os três caches de RTI.
+
+### 3.5 Getters de tipo compactos (`706531ad`)
+
+**Causa:** cada receita de tipo do programa tem um getter preguiçoso `df.rti.<hash>.<lib>`
+(3.490 no File Explorer). O corpo lia a flag da área, devolvia o tipo guardado ou analisava a
+receita uma vez. Com o `df.get_area` em linha, cada um custava cerca de cem bytes.
+
+**Correção** (`llvm/rti_getters.rs`): em AOT com strings estáticas, o getter com exatamente a
+forma que `recipe_rti` constrói vira uma chamada de cauda a um helper por módulo,
+`@df.rti_fill(slot do valor, slot da flag, receita)`, com as mesmas leituras, escritas e
+chamada ao runtime. Qualquer outra forma sai como antes. Ablação:
+`DARTFORGE_NO_COMPACT_RTI_GETTERS=1`.
+
+| File Explorer, dart_ui `15aff70`, macOS arm64 | bytes |
+|---|---:|
+| depois da poda e das chamadas que não coletam (3.1 e 3.2) | 19.470.512 |
+| mais 3.3 e 3.4 com o cache de `rti_set` em linha | 20.081.456 |
+| cache de `rti_set` num helper compartilhado | 19.883.312 |
+| getters de tipo compactos | 19.437.488 |
+| `dart compile exe` 3.6.2 | 12.257.440 |
+
+O ganho de velocidade das seções 3.3 e 3.4 cabe agora em menos bytes do que antes delas. A
+razão contra o Dart ficou em 1,59×.
+
+### 3.6 As duas falhas pré-existentes do corpus
+
+**85, `(x: 1) is Record` dava falso** (`35f3270f`): `Record` do `dart:core` é `abstract
+final` e a única classe dele na hierarquia é `_Record`, então o teste virava “classe ==
+`_Record`”. Um record com campo nomeado tem a classe da sua forma, criada durante o lowering
+e ausente da hierarquia. Agora uma classe diferente de `_Record` cai no mapa de subtipos,
+onde cada forma tem a aresta para `Record`. `is`, `is!`, `Record?`, `as`, `whereType` e o
+padrão `Record()` batem com a VM, em produção e em dev.
+
+**134 em A1 passava do limite de 5 s** (`1fb44b6e`): a saída estava certa, mas o limite de
+pilha do código Dart num isolado era o fundo da reserva de 64 MiB. A recursão sem fim chegava
+a 2,1 milhões de quadros, e desenrolá-los por tabela levava 2,9 s; o perfil mostra o dyld
+relendo os comandos de carga do Mach-O a cada quadro (`_dyld_find_unwind_sections`). O
+código Dart agora usa no máximo 8 MiB da pilha de qualquer thread, o orçamento que a thread
+principal já tinha. A VM dá 1 MiB a toda thread Dart (`OSThread::GetMaxStackSize`) e para em
+cerca de 58 mil quadros; os quadros daqui são maiores, então o orçamento fica acima do dela.
+O limite é só a comparação do prólogo com um valor do contexto, sem custo novo.
+
+| programa 134, `--exceptions tables` | antes | agora |
+|---|---:|---:|
+| tempo total | 5,06 s | 2,55 s |
+| quadros no isolado | 2.089.217 | 262.017 |
+| desenrolamento no isolado | 2.905 ms | 375 ms |
+
+O A1 continua cerca de 1,5 µs por quadro desenrolado, contra quase nada em A0: um
+`StackOverflowError` profundo é o caso ruim desse modo.
+
+### 3.7 Validação
 
 - `production_profile`: 3/3, incluindo `platform_constant_prunes_the_other_backends`.
-- Emissor: 1.017 testes de biblioteca (30 ignorados); runtime: 321 unitários, integrações e
-  88 doctests; Clippy estrito e fmt nos dois crates.
-- Corpus nativo contra a VM: **137/138** em `--optimize` com o verificador de raízes ligado,
-  em `--optimize --gc-stress` e em `--native`; em `--native --gc-stress`, 135/138, com `91` e
-  `96` passando ao repetir com `--exec-limit 120` (estouro do limite de 5 s sob stress). A
-  única falha, `85_is_as_listas_fixas_imutaveis` (linha 81, `Record,Object`), falha igual
-  com o compilador original `eb6d25ab`: é pré-existente.
+- Emissor: 1.020 testes de biblioteca (30 ignorados); runtime: 323 unitários; Clippy estrito
+  e fmt nos dois crates.
+- Corpus nativo contra a VM, depois de `1fb44b6e`: **138/138** em `--optimize` com o
+  verificador de raízes ligado, em `--optimize --gc-stress`, em dev, em dev com
+  `--gc-stress` (`--exec-limit 120`) e com `DARTFORGE_EXCEPTIONS=tables`.
+- O smoke do File Explorer AOT (`scripts/validate-native-desktop.py --mode aot`) passou em
+  `64b08cdc`, em `7a3c178a` e em `1fb44b6e` (abriu, renderizou dois quadros e o menu de
+  contexto passou).
 
 ## 4. Medições depois das correções
 
@@ -264,6 +344,14 @@ Mínimo de 5 rodadas alternadas, mesma máquina com carga ≈ 3,5 (ruído de alg
 | fib | 5 | 5 | 9 |
 | strings | 43 | 42 | 44 |
 | JSON | 70 | 70 | 70 |
+
+Depois das seções 3.3 a 3.5, medidos na mesma máquina:
+
+| núcleo | antes | agora | Dart AOT |
+|---|---:|---:|---:|
+| kernel de cor do dart_ui | 31,1 ms | 8,6 ms | 5,2 ms |
+| microbenchmark async | 456 ms | 348 ms | 247 ms |
+| HTTP `/json`, CPU por 1000 pedidos | — | 34,0–34,5 ms | 33,0 ms |
 
 Os demais núcleos de `bench/performance` ficaram dentro do ruído. O Dart continua à frente em
 `utf8_bytes` 32,8 contra 22,3 ms, `encode_large` 49,8 contra 46,2 ms, kernel de cor ~30 ms
@@ -296,10 +384,11 @@ estimativas.
    AOT/JIT macOS, inclusive GC sob estresse; sem ganho geral de tempo medido.
    Evidências: `bench/results/2026-10-19-string-length-reuse/README.md`.
 2. `dartforge_exception_clear` em `break`/`continue` só dentro de regiões `try`/`catch`/`finally`.
-3. Raízes de campos estáticos pela varredura dos slots `Ref` da área (sem `HashMap` por store).
+3. ~~Raízes de campos estáticos pela varredura dos slots `Ref` da área~~: feito na seção 3.4.
 4. Política jovem: limite por bytes até 16 MiB (hoje `YOUNG_COUNT` ≈ 8 MiB), envelhecimento
    adaptativo; medir RSS (árvore de 4 MiB: −37% com `YOUNG_KB=16384` + `AGING=0`).
-5. Getters RTI → helper compartilhado; registro do programa como dados; stubs `df.mt` como dados.
+5. ~~Getters RTI → helper compartilhado~~ (seção 3.5, −446 KB no File Explorer); registro do
+   programa como dados; stubs `df.mt` como dados.
 6. `rti_set` em linha com a receita da classe concreta (`_Map<K,V>`), não da interface.
 7. Devirtualização por hierarquia sobre classes vivas (cone na `CallSelector`) e proveniência de
    retorno através do SDK nos resumos `.poda`.
@@ -309,5 +398,9 @@ estimativas.
     perfil por volume de IR.
 11. Outliner compatível com A1 (hoje desligado com unwind: File Explorer A1 37,2 MB) e stubs
     que desenrolam para `noSuchMethod`/closure inválida, se A1 virar padrão.
-12. Estruturais: async no modelo da VM, `num` desencaixotado local, contexto em registrador,
+12. A1: desenrolamento a ~1,5 µs por quadro no macOS (o dyld relê o Mach-O a cada quadro);
+    um cache próprio das seções de unwind ou um caminho dedicado para `StackOverflowError`.
+13. Clamp certificado para programas com FFI e em A1 (hoje recusado em `closed()`), o que
+    alcançaria o File Explorer.
+14. Estruturais: async no modelo da VM, `num` desencaixotado local, contexto em registrador,
     tabela global de despacho.
