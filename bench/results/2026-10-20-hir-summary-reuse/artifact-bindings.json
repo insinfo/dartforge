@@ -1,0 +1,32 @@
+[
+  {
+    "path": "target/test-tools/dartforge-summary-before",
+    "bytes": 138523848,
+    "sha256": "e70c4ed827ec5a7ab57b8b2e33d5ecdc7c08e2296cc1fd8413bc6eaea93e3cf3"
+  },
+  {
+    "path": "target/test-tools/dartforge-summary-after",
+    "bytes": 138528872,
+    "sha256": "64cf82938307dbf5854795011473cd4a22070c6df523967dc43bed5af5c20901"
+  },
+  {
+    "path": "target/hir-summary-validation/before.ll",
+    "bytes": 293593137,
+    "sha256": "0e9cff28f0f9e9a04f86aecdccdf66d4fb9c123617e02014e2bd4d5c124e212d"
+  },
+  {
+    "path": "target/hir-summary-validation/after.ll",
+    "bytes": 293593137,
+    "sha256": "0e9cff28f0f9e9a04f86aecdccdf66d4fb9c123617e02014e2bd4d5c124e212d"
+  },
+  {
+    "path": "target/hir-summary-validation/ffi-before",
+    "bytes": 3029280,
+    "sha256": "e47906a6f577b6afa7920b3d8d1955426938f50be66b3f1f79d51acfb4b23344"
+  },
+  {
+    "path": "target/hir-summary-validation/ffi-after",
+    "bytes": 3029280,
+    "sha256": "73f85502bbdd709c2e915fffcc7b273e57dd56c99d410919abe2c363d73a48ef"
+  }
+]

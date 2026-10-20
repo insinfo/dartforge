@@ -1,0 +1,27 @@
+[
+  {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/src/pruning.rs",
+    "bytes": 119738,
+    "sha256": "76e254b99aa9611a740053c171c590bf1d0334d92493b4b32b14ff22de5ba182"
+  },
+  {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/src/lib.rs",
+    "bytes": 66080,
+    "sha256": "723399a68e2a26fcc06845e65cd5e769b02f0c52885e9006584fda21aebacca0"
+  },
+  {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/src/pruning/hir_summary_tests.rs",
+    "bytes": 10149,
+    "sha256": "c4b31beb2c6608c43062bf36bce5c415c38b9601fc2b9f3fd2f9f7bf64527f8a"
+  },
+  {
+    "path": "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+    "bytes": 3416,
+    "sha256": "3164f826a3e5e87b5692d2ec359af0b7fb9c8e12a924173121ddd250f97f7765"
+  },
+  {
+    "path": "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+    "bytes": 10351,
+    "sha256": "c5c1c22ad085905aa6341ddf11b3999b001cb6ac128a61f117a1fb8d532ec934"
+  }
+]

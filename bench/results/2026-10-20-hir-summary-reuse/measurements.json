@@ -1,0 +1,26 @@
+{
+  "before": {
+    "wall_seconds": [
+      107.539385958,
+      109.36859649999997
+    ],
+    "hir_pruning_seconds": [
+      25.315725792,
+      26.161671375
+    ],
+    "wall_mean_seconds": 108.45399122899998,
+    "hir_pruning_mean_seconds": 25.7386985835
+  },
+  "after": {
+    "wall_seconds": [
+      96.942766541,
+      97.360058541
+    ],
+    "hir_pruning_seconds": [
+      17.797406458,
+      18.050171375
+    ],
+    "wall_mean_seconds": 97.151412541,
+    "hir_pruning_mean_seconds": 17.9237889165
+  }
+}

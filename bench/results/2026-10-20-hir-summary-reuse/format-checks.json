@@ -1,0 +1,39 @@
+[
+  {
+    "name": "fmt",
+    "command": [
+      "cargo",
+      "fmt",
+      "--all",
+      "--",
+      "--check"
+    ],
+    "exit": 1,
+    "output_bytes": 15781201,
+    "output_sha256": "882b8aed2ae4d6cb1b20d5d9826ade160b83ad7fa350f6e2668cf0e64110f1cc"
+  },
+  {
+    "name": "new-test-format",
+    "command": [
+      "rustfmt",
+      "--check",
+      "--edition",
+      "2024",
+      "crates/emit_native/src/pruning/hir_summary_tests.rs"
+    ],
+    "exit": 0,
+    "output_bytes": 0,
+    "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "diff-check",
+    "command": [
+      "git",
+      "diff",
+      "--check"
+    ],
+    "exit": 0,
+    "output_bytes": 0,
+    "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+]

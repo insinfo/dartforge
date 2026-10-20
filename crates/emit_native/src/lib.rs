@@ -563,12 +563,13 @@ fn emit_ir_internal(
             && options.timings
         {
             eprintln!(
-                "  HIR pruning: {} of {} functions, {} of {} pairs, {} FFI signatures ({:?})",
+                "  HIR pruning: {} of {} functions, {} of {} pairs, {} FFI signatures, {} reachability rounds ({:?})",
                 e.live_functions,
                 e.functions,
                 e.live_pairs,
                 e.pairs,
-                if e.ffi.1 { e.ffi.0.to_string() } else { "todas as".to_string() },
+                if e.ffi.1 { e.ffi.0.to_string() } else { "all".to_string() },
+                e.reachability_rounds,
                 t_prune.elapsed()
             );
         }

@@ -1,0 +1,53 @@
+{
+  "host": {
+    "command": [
+      "uname",
+      "-sm"
+    ],
+    "exit": 0,
+    "stdout": "Darwin arm64\n",
+    "stderr": ""
+  },
+  "rustc": {
+    "command": [
+      "rustc",
+      "--version"
+    ],
+    "exit": 0,
+    "stdout": "rustc 1.98.1 (48a229cea 2026-09-01)\n",
+    "stderr": ""
+  },
+  "cargo": {
+    "command": [
+      "cargo",
+      "--version"
+    ],
+    "exit": 0,
+    "stdout": "cargo 1.98.1 (797e8a9bc 2026-08-05)\n",
+    "stderr": ""
+  },
+  "llvm": {
+    "command": [
+      "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+      "--version"
+    ],
+    "exit": 0,
+    "stdout": "clang version 22.1.8 (https://github.com/llvm/llvm-project ca7933e47d3a3451d81e72ac174dcb5aa28b59d1)\nTarget: arm64-apple-darwin27.2.0\nThread model: posix\nInstalledDir: /Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin\n",
+    "stderr": ""
+  },
+  "dart": {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "--version"
+    ],
+    "exit": 0,
+    "stdout": "Dart SDK version: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on \"macos_arm64\"\n",
+    "stderr": ""
+  },
+  "environment": {
+    "SDKROOT": "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk",
+    "MACOSX_DEPLOYMENT_TARGET": "15.0",
+    "CARGO_TARGET_DIR": "target/string-length-validation",
+    "DARTFORGE_NATIVE_CACHE": "target/rpo-native-cache"
+  }
+}

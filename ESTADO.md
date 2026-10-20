@@ -2,6 +2,24 @@
 
 ## Atualização de 20/10/2026
 
+- O ponto fixo FFI de `prune_hir` reutiliza os fatos imutáveis dos corpos e
+  tabelas, substituindo apenas a entrada e seus nomes exclusivos por rodada.
+  O empréstimo do módulo impede mutações durante o reuso e termina antes das
+  podas; invocações posteriores refazem a análise. Quatro testes novos comparam
+  resumos completos, raízes crescentes/decrescentes e fatos após mudança do HIR.
+  No caso transitivo de quatro rodadas, as construções dos corpos caíram de
+  quatro para uma; o explorador real usa duas rodadas. Passaram os 966 testes
+  nativos com ignorados, Clippy estrito e docs sem avisos. Os executáveis FFI
+  com callback coincidiram com a VM, antes/depois, normal e sob estresse de GC.
+  O IR completo do explorador ficou idêntico nas emissões fria e aquecidas.
+  Na sequência aquecida ABBA, duas amostras por compilador tiveram média de
+  108,45 s antes e 97,15 s depois (−10,4%); poda HIR de 25,74 s para 17,92 s.
+  É emissão de IR com compiladores debug em um Mac, sem link e sem controle
+  exclusivo da máquina; não demonstra ganho geral ou em outros sistemas.
+  Sem nova matriz desktop/JIT, autorização adicional de poda ou aprovação
+  integral; poda de backends e fmt global continuam pendentes. Evidências:
+  `bench/results/2026-10-20-hir-summary-reuse/README.md`.
+
 - A prova estrutural calcula dominância em ordem reversa de pós-visita do fluxo,
   reaproveitando a travessia que identifica os blocos alcançáveis. O percurso é
   iterativo, sem cópia do grafo ou recursão; entradas duplicadas de switch não

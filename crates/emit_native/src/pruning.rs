@@ -1532,6 +1532,21 @@ pub fn hir_summary(m: &crate::hir::Module) -> Summary {
 /// [`hir_summary`] with the FFI trampolines and callbacks as roots only
 /// for the keys of `live_ffis` (`None`: all of them, §3.14).
 fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>) -> Summary {
+    let mut summary = hir_summary_body(m);
+    add_hir_entry(m, live_ffis, &mut summary);
+    summary
+}
+
+#[cfg(test)]
+std::thread_local! {
+    static HIR_BODY_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Build body/table facts once for one immutable module snapshot. A later prune
+/// after specialization must reconstruct them from the changed bodies.
+fn hir_summary_body(m: &crate::hir::Module) -> Summary {
+    #[cfg(test)]
+    HIR_BODY_BUILDS.with(|count| count.set(count.get() + 1));
     use crate::hir::{Constant, Instruction, Operand};
     let registry_closed = receiver_provenance::registry::closed(&[m]);
     let provenance = if receiver_provenance::enabled() && registry_closed { receiver_provenance::analyze(&[m]) } else { receiver_provenance::Provenance::default() };
@@ -1663,6 +1678,11 @@ fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>)
         r.definitions.push(Definition { name: function, refs, calls: Vec::new() });
         r.tables.push(SummarizedTable { node, cid: i64::from(*cid), pairs });
     }
+    r
+}
+
+/// Append the exact root/name suffix used by a fresh summary for this FFI set.
+fn add_hir_entry(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>, r: &mut Summary) {
     // The entry: what the emitter cites without an HIR instruction.
     let mut roots: Vec<String> = Vec::new();
     roots.extend(m.entry_symbol.iter().cloned());
@@ -1687,7 +1707,41 @@ fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>)
     let mut entry = Definition { name: r.id("dartforge_entry"), ..Default::default() };
     entry.refs = roots.iter().map(|n| r.id(n)).collect();
     r.definitions.push(entry);
-    r
+}
+
+/// The module borrow prevents body mutation while FFI reachability stabilizes.
+/// Only the entry definition and names appended for its roots are replaceable.
+struct HirSummarySnapshot<'a> {
+    module: &'a crate::hir::Module,
+    summary: Summary,
+    body_names: usize,
+    body_definitions: usize,
+}
+
+impl<'a> HirSummarySnapshot<'a> {
+    /// Capture body facts while the module is immutably borrowed.
+    fn new(module: &'a crate::hir::Module) -> Self {
+        let summary = hir_summary_body(module);
+        let body_names = summary.names.len();
+        let body_definitions = summary.definitions.len();
+        Self {
+            module,
+            summary,
+            body_names,
+            body_definitions,
+        }
+    }
+
+    /// Reset the previous entry without cloning or rebuilding body facts. This
+    /// also removes names introduced only by a formerly enabled external root.
+    fn with_ffis(&mut self, live: Option<&HashSet<String>>) -> &Summary {
+        self.summary.definitions.truncate(self.body_definitions);
+        for name in self.summary.names.drain(self.body_names..) {
+            self.summary.index.remove(&name);
+        }
+        add_hir_entry(self.module, live, &mut self.summary);
+        &self.summary
+    }
 }
 
 /// HIR pruning numbers (`--timings`).
@@ -1699,6 +1753,8 @@ pub struct HirPruning {
     pub live_pairs: usize,
     /// The FFI signatures that stayed, and whether their pruning was worth it (§3.14).
     pub ffi: (usize, bool),
+    /// Fixed-point rounds, including the final round with no new FFI signatures.
+    pub reachability_rounds: usize,
 }
 
 /// The pruning of the HIR of the program before optimization and emission (§3.13): the
@@ -1719,13 +1775,16 @@ pub fn prune_hir(m: &mut crate::hir::Module, sdk: &[&Summary]) -> HirPruning {
     let composites: HashSet<i64> = m.ffi_composites.iter().map(|c| c.rti).collect();
     let prune_ffi = !m.ffi_trampolines.is_empty() && !std::env::var("DARTFORGE_NO_FFI_PRUNING").is_ok_and(|v| v == "1");
     let mut live_ffis: HashSet<String> = HashSet::new();
-    let (program, mut reachability) = loop {
-        let program = hir_summary_with(m, prune_ffi.then_some(&live_ffis));
+    let mut snapshot = HirSummarySnapshot::new(m);
+    let mut reachability_rounds = 0;
+    let mut reachability = loop {
+        reachability_rounds += 1;
+        let program = snapshot.with_ffis(prune_ffi.then_some(&live_ffis));
         let mut all: Vec<&Summary> = sdk.to_vec();
-        all.push(&program);
+        all.push(program);
         let reachability = reach(&all, true);
         if !prune_ffi {
-            break (program, reachability);
+            break reachability;
         }
         let index: HashMap<&str, u32> = reachability.names.iter().enumerate().map(|(i, n)| (n.as_str(), i as u32)).collect();
         let before = live_ffis.len();
@@ -1737,10 +1796,11 @@ pub fn prune_hir(m: &mut crate::hir::Module, sdk: &[&Summary]) -> HirPruning {
             }
         }
         if live_ffis.len() == before {
-            break (program, reachability);
+            break reachability;
         }
     };
-    drop(program);
+    // Release the immutable module borrow before pruning or specialization.
+    drop(snapshot);
     if prune_ffi {
         m.ffi_trampolines.retain(|(k, _)| live_ffis.contains(k));
         m.ffi_callbacks.retain(|c| live_ffis.contains(&c.key));
@@ -1748,7 +1808,7 @@ pub fn prune_hir(m: &mut crate::hir::Module, sdk: &[&Summary]) -> HirPruning {
     if let Some(narrowed) = class_reachability::narrow(m, sdk) { reachability = narrowed; }
     let index: HashMap<&str, u32> = reachability.names.iter().enumerate().map(|(i, n)| (n.as_str(), i as u32)).collect();
     let live = |n: &str| index.get(n).is_none_or(|&i| reachability.live(i));
-    let mut e = HirPruning { functions: m.functions.len(), ffi: (live_ffis.len(), prune_ffi), ..Default::default() };
+    let mut e = HirPruning { functions: m.functions.len(), ffi: (live_ffis.len(), prune_ffi), reachability_rounds, ..Default::default() };
     let mut removed_set: HashSet<String> = HashSet::new();
     m.functions.retain(|f| {
         let stays = live(&f.symbol) || f.symbol.starts_with("dartforge_");
@@ -2446,3 +2506,6 @@ mod declared_field_summary_tests {
     }
 
 }
+
+#[cfg(test)]
+mod hir_summary_tests;

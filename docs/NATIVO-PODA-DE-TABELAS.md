@@ -315,6 +315,15 @@ receita do argumento de tipo (sozinho, na tupla `L<…>` ou em `NativeFunction<�
   nomeado ou genérico). Um trampolim vivo alcança código novo, então o ponto fixo repete até as
   chaves pararem de crescer. As listas `ffi_trampolins` e `ffi_callbacks` do módulo ficam só
   com as chaves vivas, e o registro do isolado só as registra.
+* **Reuso do resumo (20/10/2026).** `prune_hir` constrói os fatos dos corpos e
+  tabelas uma vez por módulo imutável; cada rodada substitui apenas a entrada e
+  os nomes exclusivos das raízes FFI. O empréstimo do módulo termina antes das
+  mutações; uma nova poda após especialização refaz toda a análise. O resumo
+  completo continua igual ao da reconstrução por rodada. O caso transitivo com
+  quatro rodadas passou de quatro construções dos corpos para uma; o explorador
+  real usa duas rodadas. `--timings` informa a contagem, incluindo a rodada final
+  estável. Não há nova permissão de poda nem cache global. Evidências:
+  [reuso do resumo HIR](../bench/results/2026-10-20-hir-summary-reuse/README.md).
 * **Medida (new_sali/backend):** as receitas do IR inteiro dão 44 chaves, todas registradas
   (nenhuma chave achada fica sem trampolim).
 

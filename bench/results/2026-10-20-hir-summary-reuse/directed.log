@@ -1,0 +1,12 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.70s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 4 tests
+test pruning::hir_summary_tests::a_new_snapshot_reaudits_changed_bodies_and_registry_exposure ... ok
+test pruning::hir_summary_tests::existing_entry_names_and_unpruned_roots_keep_the_original_identity ... ok
+{"ffi_rounds":4,"fresh_body_builds":4,"live_signatures":3,"snapshot_body_builds":1}
+test pruning::hir_summary_tests::transitive_sdk_recipes_and_callbacks_stabilize_without_rebuilding_bodies ... ok
+test pruning::hir_summary_tests::root_growth_shrink_and_missing_external_names_match_fresh_summaries_exactly ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 962 filtered out; finished in 0.01s
