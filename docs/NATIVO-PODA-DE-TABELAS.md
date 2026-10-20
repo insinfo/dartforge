@@ -978,3 +978,23 @@ helpers de IndexError, LateError e StackOverflowError em `_internal`; o IR e as
 seis definições de backends estrangeiros permanecem iguais. Não há nova permissão
 de poda nem aprovação integral. Evidências:
 [obrigações de startup](../bench/results/2026-10-20-startup-obligations/README.md).
+
+## Resumos emprestados e bytes sem startup (20/10/2026)
+
+A visão de prova remove referências lexicais falsas de constantes privadas de
+bytes verificadas mesmo quando não há startup de metadados certificado. Antes,
+um retorno antecipado dependente desse startup mantinha referências como
+`@opaque` dentro do texto dos bytes. O teste novo reproduziu a diferença antes
+da correção. Constantes públicas/não verificadas e inicializadores que guardam
+endereços reais preservam suas arestas; isso não autoriza o símbolo textual,
+uma chamada, handle ou alocação. A certificação das arestas de metadados continua
+separada e limitada à entrada que as publica.
+
+Cada módulo começa emprestando o resumo original e só ganha cópia quando alguma
+aresta precisa efetivamente mudar. No teste com dois módulos, apenas um é copiado;
+o outro mantém identidade de armazenamento. O inventário original fica intacto
+para reconciliação e análises posteriores. Não muda o protocolo persistido nem
+as regras de autorização. A produção atual ainda para no primeiro startup do
+SDK antes dessa etapa: não há ganho geral de desempenho demonstrado nem solução
+da poda estrangeira. Evidências:
+[visões de resumos](../bench/results/2026-10-20-proof-summary-views/README.md).

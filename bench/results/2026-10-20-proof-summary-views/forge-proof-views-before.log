@@ -1,0 +1,19 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.12s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 1 test
+
+thread 'pruning::allocation_inventory::imports::tests::proof_views::byte_literal_edges_are_removed_without_any_metadata_startup' (2797960) panicked at crates/emit_native/src/pruning/allocation_inventory/imports/tests/proof_views.rs:18:5:
+assertion failed: references(&proof[0], "dart:test#bytes").is_empty()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test pruning::allocation_inventory::imports::tests::proof_views::byte_literal_edges_are_removed_without_any_metadata_startup ... FAILED
+
+failures:
+
+failures:
+    pruning::allocation_inventory::imports::tests::proof_views::byte_literal_edges_are_removed_without_any_metadata_startup
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 989 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

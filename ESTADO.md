@@ -2,6 +2,22 @@
 
 ## Atualização de 20/10/2026
 
+- A visão de prova de classes limpa agora referências lexicais falsas dentro
+  de bytes privados verificados mesmo sem startup de metadados certificado.
+  A regressão com o texto `@opaque` falhou antes da correção. Ponteiros reais,
+  constantes públicas e chamadas comuns de registro preservam suas arestas.
+  Cada módulo começa com o resumo emprestado e só recebe cópia na primeira
+  alteração efetiva; no caso de dois módulos, apenas um é copiado, mantendo o
+  inventário original intacto. Passaram 993 testes nativos com ignorados,
+  Clippy estrito e docs sem avisos. A reprodução nos dois modos conservou IR
+  idêntico e seis definições estrangeiras. A fixture de runtime coincidiu com
+  a VM em AOT de produção/desenvolvimento e JIT macOS, normal/sob estresse de
+  GC. Sem ganho geral medido, nova matriz Windows/Linux ou alteração de ABI,
+  protocolo e permissões de poda. A produção atual ainda para no primeiro
+  startup antes dessa visão; poda estrangeira, fmt global e aprovação integral
+  seguem pendentes. Evidências:
+  `bench/results/2026-10-20-proof-summary-views/README.md`.
+
 - A rejeição de startup importado mostra agora as obrigações verificadas e os
   destinos de helpers, com ordem determinística e até três itens por lista.
   Distingue destino ausente/ambíguo, definição/ABI não provada e alocação

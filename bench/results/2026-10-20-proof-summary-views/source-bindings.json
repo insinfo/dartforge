@@ -1,0 +1,18 @@
+[
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/imports.rs",
+    "sha256": "c8b1dede2ca372a46bda3ec59f708927b904b266c6fc6e05cceedab866be9615"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/imports/tests.rs",
+    "sha256": "1a68b3c72e66d2c451d1becd2367e4a2747d54c782cc67e02582ba74b9be59fe"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/imports/tests/proof_views.rs",
+    "sha256": "597acb4944a6ea1809cedd649d20d3eebc5795910ac9cd2735601e6d8a199474"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/class_reachability.rs",
+    "sha256": "d17846f911ab4150703483ee29998e83deec8817b971011e5b004d1a4beaf4e5"
+  }
+]

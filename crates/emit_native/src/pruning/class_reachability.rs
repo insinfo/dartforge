@@ -261,7 +261,7 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
     // The tentative lazy roots were used only to construct this probe summary.
     // Publish an active set only after every reachable definition is checked.
     let proof_sdk = imports.map(|inventory| inventory.class_proof_summaries());
-    let mut all: Vec<&Summary> = proof_sdk.as_ref().map_or_else(|| sdk.to_vec(), |summaries| summaries.iter().collect());
+    let mut all: Vec<&Summary> = proof_sdk.as_ref().map_or_else(|| sdk.to_vec(), |summaries| summaries.iter().map(|summary| summary.as_ref()).collect());
     all.push(&summary);
     let reach = super::reach(&all, true);
     if let Some(symbol) = &event_entry

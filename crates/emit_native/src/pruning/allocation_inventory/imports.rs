@@ -567,37 +567,27 @@ impl Inventory {
     }
     /// Discharge only edges owned by certified metadata startup bodies. Other
     /// uses of the runtime API remain visible and require their own proof.
-    pub(crate) fn class_proof_summaries(&self) -> std::borrow::Cow<'_, [Summary]> {
-        if self.metadata_startups.is_empty() {
-            return std::borrow::Cow::Borrowed(&self.summaries);
-        }
-        let mut summaries = self.summaries.clone();
-        for summary in &mut summaries {
-            for definition in &mut summary.definitions {
-                if summary
-                    .names
-                    .get(definition.name as usize)
-                    .is_some_and(|symbol| self.bytes.contains(symbol))
-                {
-                    // A checked byte-array initializer cannot contain address
-                    // edges. Legacy summaries may cite an @ inside its text.
-                    definition.refs.clear();
-                }
-                if summary
-                    .names
-                    .get(definition.name as usize)
-                    .is_some_and(|symbol| self.metadata_startups.contains(symbol))
-                {
-                    definition.refs.retain(|node| {
-                        !summary
-                            .names
-                            .get(*node as usize)
-                            .is_some_and(|name| registry::metadata_api(name))
-                    });
+    pub(crate) fn class_proof_summaries(&self) -> Vec<std::borrow::Cow<'_, Summary>> {
+        self.summaries.iter().map(|summary| {
+            let mut proof = std::borrow::Cow::Borrowed(summary);
+            for (index, definition) in summary.definitions.iter().enumerate() {
+                let symbol = summary.names.get(definition.name as usize);
+                let bytes = symbol.is_some_and(|symbol| self.bytes.contains(symbol));
+                let metadata = symbol.is_some_and(|symbol| self.metadata_startups.contains(symbol));
+                let keep = |node: &u32| {
+                    // Checked byte contents contain no address edges, even when
+                    // this snapshot has no certified metadata startup at all.
+                    !bytes && (!metadata || !summary.names.get(*node as usize)
+                        .is_some_and(|name| registry::metadata_api(name)))
+                };
+                if definition.refs.iter().any(|node| !keep(node)) {
+                    // Clone this summary only on its first actual edge change.
+                    // Unchanged modules continue borrowing the verified snapshot.
+                    proof.to_mut().definitions[index].refs.retain(keep);
                 }
             }
-        }
-        std::borrow::Cow::Owned(summaries)
+            proof
+        }).collect()
     }
     pub(crate) fn contains_definition(&self, key: &str) -> bool {
         self.definitions.contains(key)

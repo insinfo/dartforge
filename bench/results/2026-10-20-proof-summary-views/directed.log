@@ -1,0 +1,11 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.60s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 4 tests
+test pruning::allocation_inventory::imports::tests::proof_views::byte_literal_edges_are_removed_without_any_metadata_startup ... ok
+test pruning::allocation_inventory::imports::tests::proof_views::unchanged_summaries_borrow_the_original_verified_storage ... ok
+test pruning::allocation_inventory::imports::tests::proof_views::only_changed_modules_are_owned_and_other_calls_keep_metadata_edges ... ok
+test pruning::allocation_inventory::imports::tests::proof_views::rebuilding_the_inventory_observes_changed_byte_and_pointer_initializers ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 989 filtered out; finished in 0.01s

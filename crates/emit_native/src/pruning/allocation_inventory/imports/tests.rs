@@ -814,3 +814,6 @@ mod frame_names;
 
 #[path = "tests/startup_diagnostics.rs"]
 mod startup_diagnostics;
+
+#[path = "tests/proof_views.rs"]
+mod proof_views;

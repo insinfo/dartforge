@@ -1,0 +1,18 @@
+[
+  {
+    "mode": "default",
+    "before": "target/startup-diagnostics-validation/platform-default.ll",
+    "after": "target/proof-views-validation/platform-default.ll",
+    "bytes": 167162,
+    "sha256": "567750f78d076192e9b366708f5e9de2ce96760164cca5efd4cfd7dbc8d3b459",
+    "identical": true
+  },
+  {
+    "mode": "closed",
+    "before": "target/startup-diagnostics-validation/platform-closed.ll",
+    "after": "target/proof-views-validation/platform-closed.ll",
+    "bytes": 167162,
+    "sha256": "567750f78d076192e9b366708f5e9de2ce96760164cca5efd4cfd7dbc8d3b459",
+    "identical": true
+  }
+]

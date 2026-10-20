@@ -1,0 +1,149 @@
+[
+  {
+    "source": "/tmp/forge-proof-views-checks/checks.json",
+    "stored": "checks.json",
+    "original_bytes": 1595,
+    "original_sha256": "246784105ce1a4f451ee055da9fbeff314b231abf900706baa46ad6a27db4acd",
+    "stored_sha256": "246784105ce1a4f451ee055da9fbeff314b231abf900706baa46ad6a27db4acd"
+  },
+  {
+    "source": "/tmp/forge-proof-views-checks/directed.log",
+    "stored": "directed.log",
+    "original_bytes": 956,
+    "original_sha256": "605ffb779794004a19fab9d6f2814340f0432e219d24b676b0ee66a999a4f1f8",
+    "stored_sha256": "d438beb0c68ce94abfcd7851a4e53496d9d9820b7dde37d4df91f8bec1c660a2"
+  },
+  {
+    "source": "/tmp/forge-proof-views-checks/clippy.log",
+    "stored": "clippy.log",
+    "original_bytes": 376,
+    "original_sha256": "a7b605061d1a0ee7144a3ef3533da41b3d7635b3af6a9b58945de32fc20ecde5",
+    "stored_sha256": "a7b605061d1a0ee7144a3ef3533da41b3d7635b3af6a9b58945de32fc20ecde5"
+  },
+  {
+    "source": "/tmp/forge-proof-views-checks/feature-clippy.log",
+    "stored": "feature-clippy.log",
+    "original_bytes": 178,
+    "original_sha256": "f269631238d91075a5c3d0f4d2bf82d33858b3b8b4931b6c0071775a1be00bde",
+    "stored_sha256": "f269631238d91075a5c3d0f4d2bf82d33858b3b8b4931b6c0071775a1be00bde"
+  },
+  {
+    "source": "/tmp/forge-proof-views-checks/doc.log",
+    "stored": "doc.log",
+    "original_bytes": 528,
+    "original_sha256": "7c9e6258556e94c239c0536fe0b05f09782e43784f596d124dc1fb7fc756de99",
+    "stored_sha256": "7c9e6258556e94c239c0536fe0b05f09782e43784f596d124dc1fb7fc756de99"
+  },
+  {
+    "source": "/tmp/forge-proof-views-checks/runtime-metadata.log",
+    "stored": "runtime-metadata.log",
+    "original_bytes": 400,
+    "original_sha256": "b945a905954a25f148902453c93add868f79ee199282949fcd041a87d2600645",
+    "stored_sha256": "9aa8a30d83db8cda2704232a066c036c8844fb1c882a997cf5fc66c37a1a2e6c"
+  },
+  {
+    "source": "/tmp/forge-proof-views-checks/compiler.log",
+    "stored": "compiler.log",
+    "original_bytes": 6636,
+    "original_sha256": "74e8bc35873ac6e16ddfb5a6eeceb87334df2d995e1ed03765d72a2a1d15bbf0",
+    "stored_sha256": "74e8bc35873ac6e16ddfb5a6eeceb87334df2d995e1ed03765d72a2a1d15bbf0"
+  },
+  {
+    "source": "/tmp/forge-proof-views-checks/native-lib.log",
+    "stored": "native-lib.log",
+    "original_bytes": 105324,
+    "original_sha256": "b5801f483b4b92c4a4462d082b75b9a8331f1040230f3ce531e2980d466b5861",
+    "stored_sha256": "45e97630e89da9fd5128e66031511c416c047fba29cf81cca8d9065d258e6d25"
+  },
+  {
+    "source": "/tmp/forge-proof-views-checks/scoped-fmt.log",
+    "stored": "scoped-fmt.log",
+    "original_bytes": 0,
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+  },
+  {
+    "source": "/tmp/forge-proof-views-checks/fmt.json",
+    "stored": "fmt.json",
+    "original_bytes": 117,
+    "original_sha256": "727043cd9a590e1c398e1e511b3983476d691da7d3318ea447e25336b656016c",
+    "stored_sha256": "727043cd9a590e1c398e1e511b3983476d691da7d3318ea447e25336b656016c"
+  },
+  {
+    "source": "/tmp/forge-proof-views-checks/fmt-excerpt.txt",
+    "stored": "fmt-excerpt.txt",
+    "original_bytes": 3013,
+    "original_sha256": "cfbdfbe7dbfb86837ac4a8287bf24d8a508d82170c8c432d110cc6ec5c3b74ab",
+    "stored_sha256": "cfbdfbe7dbfb86837ac4a8287bf24d8a508d82170c8c432d110cc6ec5c3b74ab"
+  },
+  {
+    "source": "/tmp/forge-proof-views-checks.py",
+    "stored": "validate-checks.py",
+    "original_bytes": 2005,
+    "original_sha256": "f61f6ff9cc67e57943006470e4f9782db4b3e282339559323116d07b0735941b",
+    "stored_sha256": "f61f6ff9cc67e57943006470e4f9782db4b3e282339559323116d07b0735941b"
+  },
+  {
+    "source": "/tmp/forge-proof-views-runtime/static-startup.dart",
+    "stored": "static-startup.dart",
+    "original_bytes": 682,
+    "original_sha256": "516168bdc81347e6347008b5872fae104c691c6e5bc36ca44b01c824107d8cd8",
+    "stored_sha256": "516168bdc81347e6347008b5872fae104c691c6e5bc36ca44b01c824107d8cd8"
+  },
+  {
+    "source": "/tmp/forge-proof-views-runtime/validate-runtime.py",
+    "stored": "validate-runtime.py",
+    "original_bytes": 2781,
+    "original_sha256": "abc21f7db2f94ae6bee4f9068fceefdaaed83d1bc7d9dfdc3d3f03dd6cdcc7c7",
+    "stored_sha256": "abc21f7db2f94ae6bee4f9068fceefdaaed83d1bc7d9dfdc3d3f03dd6cdcc7c7"
+  },
+  {
+    "source": "/tmp/forge-proof-views-runtime/after-runtime.json",
+    "stored": "after-runtime.json",
+    "original_bytes": 7771,
+    "original_sha256": "280365629c565a9659d828e4ffb6c0b796a5304af27ffe10a41e5e0c02ae42e4",
+    "stored_sha256": "280365629c565a9659d828e4ffb6c0b796a5304af27ffe10a41e5e0c02ae42e4"
+  },
+  {
+    "source": "/tmp/forge-proof-views-runtime/validate-platform.py",
+    "stored": "validate-platform.py",
+    "original_bytes": 1693,
+    "original_sha256": "eac6fd916e8a30b199934f2f7c0bbf1cc5ec58f77289de64d259cee36af149a1",
+    "stored_sha256": "eac6fd916e8a30b199934f2f7c0bbf1cc5ec58f77289de64d259cee36af149a1"
+  },
+  {
+    "source": "/tmp/forge-proof-views-runtime/platform-reproduction.json",
+    "stored": "platform-reproduction.json",
+    "original_bytes": 3801,
+    "original_sha256": "c23d38fd3408f4c9fb6d2bd7b53825373b51b3c2de9a5a9294f4508403ab34a8",
+    "stored_sha256": "c23d38fd3408f4c9fb6d2bd7b53825373b51b3c2de9a5a9294f4508403ab34a8"
+  },
+  {
+    "source": "/tmp/forge-proof-views-runtime/source-bindings.json",
+    "stored": "source-bindings.json",
+    "original_bytes": 689,
+    "original_sha256": "e800afa55f81b18b77fef0c7a73a09759256bdd58264ce18297b8b55f7c2c43b",
+    "stored_sha256": "e800afa55f81b18b77fef0c7a73a09759256bdd58264ce18297b8b55f7c2c43b"
+  },
+  {
+    "source": "/tmp/forge-proof-views-runtime/ir-comparison.json",
+    "stored": "ir-comparison.json",
+    "original_bytes": 596,
+    "original_sha256": "738d70831ae2064c5351c36a9971ce75a41391aa18f6bdcb56f37fbb2235c0db",
+    "stored_sha256": "738d70831ae2064c5351c36a9971ce75a41391aa18f6bdcb56f37fbb2235c0db"
+  },
+  {
+    "source": "/tmp/forge-proof-views-before.log",
+    "stored": "forge-proof-views-before.log",
+    "original_bytes": 1152,
+    "original_sha256": "207e82623796f945b7b84339c8b5d997968976d1141a774898edf9e7532bfdd5",
+    "stored_sha256": "207e82623796f945b7b84339c8b5d997968976d1141a774898edf9e7532bfdd5"
+  },
+  {
+    "source": "/tmp/forge-proof-views-before.py",
+    "stored": "validate-before-regression.py",
+    "original_bytes": 1108,
+    "original_sha256": "cc0e808ac7e0e106f690cf15b4a5f52c9ad555bc447992432b9326093e7d3dc5",
+    "stored_sha256": "cc0e808ac7e0e106f690cf15b4a5f52c9ad555bc447992432b9326093e7d3dc5"
+  }
+]
