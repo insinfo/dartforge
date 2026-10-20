@@ -1,0 +1,24 @@
+{
+  "command": [
+    "rustc",
+    "--edition",
+    "2024",
+    "-O",
+    "/tmp/forge-stream-verify/bench.rs",
+    "-L",
+    "dependency=/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps",
+    "-C",
+    "linker=/Volumes/ssd_dock/MyRustProjects/dartforge/scripts/rust-linker-macos.sh",
+    "--extern",
+    "serde_json=/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libserde_json-fad4cd2009eaf673.rlib",
+    "--extern",
+    "blake3=/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libblake3-b1bb9476cda5778f.rlib",
+    "-o",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/stream-verify-bench",
+    "--extern",
+    "serde=/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libserde-c4395255390921b8.rlib"
+  ],
+  "exit": 1,
+  "stdout": "",
+  "stderr": "error[E0583]: file not found for module `canonical_stream`\n --> /Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/src/pruning/allocation_inventory/integrity_io.rs:6:1\n  |\n6 | mod canonical_stream;\n  | ^^^^^^^^^^^^^^^^^^^^^\n  |\n  = help: to create the module `canonical_stream`, create file \"/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/src/pruning/allocation_inventory/canonical_stream.rs\" or \"/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/src/pruning/allocation_inventory/canonical_stream/mod.rs\"\n  = note: if there is a `mod canonical_stream` elsewhere in the crate already, import it with `use crate::...` instead\n\nerror: aborting due to 1 previous error\n\nFor more information about this error, try `rustc --explain E0583`.\n"
+}

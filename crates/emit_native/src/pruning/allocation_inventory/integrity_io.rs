@@ -3,6 +3,12 @@ use std::io::{self, BufWriter, Write};
 use std::path::Path;
 
 const BUFFER_BYTES: usize = 64 * 1024;
+mod canonical_stream;
+
+/// Check canonical JSON without constructing a Value for the document.
+pub(super) fn canonical_document_matches(bytes: &[u8]) -> bool {
+    canonical_stream::matches(bytes)
+}
 
 pub(super) fn digest_file(path: &Path) -> Option<String> {
     let mut file = std::fs::File::open(path).ok()?;

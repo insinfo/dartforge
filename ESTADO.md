@@ -2,6 +2,22 @@
 
 ## Atualização de 20/10/2026
 
+- A verificação de integridade do cache evita agora a árvore JSON completa dos
+  fatos: compara o formato canônico em fluxo e projeta só o envelope; o consumidor
+  completo permanece inalterado. Mesmos hashes, schema e contrato de integridade,
+  sem nova permissão de poda. Três regressões novas, incluindo 14 variantes de
+  envelope comparadas ao verificador anterior; passaram 1.033 testes nativos com
+  ignorados, Clippy estrito e docs sem avisos. No ensaio isolado do inventário de
+  70 MB, seis amostras por variante em ordem ABBA reduziram a mediana do pico RSS
+  de 759.996.416 para 72.941.568 bytes (menos 655,23 MiB/90,4%), mas aumentaram o
+  tempo de 0,86049 para 1,12418 s (30,6%). É uma troca de memória por tempo nessa
+  etapa, não ganho geral de velocidade. Fixture aprovada em AOT/JIT macOS e AOT
+  cruzado Linux/Windows, normal/sob estresse; cinco IRs montados e os payloads dos
+  três SDKs idênticos. VMs novamente suspensas. Gate original de ausência de
+  backends repetido e ainda falha; seis definições estrangeiras, fmt global e
+  aprovação integral continuam pendentes. Evidências:
+  `bench/results/2026-10-20-stream-verify/README.md`.
+
 - A integridade do cache usa agora buffers de 64 KiB para serializar/comparar
   JSON e calcular hashes de arquivos, evitando cópias integrais de saída.
   O formato canônico, LF único, vínculos de artefatos/runtime/compilador e recusa

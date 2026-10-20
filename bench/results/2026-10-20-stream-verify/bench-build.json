@@ -1,0 +1,24 @@
+{
+  "command": [
+    "rustc",
+    "--edition",
+    "2024",
+    "-O",
+    "/tmp/forge-stream-verify/bench.rs",
+    "-L",
+    "dependency=/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps",
+    "-C",
+    "linker=/Volumes/ssd_dock/MyRustProjects/dartforge/scripts/rust-linker-macos.sh",
+    "--extern",
+    "serde_json=/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libserde_json-fad4cd2009eaf673.rlib",
+    "--extern",
+    "blake3=/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libblake3-b1bb9476cda5778f.rlib",
+    "-o",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/stream-verify-bench",
+    "--extern",
+    "serde=/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libserde-c4395255390921b8.rlib"
+  ],
+  "exit": 0,
+  "stdout": "",
+  "stderr": ""
+}

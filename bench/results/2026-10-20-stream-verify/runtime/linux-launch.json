@@ -1,0 +1,34 @@
+[
+  {
+    "command": [
+      "prlctl",
+      "start",
+      "Ubuntu24.04_arm64"
+    ],
+    "exit": 0,
+    "stdout": "Starting the VM...\nThe VM has been successfully started.\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "prlctl",
+      "exec",
+      "Ubuntu24.04_arm64",
+      "python3",
+      "/media/psf/ssd_dock/MyRustProjects/dartforge/target/stream-verify-validation/linux-run.py"
+    ],
+    "exit": 0,
+    "stdout": "[{\"exit\": 0, \"stdout\": \"parent=45\\nchild=45\\n\", \"stderr\": \"\", \"stress\": false, \"sha256\": \"894e408eb61c734a5f5cb80fdf6dfeccb29f7d645a5dda94b6074528a7bbc668\"}, {\"exit\": 0, \"stdout\": \"parent=45\\nchild=45\\n\", \"stderr\": \"\", \"stress\": true, \"sha256\": \"894e408eb61c734a5f5cb80fdf6dfeccb29f7d645a5dda94b6074528a7bbc668\"}]\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "prlctl",
+      "suspend",
+      "Ubuntu24.04_arm64"
+    ],
+    "exit": 0,
+    "stdout": "Suspending the VM...\nThe VM has been successfully suspended.\n",
+    "stderr": ""
+  }
+]

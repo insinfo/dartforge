@@ -1,0 +1,18 @@
+[
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/integrity_io.rs",
+    "sha256": "bf7931a9098bc62bc9f13ab4739915099a1e3c8766f3a7db710b465afd8adf31"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/publication.rs",
+    "sha256": "dc97deac8bbcebab557c3b7dc11fd0f0ddbb81149f87e5dd23ab81ad0f3abf96"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/integrity_io/canonical_stream.rs",
+    "sha256": "16fe6ed413c65628ff0ebd32cc0a05c35a01afb10f333ba9fb21db16876f31a9"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/publication/shape.rs",
+    "sha256": "bc1dd5a999745e19bca5d8fa39a4a092e29bb85e2915496b13b63c43600b4089"
+  }
+]

@@ -6,6 +6,7 @@
 use super::closure::Bundle;
 use serde_json::{Value, json};
 use std::path::Path;
+mod shape;
 pub(super) const SCHEMA: u64 = 5;
 const FILE: &str = "allocation-inventory.json";
 const READY: &str = "allocation-inventory.ready";
@@ -62,7 +63,30 @@ pub(crate) fn verify(
     names: &[String],
     runtime: &Path,
 ) -> bool {
-    read_verified(directory, key, production, names, runtime).is_some()
+    let checked = || -> Option<()> {
+        let text = std::fs::read(directory.join(FILE)).ok()?;
+        let ready: Value =
+            serde_json::from_slice(&std::fs::read(directory.join(READY)).ok()?).ok()?;
+        if ready
+            != json!({"schema":SCHEMA,"cache_key":key,"inventory_digest":blake3::hash(&text).to_hex().to_string()})
+            || !super::integrity_io::canonical_document_matches(&text)
+        {
+            return None;
+        }
+        let envelope: shape::Envelope = serde_json::from_slice(&text).ok()?;
+        let shape::InventoryShape = envelope.inventory;
+        if envelope.schema != SCHEMA
+            || envelope.cache_key != key
+            || envelope.production != production
+            || envelope.compiler != env!("DARTFORGE_EMITTER_HASH")
+            || envelope.runtime != runtime_digest(runtime)?
+            || envelope.artifacts != json!(artifacts(directory, names)?)
+        {
+            return None;
+        }
+        Some(())
+    };
+    checked().is_some()
 }
 
 /// Return the verified payload from the same read used to check its ready marker.
@@ -104,6 +128,100 @@ pub(super) fn read_verified(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn stream_verify_envelope_matches_the_full_value_contract() {
+        let dir = tempfile::tempdir().unwrap();
+        let runtime = dir.path().join("runtime.a");
+        std::fs::write(&runtime, b"runtime").unwrap();
+        publish(
+            dir.path(),
+            "key",
+            true,
+            &[],
+            &runtime,
+            &super::super::closure::audit(&[]),
+        )
+        .unwrap();
+        let original: Value =
+            serde_json::from_slice(&std::fs::read(dir.path().join(FILE)).unwrap()).unwrap();
+        for variant in 0..14 {
+            let mut value = original.clone();
+            let expected = match variant {
+                0 => true,
+                1 => {
+                    value["inventory"]["functions"] = json!([null,{"uninterpreted":"record"}]);
+                    true
+                }
+                2 => {
+                    let map = value["inventory"].as_object_mut().unwrap();
+                    map.remove("scope");
+                    map.insert("other".into(), json!(null));
+                    true
+                }
+                3 => {
+                    value["inventory"]["functions"] = json!({});
+                    false
+                }
+                4 => {
+                    value["inventory"]["extra"] = json!(0);
+                    false
+                }
+                5 => {
+                    value["inventory"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("globals");
+                    value["inventory"]["other"] = json!([]);
+                    false
+                }
+                6 => {
+                    value["cache_key"] = json!("other");
+                    false
+                }
+                7 => {
+                    value["production"] = json!(false);
+                    false
+                }
+                8 => {
+                    value["schema"] = json!(0);
+                    false
+                }
+                9 => {
+                    value["compiler"] = json!("other");
+                    false
+                }
+                10 => {
+                    value["runtime"] = json!({});
+                    false
+                }
+                11 => {
+                    value["artifacts"] = json!([{"name":"missing","digest":"bad"}]);
+                    false
+                }
+                12 => {
+                    value["extra"] = json!(0);
+                    false
+                }
+                _ => {
+                    value.as_object_mut().unwrap().remove("inventory");
+                    false
+                }
+            };
+            let text = format!("{value}\n");
+            std::fs::write(dir.path().join(FILE), &text).unwrap();
+            std::fs::write(dir.path().join(READY),format!("{}\n",json!({"schema":SCHEMA,"cache_key":"key","inventory_digest":blake3::hash(text.as_bytes()).to_hex().to_string()}))).unwrap();
+            assert_eq!(
+                verify(dir.path(), "key", true, &[], &runtime),
+                expected,
+                "variant {variant}"
+            );
+            assert_eq!(
+                read_verified(dir.path(), "key", true, &[], &runtime).is_some(),
+                expected,
+                "full checker variant {variant}"
+            );
+        }
+    }
     #[test]
     fn selected_objects_runtime_profile_key_and_abi_payload_are_bound() {
         let dir = tempfile::tempdir().unwrap();
