@@ -18,6 +18,7 @@ mod ir_boxes;
 mod ir_lists;
 mod ir_strings;
 mod ir_typed;
+mod rti_getters;
 
 use dartforge_runtime::layout;
 /// Largest field index read inline (the layout contract).
@@ -149,6 +150,8 @@ pub struct LlvmEmitter<'a> {
     /// `$ok` flag): Dart statics are per isolate, and each
     /// isolate is a thread with its own area (`dartforge_globals_area`).
     global_slots: std::collections::HashMap<String, usize>,
+    /// `@df.rti_fill` is already in the output (`rti_getters`).
+    rti_fill_emitted: bool,
     /// The slots of the area that hold `Ref` globals, in the lean area of
     /// production ([`Self::with_lean_area`], tracing memory): the descriptor
     /// lists them and the collector reads them as roots, so a store into one
@@ -369,6 +372,7 @@ impl<'a> LlvmEmitter<'a> {
                 .then_some(0),
             stack_trace_names: Vec::new(),
             global_slots: std::collections::HashMap::new(),
+            rti_fill_emitted: false,
             rooted_slots: std::collections::BTreeSet::new(),
             slot_hashes: Vec::new(),
             previous_area: None,
@@ -682,6 +686,10 @@ impl<'a> LlvmEmitter<'a> {
             } else {
                 None
             };
+            if let Some(getter) = self.compact_rti_getter(func) {
+                self.emit_compact_rti_getter(func, &getter);
+                continue;
+            }
             self.emit_function(func);
         }
         self.tab = None;

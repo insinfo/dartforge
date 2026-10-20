@@ -275,16 +275,22 @@ fn static_literal(bytes: &[u8]) -> (String, String) {
 
 impl LlvmEmitter<'_> {
     /// The string literal `bytes` (WTF-8) into `%v<v>`.
+    /// The handle of the literal as a static object of the module (`static_objects`
+    /// only): the constant pointer `gep @df.s.<key>, 2`, its definition recorded for
+    /// the image.
+    pub(super) fn static_string(&mut self, bytes: &[u8]) -> String {
+        let (key, def) = static_literal(bytes);
+        self.strings.literals.entry(key.clone()).or_insert(def);
+        format!(
+            "getelementptr inbounds (i8, ptr @\"df.s.{key}\", i64 {})",
+            layout::HANDLE_OFFSET
+        )
+    }
+
     pub(super) fn emit_const_string(&mut self, v: u32, bytes: &[u8]) {
         if self.static_objects {
-            let (key, def) = static_literal(bytes);
-            self.strings.literals.entry(key.clone()).or_insert(def);
-            writeln!(
-                self.out,
-                "  %v{v} = ptrtoint ptr getelementptr inbounds (i8, ptr @\"df.s.{key}\", i64 {}) to i64",
-                layout::HANDLE_OFFSET
-            )
-            .unwrap();
+            let value = self.static_string(bytes);
+            writeln!(self.out, "  %v{v} = ptrtoint ptr {value} to i64").unwrap();
             return;
         }
         let idx = self.string_const_index(bytes).unwrap_or(0);

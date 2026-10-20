@@ -2269,3 +2269,138 @@ fn lean_area_lists_ref_slots_instead_of_registering_stores() {
     let full = LlvmEmitter::new(&m).emit_all();
     assert!(body_of(&full, "keep").contains("dartforge_gc_global_root"));
 }
+
+/// The lazy type getter of `lower::rti`, exactly as `recipe_rti` builds it.
+fn rti_getter(symbol: &str, global: &str, recipe: &str) -> Function {
+    let ok = format!("{global}$ok");
+    function(
+        symbol,
+        vec![],
+        Type::I64,
+        vec![
+            BasicBlock {
+                id: BlockId(0),
+                instructions: vec![
+                    (
+                        ValueId(0),
+                        Instruction::LoadGlobal {
+                            symbol: ok.clone(),
+                            ty: Type::I8,
+                        },
+                        Type::I8,
+                    ),
+                    (
+                        ValueId(1),
+                        Instruction::ICmp(
+                            ICmpOp::Ne,
+                            Operand::Val(ValueId(0)),
+                            Operand::Constant(Constant::Int(0)),
+                        ),
+                        Type::I1,
+                    ),
+                ],
+                terminator: Terminator::CondBranch {
+                    cond: Operand::Val(ValueId(1)),
+                    then_block: BlockId(1),
+                    else_block: BlockId(2),
+                },
+            },
+            BasicBlock {
+                id: BlockId(1),
+                instructions: vec![(
+                    ValueId(2),
+                    Instruction::LoadGlobal {
+                        symbol: global.into(),
+                        ty: Type::I64,
+                    },
+                    Type::I64,
+                )],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))),
+            },
+            BasicBlock {
+                id: BlockId(2),
+                instructions: vec![
+                    (
+                        ValueId(3),
+                        Instruction::Const(Constant::String(recipe.into())),
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(4),
+                        Instruction::CallRuntime {
+                            name: "dartforge_rti_recipe".into(),
+                            args: vec![(Operand::Val(ValueId(3)), Type::Ref)],
+                            ret_ty: Type::I64,
+                        },
+                        Type::I64,
+                    ),
+                    (
+                        ValueId(5),
+                        Instruction::StoreGlobal {
+                            symbol: global.into(),
+                            val: Operand::Val(ValueId(4)),
+                            ty: Type::I64,
+                            root: None,
+                        },
+                        Type::Void,
+                    ),
+                    (
+                        ValueId(6),
+                        Instruction::StoreGlobal {
+                            symbol: ok,
+                            val: Operand::Constant(Constant::Int(1)),
+                            ty: Type::I8,
+                            root: None,
+                        },
+                        Type::Void,
+                    ),
+                ],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(4)))),
+            },
+        ],
+    )
+}
+
+#[test]
+fn rti_getters_share_one_fill_helper_with_static_strings() {
+    let mut m = Module::new();
+    for (k, recipe) in ["List<int>", "Map<String,int>"].iter().enumerate() {
+        let global = format!("dfr.{k}.lib");
+        m.globals.push((0, Type::I64, global.clone()));
+        m.functions
+            .push(rti_getter(&format!("df.rti.{k}.lib"), &global, recipe));
+    }
+    let ir = LlvmEmitter::new(&m).with_static_objects(true).emit_all();
+    assert_eq!(
+        ir.matches("define internal i64 @df.rti_fill(").count(),
+        1,
+        "{ir}"
+    );
+    for k in 0..2 {
+        let body = body_of(&ir, &format!("df.rti.{k}.lib"));
+        assert!(body.contains("tail call i64 @df.rti_fill(i64 "), "{body}");
+        assert!(!body.contains("df.get_area"), "{body}");
+    }
+    assert!(ir.contains("@dartforge_rti_recipe("), "{ir}");
+    // The value slot and its flag are those of the area (`$ok` follows the value).
+    let first = body_of(&ir, "df.rti.0.lib");
+    assert!(first.contains("@df.rti_fill(i64 0, i64 1, "), "{first}");
+    // Without static strings (JIT), the getter keeps its own body.
+    let jit = LlvmEmitter::new(&m).emit_all();
+    assert!(!jit.contains("@df.rti_fill("), "{jit}");
+    assert!(body_of(&jit, "df.rti.0.lib").contains("dartforge_rti_recipe"));
+}
+
+#[test]
+fn rti_getters_with_another_shape_keep_their_body() {
+    let mut m = Module::new();
+    m.globals.push((0, Type::I64, "dfr.x.lib".into()));
+    let mut f = rti_getter("df.rti.x.lib", "dfr.x.lib", "int");
+    // Another flag value: not the shape of `recipe_rti`.
+    if let Instruction::StoreGlobal { val, .. } = &mut f.blocks[2].instructions[3].1 {
+        *val = Operand::Constant(Constant::Int(2));
+    }
+    m.functions.push(f);
+    let ir = LlvmEmitter::new(&m).with_static_objects(true).emit_all();
+    assert!(!ir.contains("@df.rti_fill("), "{ir}");
+}
