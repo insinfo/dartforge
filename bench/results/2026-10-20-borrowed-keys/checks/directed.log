@@ -1,0 +1,11 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.69s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 4 tests
+test pruning::allocation_inventory::integrity_io::canonical_stream::tests::stream_verify_mixed_decoded_keys_preserve_order_and_duplicates ... ok
+test pruning::allocation_inventory::integrity_io::canonical_stream::tests::stream_verify_canonical_predicate_matches_value_oracle ... ok
+test pruning::allocation_inventory::publication::tests::stream_verify_envelope_matches_the_full_value_contract ... ok
+test pruning::allocation_inventory::integrity_io::canonical_stream::tests::stream_verify_large_strings_arrays_and_boundaries ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 1030 filtered out; finished in 0.10s

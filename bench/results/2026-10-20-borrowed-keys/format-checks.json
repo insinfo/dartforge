@@ -1,0 +1,36 @@
+[
+  {
+    "command": [
+      "cargo",
+      "fmt",
+      "--all",
+      "--",
+      "--check"
+    ],
+    "exit": 1,
+    "bytes": 15801214,
+    "sha256": "40977959d32790367528f09f82f8d6af4bcfab8ca25b603848a16b244a2755f6"
+  },
+  {
+    "command": [
+      "rustfmt",
+      "--edition",
+      "2024",
+      "--check",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/src/pruning/allocation_inventory/integrity_io/canonical_stream.rs"
+    ],
+    "exit": 0,
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "command": [
+      "git",
+      "diff",
+      "--check"
+    ],
+    "exit": 0,
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+]

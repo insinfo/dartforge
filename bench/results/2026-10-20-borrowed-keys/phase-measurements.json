@@ -1,0 +1,50 @@
+[
+  {
+    "mode": "canonical",
+    "warmup": true,
+    "seconds": 0.645905667,
+    "stdout": "canonical 0.645905667\n"
+  },
+  {
+    "mode": "canonical",
+    "warmup": false,
+    "seconds": 0.639846917,
+    "stdout": "canonical 0.639846917\n"
+  },
+  {
+    "mode": "canonical",
+    "warmup": false,
+    "seconds": 0.629158625,
+    "stdout": "canonical 0.629158625\n"
+  },
+  {
+    "mode": "canonical",
+    "warmup": false,
+    "seconds": 0.630244333,
+    "stdout": "canonical 0.630244333\n"
+  },
+  {
+    "mode": "projection",
+    "warmup": true,
+    "seconds": 0.447231625,
+    "stdout": "projection 0.447231625\n"
+  },
+  {
+    "mode": "projection",
+    "warmup": false,
+    "seconds": 0.447533333,
+    "stdout": "projection 0.447533333\n"
+  },
+  {
+    "mode": "projection",
+    "warmup": false,
+    "seconds": 0.4456815,
+    "stdout": "projection 0.4456815\n"
+  },
+  {
+    "mode": "projection",
+    "warmup": false,
+    "seconds": 0.447346334,
+    "stdout": "projection 0.447346334\n"
+  }
+]

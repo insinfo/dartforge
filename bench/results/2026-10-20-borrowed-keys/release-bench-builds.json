@@ -1,0 +1,50 @@
+[
+  {
+    "command": [
+      "rustc",
+      "--edition",
+      "2024",
+      "-O",
+      "/tmp/forge-borrowed-keys/release-before.rs",
+      "-L",
+      "dependency=/Volumes/ssd_dock/MyRustProjects/dartforge/target/borrowed-keys-bench-release/release/deps",
+      "-C",
+      "linker=/Volumes/ssd_dock/MyRustProjects/dartforge/scripts/rust-linker-macos.sh",
+      "--extern",
+      "serde=/Volumes/ssd_dock/MyRustProjects/dartforge/target/borrowed-keys-bench-release/release/deps/libserde-fba5ed5a940f4649.rlib",
+      "--extern",
+      "serde_json=/Volumes/ssd_dock/MyRustProjects/dartforge/target/borrowed-keys-bench-release/release/deps/libserde_json-3dac61fd2d28b3be.rlib",
+      "--extern",
+      "blake3=/Volumes/ssd_dock/MyRustProjects/dartforge/target/borrowed-keys-bench-release/release/deps/libblake3-b08bc5e049a955e8.rlib",
+      "-o",
+      "/tmp/forge-borrowed-keys/release-before-bench"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "rustc",
+      "--edition",
+      "2024",
+      "-O",
+      "/tmp/forge-borrowed-keys/release-after.rs",
+      "-L",
+      "dependency=/Volumes/ssd_dock/MyRustProjects/dartforge/target/borrowed-keys-bench-release/release/deps",
+      "-C",
+      "linker=/Volumes/ssd_dock/MyRustProjects/dartforge/scripts/rust-linker-macos.sh",
+      "--extern",
+      "serde=/Volumes/ssd_dock/MyRustProjects/dartforge/target/borrowed-keys-bench-release/release/deps/libserde-fba5ed5a940f4649.rlib",
+      "--extern",
+      "serde_json=/Volumes/ssd_dock/MyRustProjects/dartforge/target/borrowed-keys-bench-release/release/deps/libserde_json-3dac61fd2d28b3be.rlib",
+      "--extern",
+      "blake3=/Volumes/ssd_dock/MyRustProjects/dartforge/target/borrowed-keys-bench-release/release/deps/libblake3-b08bc5e049a955e8.rlib",
+      "-o",
+      "/tmp/forge-borrowed-keys/release-after-bench"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  }
+]

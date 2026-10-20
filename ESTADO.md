@@ -2,6 +2,24 @@
 
 ## Atualização de 20/10/2026
 
+- O verificador canônico empresta agora chaves JSON sem escapes do buffer de
+  entrada, evitando uma String por chave; escapes preservam cópia decodificada
+  própria durante a leitura de valores aninhados. Sem alterar ordenação,
+  duplicatas, hashes, schema ou consumidor de fatos. Passaram a regressão nova,
+  1.034 testes nativos com ignorados, Clippy estrito e docs sem avisos. No ensaio
+  isolado de 70 MB, seis amostras por variante em ABBA reduziram a mediana de
+  1,08573 para 1,03803 s com dependências debug (4,4%); com dependências release,
+  0,20487 para 0,16620 s (18,9%), mantendo aproximadamente 69 MiB de pico RSS.
+  Um controle release separado da árvore completa anterior mediu 0,33913 s e
+  aproximadamente 725 MiB, contra 0,16486 s/69 MiB no fluxo final: esse último
+  ganho combina os dois incrementos. A troca de tempo registrada no incremento
+  anterior vale para seu harness com dependências debug, não para release nem
+  para o compilador inteiro. AOT/JIT macOS passou normal/sob estresse; três IRs
+  montados e payload do SDK idênticos. VMs mantidas suspensas, sem nova matriz
+  de hóspedes. Gate de ausência de backends repetido e ainda falha; seis definições
+  estrangeiras, fmt global e aprovação integral continuam pendentes. Evidências:
+  `bench/results/2026-10-20-borrowed-keys/README.md`.
+
 - A verificação de integridade do cache evita agora a árvore JSON completa dos
   fatos: compara o formato canônico em fluxo e projeta só o envelope; o consumidor
   completo permanece inalterado. Mesmos hashes, schema e contrato de integridade,

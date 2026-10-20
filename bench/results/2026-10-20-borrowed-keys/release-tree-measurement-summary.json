@@ -1,0 +1,12 @@
+{
+  "old": {
+    "samples": 6,
+    "median_rss_bytes": 759930880.0,
+    "median_stage_seconds": 0.33912787499999997
+  },
+  "new": {
+    "samples": 6,
+    "median_rss_bytes": 72794112.0,
+    "median_stage_seconds": 0.16485635399999998
+  }
+}

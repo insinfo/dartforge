@@ -1,5 +1,7 @@
 //! Canonical JSON comparison without retaining an object/array tree.
+use serde::Deserialize;
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
+use std::borrow::Cow;
 use std::fmt;
 use std::io::{BufWriter, Write};
 
@@ -47,8 +49,8 @@ impl<'de, W: Write> Visitor<'de> for Seed<'_, W> {
     }
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<(), A::Error> {
         self.0.write_all(b"{").map_err(de::Error::custom)?;
-        let mut previous: Option<String> = None;
-        while let Some(key) = map.next_key::<String>()? {
+        let mut previous: Option<Cow<'de, str>> = None;
+        while let Some(Key(key)) = map.next_key::<Key<'de>>()? {
             if previous.as_ref().is_some_and(|previous| previous >= &key) {
                 return Err(de::Error::custom("unordered or duplicate JSON key"));
             }
@@ -61,6 +63,28 @@ impl<'de, W: Write> Visitor<'de> for Seed<'_, W> {
             previous = Some(key);
         }
         self.0.write_all(b"}").map_err(de::Error::custom)
+    }
+}
+
+/// Keep ordinary keys in the immutable input; decoded escapes require ownership.
+/// The previous decoded key must survive parsing the following map value/key.
+struct Key<'de>(Cow<'de, str>);
+impl<'de> Deserialize<'de> for Key<'de> {
+    fn deserialize<D: de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct KeyVisitor;
+        impl<'de> Visitor<'de> for KeyVisitor {
+            type Value = Key<'de>;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a JSON object key")
+            }
+            fn visit_borrowed_str<E: de::Error>(self, key: &'de str) -> Result<Self::Value, E> {
+                Ok(Key(Cow::Borrowed(key)))
+            }
+            fn visit_str<E: de::Error>(self, key: &str) -> Result<Self::Value, E> {
+                Ok(Key(Cow::Owned(key.to_owned())))
+            }
+        }
+        deserializer.deserialize_str(KeyVisitor)
     }
 }
 
@@ -128,6 +152,28 @@ mod tests {
             let expected = serde_json::from_str::<serde_json::Value>(text)
                 .is_ok_and(|value| super::super::canonical_matches(text.as_bytes(), &value));
             assert_eq!(matches(text.as_bytes()), expected, "{text}");
+        }
+    }
+    #[test]
+    fn stream_verify_mixed_decoded_keys_preserve_order_and_duplicates() {
+        for value in [
+            serde_json::json!({"\n": {"plain": 0}, "plain": {"é": 1}, "😀": 2}),
+            serde_json::json!({"\"": [0, {"\t": 1}], "\\": {"a": 2}, "a": 3}),
+        ] {
+            let text = format!("{value}\n");
+            assert!(matches(text.as_bytes()), "{text}");
+        }
+        // Nested escaped keys reuse parser scratch. Retain the previous decoded
+        // key across that value before checking the next key for order/duplicates.
+        for text in [
+            "{\"a\\n\":{\"scratch\\t\":0},\"a\\n\":1}\n",
+            "{\"z\\n\":{\"scratch\\t\":0},\"a\":1}\n",
+            "{\"a\":0,\"\\u0061\":1}\n",
+            "{\"a\\n\":{},\"a\\t\":0}\n",
+        ] {
+            assert!(!matches(text.as_bytes()), "{text}");
+            let value: serde_json::Value = serde_json::from_str(text).unwrap();
+            assert!(!super::super::canonical_matches(text.as_bytes(), &value));
         }
     }
     #[test]

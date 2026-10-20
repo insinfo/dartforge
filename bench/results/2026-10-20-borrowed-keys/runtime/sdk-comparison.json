@@ -1,0 +1,7 @@
+{
+  "baseline": "target/stream-verify-validation/sdk-macos-arm64-after-inventory.json",
+  "source": "target/rpo-native-cache/sdk/607b5fcfa1c8e92e15da9f043add13d9/allocation-inventory.json",
+  "compiler": "16aaebd5618ec784eab88d6cc14623a44c0317f7c0570316aaaf1a1cfd61935a",
+  "payload_identical": true,
+  "functions": 32708
+}

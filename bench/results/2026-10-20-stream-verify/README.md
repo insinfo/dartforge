@@ -63,7 +63,10 @@ That is **655.23 MiB less peak RSS (90.4%)**, with **30.6% more validation time*
 in this isolated stage. The memory gain is not a speedup: the new implementation
 parses once to compare canonical bytes and again to project the envelope. The
 full compiler was not benchmarked, and its total memory/time cannot be inferred
-from these process measurements. All samples completed their assertions.
+from these process measurements. The rustc -O harness linked Cargo debug
+dependency rlibs; this time tradeoff is not a release-build conclusion. See
+`../2026-10-20-borrowed-keys/README.md` for the later controlled release-dependency
+comparison. All samples completed their assertions.
 Raw observations, source bindings, build command and input digest are retained.
 
 ## Cross-target validation and remaining gates

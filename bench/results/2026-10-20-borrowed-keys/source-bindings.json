@@ -1,0 +1,6 @@
+[
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/integrity_io/canonical_stream.rs",
+    "sha256": "ca4caf7b05c6db0ef349d31faee5ceddfc5847105c98f5d8c9f0916095dab590"
+  }
+]

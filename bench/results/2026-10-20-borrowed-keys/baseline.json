@@ -1,0 +1,5 @@
+{
+  "revision": "96bf4c78ffffc080eb82bfb6a15a6e377a44d423",
+  "canonical_before_sha256": "16fe6ed413c65628ff0ebd32cc0a05c35a01afb10f333ba9fb21db16876f31a9",
+  "note": "Before benchmark compiled before the source edit; the helper snapshot has an explicit path to its child module."
+}
