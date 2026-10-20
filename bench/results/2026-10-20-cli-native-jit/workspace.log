@@ -1,0 +1,203 @@
+   Compiling dartforge-cli v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli)
+warning: linker stderr: ld64.lld: directory not found for option -L/usr/local/lib
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_common.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(error_private.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(fse_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(entropy_common.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(fse_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(hist.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(huf_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(xxhash.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress_literals.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress_sequences.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress_superblock.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_double_fast.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_fast.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_lazy.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_ldm.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_opt.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_preSplit.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstdmt_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(pool.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(huf_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_ddict.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_decompress_block.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_v05.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_v06.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_v07.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-cli` (bin "dartforge") generated 1 warning
+warning: `dartforge-cli` (test "reload_state") generated 1 warning (1 duplicate)
+warning: `dartforge-cli` (bin "dartforge" test) generated 1 warning (1 duplicate)
+warning: `dartforge-cli` (test "jit_program") generated 1 warning (1 duplicate)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 24s
+     Running unittests src/main.rs (target/string-length-validation/debug/deps/dartforge-424299b56e0cdeb9)
+
+running 38 tests
+test analyze::tests::machine_format_escape ... ok
+test analyze::tests::relative_only_when_not_longer ... ok
+test jit::argument_tests::explicit_program_options_empty_arguments_and_separator_are_not_cli_options ... ok
+test jit::argument_tests::reload_watches_nearest_package_siblings_instead_of_entry_bin_only ... ok
+test jit::argument_tests::runtime_package_config_preserves_symlink_selected_relative_uri_base ... ok
+test jit::argument_tests::runtime_package_selection_matches_explicit_and_nearest_loader_config ... ok
+test pack::tests::declared_sdk_packages_reject_missing_duplicate_and_malformed_declarations ... ok
+test pack::tests::declared_sdk_packages_keep_metadata_and_arbitrary_paths_after_relocation ... ok
+test pack::tests::declared_sdk_packages_reject_nonrelative_and_traversing_paths ... ok
+test pack::tests::sdk_without_declared_packages_keeps_optional_metadata_absent ... ok
+test pub_get::tests::archive_files_allowed_links_refused ... ok
+test pub_get::tests::cached_pubspec_must_match_the_resolved_registry_graph ... ok
+test pub_get::tests::dart_intervals_and_sdk_compatibility ... ok
+test pack::tests::declared_sdk_packages_reject_symlink_escape_and_directory_cycles ... ok
+test pub_get::tests::explicit_lower_prerelease_allows_same_release_below_stable_upper ... ok
+test pub_get::tests::hosted_backtracks_transitive_constraints_and_prefers_existing_lock ... ok
+test pub_get::tests::declared_sdk_packages_resolve_transitively_offline_and_write_sdk_lock_identity ... ok
+test pub_get::tests::hosted_integrity_missing_metadata_and_source_conflict_fail ... ok
+test pub_get::tests::irrelevant_unavailable_sdk_historical_versions_do_not_poison_supported_release ... ok
+test pub_get::tests::invalid_first_registry_response_is_not_cached ... ok
+test pub_get::tests::native_http_checksum_failure_does_not_publish_archive ... ok
+test pub_get::tests::offline_path_transitive_cycles_and_root_dev ... ok
+test pub_get::tests::overrides_keep_package_identity_and_root_sdk_checks ... ok
+test pub_get::tests::pub_build_suffixes_are_ordered_and_exact_constraints_remain_exact ... ok
+test pub_get::tests::overrides_relax_the_overridden_sdk_and_root_back_reference ... ok
+test pub_get::tests::root_overrides_replace_transitive_sources_and_include_unused_packages ... ok
+test pub_get::tests::sdk_lookup_requires_selected_version_and_declared_unique_matching_package ... ok
+test pub_get::tests::sdk_package_versions_are_constraints_not_hosted_fallbacks_and_selected_mapping_changes ... ok
+test pub_get::tests::sdk_source_identity_conflicts_are_errors ... ok
+test pub_get::tests::sdk_vendor_package_symlink_cannot_resolve_outside_the_selected_sdk ... ok
+test pub_get::tests::sdk_vendor_packages_refuse_non_sdk_regular_sources_and_source_identity_conflicts ... ok
+test pub_get::tests::sidecar_replaces_override_map_and_dependencies_ignore_their_sidecars ... ok
+test pub_get::tests::validated_registry_updates_replace_offline_metadata ... ok
+test test_runner::metadata_tests::library_annotations_and_project_configuration_are_refused_without_text_guessing ... ok
+test test_runner::tests::discovery_keeps_sorted_unique_suites_and_skips_helper_files ... ok
+test test_runner::tests::ordinary_test_filters_and_unsupported_flags_are_explicit ... ok
+test test_runner::tests::relative_import_and_dart_escaping_preserve_literal_path ... ok
+test pub_get::tests::rejected_registry_updates_preserve_offline_metadata ... ok
+
+test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/analyze_publication.rs (target/string-length-validation/debug/deps/analyze_publication-666fea38cf848b9f)
+
+running 4 tests
+test default_reports_invalid_assignment_with_same_exit_and_json_as_all ... ok
+test cannot_ignore_keeps_the_published_assignment_error ... ok
+test valid_assignments_are_not_published_as_errors ... ok
+test newly_published_assignment_respects_comment_and_option_ignores ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.42s
+
+     Running tests/analyze_sdk_path.rs (target/string-length-validation/debug/deps/analyze_sdk_path-a42a05229b08ea90)
+
+running 2 tests
+test invalid_explicit_sdk_does_not_fall_back ... ok
+test explicit_root_and_lib_override_environment ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/contracts_cli.rs (target/string-length-validation/debug/deps/contracts_cli-6796dff904d17f63)
+
+running 2 tests
+test contract_mode_requires_a_value ... ok
+test invalid_contract_modes_are_rejected_by_both_native_commands ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/cross_cli.rs (target/string-length-validation/debug/deps/cross_cli-5f0c99f28ff729a8)
+
+running 1 test
+test target_errors_are_actionable ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/debugging.rs (target/string-length-validation/debug/deps/debugging-4e1532d6ca9c92e4)
+
+running 1 test
+test gdb_stops_at_the_dart_line_and_shows_the_stack ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/directed_maps.rs (target/string-length-validation/debug/deps/directed_maps-55e3c81bb03bf36d)
+
+running 4 tests
+test leaf_that_collects_is_found_by_name ... ok
+test seed_scheduled_collection ... ok
+test targeted_cases_pass_and_fail_with_the_sabotage ... ok
+test walk_checked_against_the_shadow_stack ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/generated_ir.rs (target/string-length-validation/debug/deps/generated_ir-f5eeaf5a78d3f64c)
+
+running 4 tests
+test invalid_builder_configuration_cannot_use_stale_sources_or_replace_artifacts ... ok
+test invalid_non_block_configuration_cannot_be_bypassed_with_stale_sources ... ok
+test quoted_and_flow_builder_definitions_generate_sources ... ok
+test ir_and_digest_generate_fresh_sources_without_materializing_them has been running for over 60 seconds
+test ir_and_digest_generate_fresh_sources_without_materializing_them ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 109.50s
+
+     Running tests/io_regression.rs (target/string-length-validation/debug/deps/io_regression-00dffd1257ab55b6)
+
+running 7 tests
+test heap_near_the_ceiling_does_not_collect_on_every_allocation ... ok
+test key_and_certificate_formats_like_the_vm ... ok
+test main_receives_the_arguments ... ok
+test legacy_renegotiation_is_rejected ... ok
+test shared_listening_socket_only_closes_with_the_last_one ... ok
+test signal_burst_does_not_hang_the_handler ... ok
+test tls_and_https_like_the_vm ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.04s
+
+     Running tests/jit_program.rs (target/string-length-validation/debug/deps/jit_program-3e43957f7c6175fc)
+
+running 4 tests
+test explicit_main_arguments_reach_run_reload_supervisor_and_restart ... ok
+test absent_package_configuration_matches_vm_despite_inherited_selection ... ok
+test script_and_spawn_uri_in_the_jit ... ok
+test selected_package_resources_resolve_from_project_cwd_in_all_jit_modes ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.88s
+
+     Running tests/memory_cli.rs (target/string-length-validation/debug/deps/memory_cli-e78950d07d041b12)
+
+running 3 tests
+test invalid_value_is_rejected_before_loading_the_source ... ok
+test aot_only_enables_arc_with_an_explicit_option ... ok
+test jit_and_reload_select_the_policy_and_keep_the_program_arguments ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 50.30s
+
+     Running tests/native_generated.rs (target/string-length-validation/debug/deps/native_generated-07368fff61f61e2b)
+
+running 2 tests
+test run_generates_the_sources_through_the_engine ... ok
+test compile_native_generates_the_sources_through_the_engine ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.81s
+
+     Running tests/reload_state.rs (target/string-length-validation/debug/deps/reload_state-15ac2e69398527eb)
+
+running 7 tests
+test cli_preserves_static_after_editing_the_same_dart_file ... ok
+test cli_class_that_disappears_and_returns_keeps_its_id ... ok
+test cli_reloads_the_running_program ... ok
+test cli_preserves_unified_space_state_across_three_reloads ... ok
+test cli_reloads_with_a_changed_signature ... ok
+test cli_reloads_with_an_inserted_class ... ok
+test cli_reloads_with_changed_fields ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.02s
+
+     Running tests/subsystem_cli.rs (target/string-length-validation/debug/deps/subsystem_cli-70c4f1f67db32bad)
+
+running 3 tests
+test gui_is_rejected_on_other_hosts_including_ir_only ... ok
+test missing_and_invalid_subsystems_are_rejected ... ok
+test default_ignores_an_inherited_gui_policy ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.79s

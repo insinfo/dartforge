@@ -2,6 +2,18 @@
 
 ## Atualização de 20/10/2026
 
+- Concluída a validação CLI com `native,jit` e todos os ignorados: 82 testes
+  passaram em 14 executáveis, zero falhas/ignorados/filtros, saída 0 em 361,75 s
+  incluindo compilação. Cobriu sete regressões de I/O (TLS/HTTPS/sinais/sockets),
+  quatro de execução JIT, três de memória, sete de recarga com estado e geração
+  nativa/IR, além dos demais testes CLI. As dependências do caso i18n estavam
+  presentes; os testes não retornaram por configuração ausente. Há sobreposição
+  com a rodada básica, não são 82 testes distintos adicionais. Checker e
+  CONTRIBUTING incluem agora essa segunda rodada explicitamente. Logs, ambiente
+  e hashes em `bench/results/2026-10-20-cli-native-jit/README.md`. Sem alteração
+  Rust/runtime/bundles ou nova matriz de VMs. Poda dos backends, fmt global e
+  aprovação integral continuam pendentes.
+
 - Terminou a passada integral do workspace com ignorados e sem filtros:
   2.978,67 s, saída 101, exatamente dois alvos falhos. O corpus diferencial
   estava sem os SDKs de referência configurados; o mesmo binário passou os dois
@@ -16,10 +28,8 @@
   `bench/results/2026-10-20-workspace-complete/README.md`. Fmt global, poda dos
   backends e aprovação integral continuam pendentes.
 
-  Iniciada a validação adicional `cargo test --locked -p dartforge-cli
-  --features native,jit --no-fail-fast -- --include-ignored`, com os dois SDKs
-  de referência configurados e compiladores externos preservados. Logs em
-  `/tmp/forge-cli-feature-validation`; ainda sem resultado final.
+  A rodada adicional CLI native/JIT terminou com sucesso; resultado final e
+  evidências no item acima.
 
 - Revalidado o JIT completo atual: 92 testes regulares e seis doctests passaram,
   incluindo todos os ignorados. O IR AOT podado antigo e seu SDK original também

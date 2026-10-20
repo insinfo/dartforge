@@ -1,0 +1,11 @@
+{
+  "DARTFORGE_TEST_COMPILER": null,
+  "DARTFORGE_CASES": null,
+  "DARTFORGE_CORPUS_BUILDERS": null,
+  "DARTFORGE_NO_TABLE_PRUNING": null,
+  "DARTFORGE_NO_PRUNING": null,
+  "DARTFORGE_CLOSED_CLASS_REACHABILITY": null,
+  "DARTFORGE_GC_STRESS": null,
+  "DARTFORGE_DART_SDK": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk",
+  "DARTFORGE_DART_SDK_3_13": "/Volumes/ssd_dock/DartSDKs/3.13.5-macos/dart-sdk"
+}

@@ -10,6 +10,8 @@ try {
  if ($LASTEXITCODE) { throw 'Clippy failed' }
  cargo test --locked --workspace --no-fail-fast -- --include-ignored
  if ($LASTEXITCODE) { throw 'Tests failed' }
+ cargo test --locked -p dartforge-cli --features native,jit --no-fail-fast -- --include-ignored
+ if ($LASTEXITCODE) { throw 'Native/JIT CLI tests failed' }
  $env:RUSTDOCFLAGS = '-D warnings'
  cargo doc --locked --workspace --no-deps --document-private-items
  if ($LASTEXITCODE) { throw 'Documentation failed' }

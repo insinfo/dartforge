@@ -25,6 +25,7 @@ semantics that tests can demonstrate, including side effects, evaluation order a
     cargo fmt --all -- --check
     cargo clippy --locked --workspace --all-targets -- -D warnings
     cargo test --locked --workspace --no-fail-fast -- --include-ignored
+    cargo test --locked -p dartforge-cli --features native,jit --no-fail-fast -- --include-ignored
     cargo doc --locked --workspace --no-deps --document-private-items
 
 On macOS, the repository Cargo linker selects matching LLVM LLD for archives
@@ -35,6 +36,12 @@ its stubs. See `docs/JIT.md` for toolchain selection and explicit linker overrid
 
 Ignored tests have additional prerequisites: Node, the Dart source SDK, resolved
 corpus dependencies, and a current native compiler for builder integrations.
+The default workspace command does not enable the CLI's optional native/JIT
+features. Run the second test command as well to exercise native I/O, JIT
+execution, memory-policy selection, generated sources and stateful reload
+through the CLI. A successful zero-test executable from the default command
+does not validate those feature-gated paths. The PowerShell checker runs both
+commands, stopping with a failure if either command fails.
 The differential oracle SDK roots must be configured separately:
 `DARTFORGE_DART_SDK` points to the complete host-compatible Dart 3.6.2 SDK,
 and `DARTFORGE_DART_SDK_3_13` points to a compatible Dart 3.13+ SDK for modern
