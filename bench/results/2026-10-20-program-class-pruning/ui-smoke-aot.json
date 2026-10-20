@@ -1,0 +1,69 @@
+{
+  "platform": "macOS-27.2-arm64-arm-64bit",
+  "compiler": "/private/tmp/claude-501/-Volumes-ssd-dock-MyRustProjects-dartforge/6678a666-ca06-4b15-be83-4e51b02d27fc/scratchpad/bin/dartforge-new",
+  "compiler_sha256": "ab3e335a5b9629bbca8c6795cce707bdeb01cd8c0c249fba7d6b921b20832232",
+  "mode": "aot",
+  "runs": [
+    {
+      "name": "explorer-aot-build",
+      "command": [
+        "/private/tmp/claude-501/-Volumes-ssd-dock-MyRustProjects-dartforge/6678a666-ca06-4b15-be83-4e51b02d27fc/scratchpad/bin/dartforge-new",
+        "compile-native",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+        "--optimize",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "-o",
+        "/private/tmp/claude-501/-Volumes-ssd-dock-MyRustProjects-dartforge/6678a666-ca06-4b15-be83-4e51b02d27fc/scratchpad/ui-smoke/explorer"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 66.678
+    },
+    {
+      "name": "explorer-aot-run",
+      "command": [
+        "/private/tmp/claude-501/-Volumes-ssd-dock-MyRustProjects-dartforge/6678a666-ca06-4b15-be83-4e51b02d27fc/scratchpad/ui-smoke/explorer",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer",
+        "--lang=pt",
+        "--frames=2",
+        "--cpu"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 2.105
+    },
+    {
+      "name": "context-smoke-aot-build",
+      "command": [
+        "/private/tmp/claude-501/-Volumes-ssd-dock-MyRustProjects-dartforge/6678a666-ca06-4b15-be83-4e51b02d27fc/scratchpad/bin/dartforge-new",
+        "compile-native",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/tool/context_menu_retarget_smoke.dart",
+        "--optimize",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "-o",
+        "/private/tmp/claude-501/-Volumes-ssd-dock-MyRustProjects-dartforge/6678a666-ca06-4b15-be83-4e51b02d27fc/scratchpad/ui-smoke/context-smoke"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 66.681
+    },
+    {
+      "name": "context-smoke-aot-run",
+      "command": [
+        "/private/tmp/claude-501/-Volumes-ssd-dock-MyRustProjects-dartforge/6678a666-ca06-4b15-be83-4e51b02d27fc/scratchpad/ui-smoke/context-smoke",
+        "--cpu"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 2.107
+    }
+  ],
+  "explorer_aot_sha256": "7abcca7f0d06392ce45e26901b7a6156e2c8f6255d17292e7dd1c29813e4cf15",
+  "context-smoke_aot_sha256": "71267a85d13bd85fbeb00718c4ae8aa0ae9df289b9369ecb4b50f7fdbd725a08"
+}

@@ -186,132 +186,89 @@ não as receberam; entram numa onda 1.5 logo após a validação da onda 1.
   (≈ 4,8 MB, 19% do `__text`); e o perfil `strings` tem 18,8% nos próprios natives de sonda
   (`hash_map_lookup` 11,8%, `hash_map_store` 7,0%), não só no `$c`.
 
-## 3. O que foi corrigido nesta rodada
+## 3. O que foi corrigido
 
-O lote medido também inclui as implementações herdadas: contexto TLS em A1, prólogo sem
-marcador `alloca`, registro inicial das tabelas, mapas de referências estáticos e endereços
-de campo simplificados; TLAB compartilhada entre código gerado e alocações do runtime,
-construção e formatação de strings mais diretas; cache nos casts RTI, testes por cid e
-operações intrínsecas adicionais; flags de produção e constantes de plataforma; literal
-de mapa em lote e acumulador próprio no JSON; ajustes de inlining e ligação. Essa relação
-é um inventário do lote, não uma alegação de validação isolada de cada otimização.
+A onda 1 planejada aqui foi interrompida pelo limite de sessão; boa parte dela entrou no
+`main` por outra sessão entre 18 e 20/10 (contexto em linha em todos os modos Unix,
+asserts desligados e `dart.vm.product` em produção, mapa de referências na alocação,
+registro em lote das tabelas, checagem de pilha por `sp`, `-enable-merge-functions` e
+`-no_function_starts`, dobra de `Platform.operatingSystem` e propagação de argumentos
+constantes, downcasts dos literais). Em 20/10 restava a pendência registrada no ESTADO: o
+teste `platform_constant_prunes_the_other_backends` falhava com seis definições estrangeiras.
 
-### 3.1 Retomada e correções de integração (2026-10-18)
+### 3.1 Poda das tabelas de classes do programa sem instância (`9eb257dc`)
 
-A retomada encontrou o lote anterior ainda sem commit em `main`, com alterações no
-compilador, runtime e overlays. A existência dessas alterações **não equivale à aprovação da
-onda 1**: a validação abaixo distingue o que foi executado das pendências encontradas.
+**Causa:** a propagação já deixava só `MacBackend` instanciado, mas `df.register.program`
+registrava a tabela de métodos de toda classe do programa na partida, e o registro é raiz da
+poda: a tabela mantinha vivos os getters e `toString` de `WindowsBackend`, `LinuxBackend` e,
+no dart_ui, de todos os backends win32/x11/wayland/vulkan/gl/d3d11/d3d12/android/ios. A poda
+fina por classes existente (`DARTFORGE_CLOSED_CLASS_REACHABILITY=1`) exige provar as
+alocações do SDK e recusa já em `df.register.dart:_internal`.
 
-- **Downcasts implícitos nos literais:** o lowering agora usa os argumentos de tipo
-  inferidos do literal para conferir cada expressão `dynamic` antes de avaliar a seguinte.
-  Isso cobre listas diretas, o mapa em lote, conjuntos e elementos `if`/`for`, incluindo
-  argumentos genéricos e tipos vindos do contexto. O corpus novo
-  `145_literal_implicit_casts.dart` verifica tanto os erros quanto a ordem dos efeitos,
-  casos válidos, nulabilidade e a proteção covariante de `List<Object?>`. O caminho de mapa
-  em lote já existente passa a receber entradas conferidas. Não foi introduzida escrita
-  direta genérica em `List<Object?>`.
-- **Propagação e simplificação de strings:** uma string materializada por `Const` agora
-  permite dobrar o teste contra `null`. A simplificação de igualdade entre strings também
-  roda no fluxo normal de limpeza e antes da poda, pois o inlining pode eliminar o parâmetro
-  antes da propagação interprocedural. Os locais do corpo especializado são promovidos
-  para SSA antes de dobrar as condições: no lowering real, `platform` ainda ocupava um
-  slot de pilha, caso não representado pelo teste sintético original. Dois testes do lote anterior que tentavam comparar
-  `Terminator` sem `PartialEq` foram corrigidos para usar casamento de padrões. A verificação
-  da poda considera corpos executáveis: o catálogo de ids de classe continua no IR como
-  comentário mesmo para uma classe morta.
-- **Regressão de recursão causada pela leitura de `sp`:** a primeira passagem do corpus
-  encontrou timeout em `134_estouro_de_pilha.dart`, em A0 e A1. Um IR mínimo confirmou que
-  LLVM 22 transformava recursão de cauda em laço e içava a checagem de pilha. As funções
-  emitidas agora recebem `"disable-tail-calls"="true"`, preservando o crescimento da pilha
-  e o `StackOverflowError` capturável. O teste do emissor verifica esse atributo juntamente
-  com a leitura de `sp`/`rsp`; o corpus 134 é a porta comportamental.
-- **Certificação numérica:** o catálogo das fontes revisadas ainda continha os hashes
-  anteriores de `async_patch.dart` e `convert/json.dart`, fazendo a certificação recusar
-  inclusive o SDK selecionado pelo próprio projeto. Após conferir essas duas mudanças,
-  somente suas entradas foram atualizadas; a impressão do grafo de `dart:core` permaneceu
-  igual. Os testes que alteram fontes ou expõem observadores de identidade continuam
-  exigindo recusa da otimização.
+**Correção** (`pruning/class_reachability.rs`): uma classe declarada numa biblioteca do
+programa só ganha instância por uma alocação do próprio módulo que cita a sua tabela; o SDK
+não a nomeia, e o runtime só copia instâncias existentes (mensagens entre isolados) ou cria
+structs FFI (mantidas). A tabela dessas classes passa a ficar viva só se uma alocação viva a
+citar; as demais (SDK, runtime, records, quadros async, FFI) continuam registradas na
+partida. Os braços dos `switch` de devirtualização para classes sem instância são cortados
+(com o `default` redirecionado quando só servia a elas), até um ponto fixo. Fora de ARC e
+quando alguma alocação tem id de classe não constante. Ablação:
+`DARTFORGE_NO_PROGRAM_CLASS_PRUNING=1`.
 
-### 3.2 Evidência e limites da validação
+| File Explorer, dart_ui `15aff70`, macOS arm64 | bytes |
+|---|---:|
+| mesmo compilador, poda desligada | 25.241.760 |
+| poda ligada | 19.487.024 (−22,8%) |
+| com as duas correções desta rodada | 19.470.512 |
+| `dart compile exe` 3.6.2 | 12.257.440 |
 
-Artefatos em `bench/results/2026-10-18-aot-continuation/`, sobre `9fcaa9a0` mais o lote
-local sem commit, usando Dart 3.6.2 e Clang 22.1.8 para macOS arm64.
+A razão contra o Dart caiu de 2,06× para 1,59×. O explorador AOT abriu, renderizou dois
+quadros e fechou, e o smoke do menu de contexto passou (`scripts/validate-native-desktop.py
+--mode aot`).
 
-- Runtime: **317 aprovados**, três microbenchmarks ignorados.
-- Emissor LLVM: **33 aprovados**; propagação de argumentos constantes: **5 aprovados**;
-  CFG antes da poda: **3 aprovados**; identidade de double: **4 aprovados**, um gerador
-  manual de catálogo ignorado.
-- Otimizador: **451 aprovados e 3 falhas**. Permanecem
-  `ordinary_late_generic_notifier_dispatch_prepares_without_erasing_field_guards`,
-  `ordinary_simple_enum_lowering_certifies_current_getter_and_rejects_enhanced_shape` e
-  `actual_color_context_reports_post_prune_specialization_eligibility`. Elas já apareciam
-  na primeira execução e impedem dar a onda 1 inteira como aprovada. Não foram convertidas
-  em sucesso nem tiveram as exigências de prova afrouxadas.
-- Suíte do backend com Clang explícito: **760 aprovados, 4 falhas e 9 ignorados**.
-  Além das três acima, falha
-  `actual_literal_clamp_uses_selected_sources_and_preserves_fallback_checks`: a premissa
-  ainda exige `State::Runtime` para `Double_doubleFromInteger`, promovido a intrínseco pelo
-  lote anterior. Os dois testes de multiplicação primitiva passam. A execução integral
-  antecede o último ajuste de promoção de locais, validado separadamente pelos cinco
-  testes de propagação. Na fixture real de plataforma, somem os construtores e
-  tear-offs de Windows/Linux, mas seus getters `name` e stubs de tabela permanecem vivos
-  pelo seletor genérico; a saída é `macos backend`, `posix separator`, `1`. O teste
-  `platform_constant_prunes_the_other_backends` ainda não passa: a poda completa dos
-  métodos dos backends inativos continua pendente, além das quatro falhas unitárias.
-- A primeira passagem selecionou 16 programas, compilados em A0 e A1 com `--optimize
-  --enable-asserts`, cada executável com e sem `DARTFORGE_GC_STRESS=1`. Foram **60 execuções
-  iguais à VM e dois timeouts** no corpus 134, antes da proteção contra chamadas de cauda.
-  O perfil usa `dart.vm.product=true`; o oráculo é `dart run --enable-asserts`, portanto
-  essa seleção não substitui testes específicos das flags de produção/desenvolvimento.
-- A repetição final da seleção, com o último compilador, passou em **64/64 execuções**:
-  16 programas × A0/A1 × com/sem GC stress. Os dois timeouts do corpus 134 desapareceram.
-  `targeted-corpus.initial.json` preserva a primeira passagem; `targeted-corpus.json`
-  registra a repetição final. Essa seleção não é o corpus nativo completo.
-- Após a proteção de recursão, os corpus **134 e 145 passaram nas oito execuções**
-  (A0/A1 × com/sem GC stress), incluindo os casos genéricos válidos adicionados ao 145.
-- `cargo doc` dos crates afetados concluiu, com dois avisos Rust já existentes.
-  `cargo fmt --all -- --check` encontrou diferenças também fora do lote; Clippy com
-  `-D warnings` falhou em avisos do runtime e frontend. `git diff --check` passou.
-- Uma execução inicial dos testes do backend usou o Clang padrão do ambiente e foi
-  interrompida; não conta como validação. As execuções subsequentes relevantes apontam
-  explicitamente para o Clang 22.1.8 do projeto.
+### 3.2 Chamadas a funções que nunca coletam deixam de ser pontos de coleta (`64b08cdc`)
+
+**Causa:** toda chamada Dart direta era ponto de coleta, então uma função recursiva que não
+aloca (`Node.count` do kernel de árvores) abria o quadro da pilha-sombra e gravava as raízes
+a cada ativação.
+
+**Correção:** o emissor calcula, por ponto fixo máximo sobre o módulo (lista de trabalho nas
+arestas inversas de chamada), as funções sem nenhum ponto de coleta, contando as chamadas
+entre elas; em AOT (sem corpos de fora, logo sem recarga), memória tracing e raízes pela
+pilha-sombra, a chamada a uma delas com argumentos sem conversão não é ponto de coleta. A
+comparação de `Ref`s também deixou de contar (`coerce` só reinterpreta bits). A única
+alocação que tal chamada ainda alcança é o `StackOverflowError` do prólogo de um chamado: o
+runtime agora o constrói com a coleta adiada (`Heap::defer_collection`). O verificador de
+raízes (`DARTFORGE_CHECK_SHADOW=1`) recalcula o mesmo conjunto a partir do texto do IR, sem
+confiar no emissor. Ablação: `DARTFORGE_NO_NON_COLLECTING_CALLS=1`.
+
+### 3.3 Validação
+
+- `production_profile`: 3/3, incluindo `platform_constant_prunes_the_other_backends`.
+- Emissor: 1.017 testes de biblioteca (30 ignorados); runtime: 321 unitários, integrações e
+  88 doctests; Clippy estrito e fmt nos dois crates.
+- Corpus nativo contra a VM: **137/138** em `--optimize` com o verificador de raízes ligado,
+  em `--optimize --gc-stress` e em `--native`; em `--native --gc-stress`, 135/138, com `91` e
+  `96` passando ao repetir com `--exec-limit 120` (estouro do limite de 5 s sob stress). A
+  única falha, `85_is_as_listas_fixas_imutaveis` (linha 81, `Record,Object`), falha igual
+  com o compilador original `eb6d25ab`: é pré-existente.
 
 ## 4. Medições depois das correções
 
-Executáveis finais reconstruídos com `--optimize`, incluindo os downcasts, a proteção
-contra eliminação recursiva e a promoção de locais na propagação de constantes. Cinco
-rodadas externas alternadas de A0/A1/Dart 3.6.2, sem compilações ou testes concorrentes.
-Cada execução do bench faz quatro amostras por núcleo: a tabela mostra o mínimo de 20
-amostras por variante, em milissegundos. Todos os checksums coincidem.
+Mínimo de 5 rodadas alternadas, mesma máquina com carga ≈ 3,5 (ruído de alguns %):
 
-| núcleo | A0 (padrão) | A1 (`--exceptions tables`) | Dart 3.6.2 AOT |
+| núcleo (ms) | `eb6d25ab` | agora | Dart AOT |
 |---|---:|---:|---:|
-| fib | 5 | 4 | 9 |
-| trees | 19 | 19 | 11 |
-| numeric | 95 | 95 | 95 |
-| strings | 44 | 44 | 44 |
-| json | 71 | 71 | 70 |
+| árvores A0 | 19 | 17 | 11 |
+| árvores A1 | 19 | 16 | — |
+| fib | 5 | 5 | 9 |
+| strings | 43 | 42 | 44 |
+| JSON | 70 | 70 | 70 |
 
-O lote completo reduz, em relação à linha histórica da seção 1, `strings` de 72 para
-44 ms e `json` de 100 para 71 ms em A0; `fib` de A1 cai de 14 para 4 ms. A comparação
-entre o compilador anterior e o novo **não foi alternada**: esses deltas são históricos;
-a alternância desta rodada compara os executáveis finais com o Dart upstream. Não há
-ablação que atribua o ganho individualmente a cada alteração.
-
-Tamanhos do bench: **A0 3.162.704 bytes**, **A1 3.261.872 bytes**, Dart **5.379.152 bytes**.
-Contra os valores históricos, A0 encolhe 205.344 bytes (6,1%) e A1 56.352 (1,7%). O bench
-A0 fica 41,2% menor que o executável Dart desta medição. Isso não é uma nova medida do
-File Explorer.
-
-Kernel de cor do dart_ui (`color_numeric_performance.dart`, configuração de pacotes do
-projeto, um milhão de iterações): cinco rodadas alternadas A0/Dart, com cinco amostras
-internas cada. Mínimos: **29.246 µs (29,25 ms)** no DartForge e **5.287 µs (5,29 ms)** no
-Dart, ainda **5,53×** mais lento. O mínimo histórico era 74,7 ms; a redução histórica é de
-60,8%, sem atribuição por alteração. Os checksums também coincidem.
-
-Dados brutos e método reproduzível: `performance.json`, `measure.py`, `bench.*.out` e
-`color.*.out` em `bench/results/2026-10-18-aot-continuation/`. HTTP e File Explorer continuam
-sem novas medições nesta retomada.
+Os demais núcleos de `bench/performance` ficaram dentro do ruído. O Dart continua à frente em
+`utf8_bytes` 32,8 contra 22,3 ms, `encode_large` 49,8 contra 46,2 ms, kernel de cor ~30 ms
+contra ~5 ms (medido antes). Não é medida de HTTP nem de aplicação longa.
+Evidências: `bench/results/2026-10-20-program-class-pruning/`.
 
 ## 5. O que fica para as próximas rodadas
 

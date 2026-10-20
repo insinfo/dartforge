@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-20",
+  "dart_ui_revision": "15aff70",
+  "compiler_commit": "64b08cdc (on top of eb6d25ab)",
+  "file_explorer": {
+    "pruning_off_bytes": 25241760,
+    "pruning_on_bytes": 19487024,
+    "pruning_off_sha256": "3fed5dd6d4928316784fbd2501f89ac280495160175a0f90e04d5a76295be0db",
+    "pruning_on_sha256": "2bba3cda8ed3664c30f952c9e19bd87ac0d23f5c34b269e1c62a2aefc40c1bce",
+    "ablation": "DARTFORGE_NO_PROGRAM_CLASS_PRUNING=1, same compiler binary, same inputs",
+    "upstream_dart_compile_exe_bytes": 12257440,
+    "both_commits_bytes": 19470512,
+    "ui_smoke": "explorer --frames=2 --cpu and context_menu_retarget_smoke: passed (ui-smoke-aot.json)"
+  },
+  "corpus_native": {
+    "--optimize with DARTFORGE_CHECK_SHADOW=1": "137/138",
+    "--optimize --gc-stress": "137/138",
+    "--native": "137/138",
+    "--native --gc-stress": "135/138; 91 and 96 timed out at 5 s and passed with --exec-limit 120",
+    "only_failure": "85_is_as_listas_fixas_imutaveis line 81 (Record,Object): also fails with the original eb6d25ab compiler; pre-existing"
+  },
+  "tests": {
+    "emit_native lib": "1017 passed, 30 ignored",
+    "runtime": "321 + integration + 88 doctests passed",
+    "production_profile (incl. platform_constant_prunes_the_other_backends)": "3 passed"
+  },
+  "bench_min_of_5_alternated_ms": {
+    "trees A0": {
+      "eb6d25ab": 19,
+      "new": 17,
+      "dart": 11
+    },
+    "trees A1": {
+      "eb6d25ab": 19,
+      "new": 16
+    },
+    "fib": {
+      "eb6d25ab": 5,
+      "new": 5,
+      "dart": 9
+    },
+    "strings": {
+      "eb6d25ab": 43,
+      "new": 42,
+      "dart": 44
+    },
+    "json": {
+      "eb6d25ab": 70,
+      "new": 70,
+      "dart": 70
+    }
+  },
+  "caveat": "Noisy shared machine (load 3.5); one 5-round alternated series; not HTTP nor long-running app measurements."
+}
