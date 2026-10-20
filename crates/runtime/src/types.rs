@@ -1310,6 +1310,35 @@ pub unsafe extern "C" fn dartforge_rti_eval_cache(cache: *mut i64, model: i64, t
     r
 }
 
+/// [`dartforge_rti_set`] through the cache of the use site (two words of the
+/// isolate's area, `llvm/mod.rs`, `emit_rti_set_cached`): stores the type and,
+/// when the object is neither an image static nor a list (whose compact shape
+/// the runtime may have to adjust), remembers `(class << 32 | ty, metadata)`
+/// so that the next object of the same class with the same requested type gets
+/// its metadata from generated code, without the call.
+///
+/// # Safety
+/// `cache` points to two writable words of the area of this isolate.
+#[unsafe(no_mangle)]
+#[allow(unsafe_code)]
+pub unsafe extern "C" fn dartforge_rti_set_cache(cache: *mut i64, obj: i64, ty: i64) {
+    dartforge_rti_set(obj, ty);
+    if !crate::layout::is_object(obj) || !(0..i64::from(i32::MAX)).contains(&ty) {
+        return;
+    }
+    let header = (obj - crate::layout::HANDLE_OFFSET) as *const crate::layout::Header;
+    // SAFETY: the handle of a live object points to its header.
+    let (state, cid, metadata) = unsafe { ((*header).state, (*header).class_id, (*header).metadata) };
+    if state == crate::layout::state::PERMANENT || crate::layout::cid::is_list(cid) || cid < 0 {
+        return;
+    }
+    // SAFETY: the contract above; only the isolate's thread writes the area.
+    unsafe {
+        *cache = (i64::from(cid) << 32) | ty;
+        *cache.add(1) = i64::from(metadata);
+    }
+}
+
 /// Stores the type of a generic object (in the header `metadata`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_set(obj: i64, ty: i64) {

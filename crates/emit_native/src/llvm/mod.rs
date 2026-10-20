@@ -149,6 +149,11 @@ pub struct LlvmEmitter<'a> {
     /// `$ok` flag): Dart statics are per isolate, and each
     /// isolate is a thread with its own area (`dartforge_globals_area`).
     global_slots: std::collections::HashMap<String, usize>,
+    /// The slots of the area that hold `Ref` globals, in the lean area of
+    /// production ([`Self::with_lean_area`], tracing memory): the descriptor
+    /// lists them and the collector reads them as roots, so a store into one
+    /// is a plain `store` instead of a registration call.
+    rooted_slots: std::collections::BTreeSet<usize>,
     /// The hash of the name of each slot, in order (the area descriptor): 0 for the
     /// selector caches.
     slot_hashes: Vec<i64>,
@@ -364,6 +369,7 @@ impl<'a> LlvmEmitter<'a> {
                 .then_some(0),
             stack_trace_names: Vec::new(),
             global_slots: std::collections::HashMap::new(),
+            rooted_slots: std::collections::BTreeSet::new(),
             slot_hashes: Vec::new(),
             previous_area: None,
             lean_area: false,
@@ -1311,6 +1317,8 @@ impl<'a> LlvmEmitter<'a> {
                         Some((b.id.0, format!("xc{v}.fim")))
                     } else if !self.maps && Self::rti_evaluate_cached(i) {
                         Some((b.id.0, format!("ra{v}.fim")))
+                    } else if self.rti_set_cached(i) {
+                        Some((b.id.0, format!("rs{v}.fim")))
                     } else if Self::rti_test_cached(i) {
                         Some((b.id.0, format!("rt{v}.fim")))
                     } else {
@@ -2253,6 +2261,9 @@ impl<'a> LlvmEmitter<'a> {
                     {
                         self.emit_rti_evaluate_cached(v, args);
                     }
+                    Instruction::CallRuntime { args, .. } if self.rti_set_cached(inst) => {
+                        self.emit_rti_set_cached(v, args);
+                    }
                     Instruction::CallRuntime { args, .. }
                     | Instruction::DeclaredFieldCall { args, .. }
                         if Self::rti_test_cached(inst) =>
@@ -2566,7 +2577,12 @@ impl<'a> LlvmEmitter<'a> {
                         let sv = self.coerce(val, *ty);
                         self.global_address(v, sym_name);
                         writeln!(self.out, "  store {} {sv}, ptr %ga{v}", ty.llvm_ir()).unwrap();
-                        if root.is_some() {
+                        if root.is_some() && self.slots_are_roots() {
+                            // The collector reads the slot itself (the lean
+                            // descriptor lists it, `emit_area_descriptor`).
+                            let slot = self.global_slots[sym_name.as_str()];
+                            self.rooted_slots.insert(slot);
+                        } else if root.is_some() {
                             // The root is identified by the address of the slot:
                             // unique across modules and isolates.
                             writeln!(self.out, "  %gr{v} = ptrtoint ptr %ga{v} to i64").unwrap();
@@ -3486,13 +3502,21 @@ impl<'a> LlvmEmitter<'a> {
             .clone()
             .unwrap_or_else(|| "df.program".to_string());
         if self.lean_area {
-            // Production (`with_lean_area`): `[key, -n]`, without the names.
+            // Production (`with_lean_area`): `[key, -n, m, slot_1…slot_m]`, without
+            // the names; the `m` slots hold `Ref` globals that the collector reads
+            // as roots (`gc_roots.rs`, `dartforge_globals_area`).
             let n = self.slot_hashes.len() as i64;
+            let mut items = vec![
+                format!("i64 {}", slot_hash(&key)),
+                format!("i64 {}", -n),
+                format!("i64 {}", self.rooted_slots.len()),
+            ];
+            items.extend(self.rooted_slots.iter().map(|s| format!("i64 {s}")));
             writeln!(
                 self.out,
-                "@df.area = private unnamed_addr constant [2 x i64] [i64 {}, i64 {}]",
-                slot_hash(&key),
-                -n
+                "@df.area = private unnamed_addr constant [{} x i64] [{}]",
+                items.len(),
+                items.join(", ")
             )
             .unwrap();
             return;
@@ -3588,6 +3612,7 @@ impl<'a> LlvmEmitter<'a> {
                         | Instruction::Const(Constant::String(_) | Constant::StringWtf8(_))
                 ) || Self::rti_evaluate_cached(i)
                     || Self::rti_test_cached(i)
+                    || Self::rti_set_cached_shape(i)
             })
         })
     }
@@ -3615,6 +3640,98 @@ impl<'a> LlvmEmitter<'a> {
                 std::env::var_os("DARTFORGE_NO_RTI_CACHE")
                     .is_some_and(|v| !v.is_empty() && v != "0")
             })
+    }
+
+    /// `dartforge_rti_set` with a cache at the use site
+    /// ([`Self::emit_rti_set_cached`]): tracing memory, shadow roots, not
+    /// under `DARTFORGE_EFFECTS=check` nor `DARTFORGE_NO_RTI_CACHE=1`.
+    fn rti_set_cached(&self, i: &Instruction) -> bool {
+        !self.maps && !self.module.arc_memory && Self::rti_set_cached_shape(i)
+    }
+
+    /// The shape of [`Self::rti_set_cached`], without the emitter options (the
+    /// functions that use the area are decided before them).
+    fn rti_set_cached_shape(i: &Instruction) -> bool {
+        static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        matches!(i, Instruction::CallRuntime { name, args, .. }
+            if name == "dartforge_rti_set" && args.len() == 2)
+            && !externs::check_effects()
+            && !*OFF.get_or_init(|| {
+                std::env::var_os("DARTFORGE_NO_RTI_CACHE")
+                    .is_some_and(|v| !v.is_empty() && v != "0")
+            })
+    }
+
+    /// The reified type of a new object stored through the cache of the use
+    /// site: two words of the area keep `class << 32 | type` and the metadata
+    /// the runtime stored for that pair (`dartforge_rti_set_cache`, which fills
+    /// them only for objects that are neither image statics nor lists). An
+    /// object of the space, not `PERMANENT`, whose class and requested type
+    /// match gets the metadata with one store; a value that is not an object
+    /// needs nothing (the runtime returns at once); the rest calls the runtime.
+    fn emit_rti_set_cached(&mut self, v: u32, args: &[(Operand, Type)]) {
+        let obj = self.coerce(&args[0].0, Type::I64);
+        let ty = self.coerce(&args[1].0, Type::I64);
+        let slot = self.cache_slot();
+        let state = layout::offsets::STATE as i64 - layout::HANDLE_OFFSET;
+        let class = layout::offsets::CLASS as i64 - layout::HANDLE_OFFSET;
+        let metadata = layout::offsets::METADATA as i64 - layout::HANDLE_OFFSET;
+        let permanent = layout::state::PERMANENT;
+        let o = &mut self.out;
+        writeln!(o, "  %rs{v}c = getelementptr i64, ptr %area, i64 {slot}").unwrap();
+        writeln!(o, "  %rs{v}m = and i64 {obj}, {OBJECT_MASK}").unwrap();
+        writeln!(o, "  %rs{v}o = icmp eq i64 %rs{v}m, 2").unwrap();
+        writeln!(o, "  br i1 %rs{v}o, label %rs{v}.obj, label %rs{v}.fim").unwrap();
+        writeln!(o, "rs{v}.obj:").unwrap();
+        writeln!(o, "  %rs{v}p = inttoptr i64 {obj} to ptr").unwrap();
+        writeln!(
+            o,
+            "  %rs{v}sp = getelementptr inbounds i8, ptr %rs{v}p, i64 {state}"
+        )
+        .unwrap();
+        writeln!(o, "  %rs{v}s = load i8, ptr %rs{v}sp, align 1").unwrap();
+        writeln!(
+            o,
+            "  %rs{v}cp = getelementptr inbounds i8, ptr %rs{v}p, i64 {class}"
+        )
+        .unwrap();
+        writeln!(o, "  %rs{v}cl = load i32, ptr %rs{v}cp, align 4").unwrap();
+        writeln!(o, "  %rs{v}cz = zext i32 %rs{v}cl to i64").unwrap();
+        writeln!(o, "  %rs{v}ch = shl i64 %rs{v}cz, 32").unwrap();
+        writeln!(o, "  %rs{v}k = or i64 %rs{v}ch, {ty}").unwrap();
+        writeln!(o, "  %rs{v}k0 = load i64, ptr %rs{v}c, align 8").unwrap();
+        writeln!(o, "  %rs{v}eq = icmp eq i64 %rs{v}k0, %rs{v}k").unwrap();
+        writeln!(o, "  %rs{v}np = icmp ne i8 %rs{v}s, {permanent}").unwrap();
+        writeln!(o, "  %rs{v}ok = and i1 %rs{v}eq, %rs{v}np").unwrap();
+        writeln!(
+            o,
+            "  br i1 %rs{v}ok, label %rs{v}.acerto, label %rs{v}.lenta"
+        )
+        .unwrap();
+        writeln!(o, "rs{v}.acerto:").unwrap();
+        writeln!(
+            o,
+            "  %rs{v}rp = getelementptr inbounds i64, ptr %rs{v}c, i64 1"
+        )
+        .unwrap();
+        writeln!(o, "  %rs{v}r = load i64, ptr %rs{v}rp, align 8").unwrap();
+        writeln!(o, "  %rs{v}rt = trunc i64 %rs{v}r to i32").unwrap();
+        writeln!(
+            o,
+            "  %rs{v}mp = getelementptr inbounds i8, ptr %rs{v}p, i64 {metadata}"
+        )
+        .unwrap();
+        writeln!(o, "  store i32 %rs{v}rt, ptr %rs{v}mp, align 4").unwrap();
+        writeln!(o, "  br label %rs{v}.fim").unwrap();
+        writeln!(o, "rs{v}.lenta:").unwrap();
+        writeln!(
+            o,
+            "  call void @dartforge_rti_set_cache(ptr %rs{v}c, i64 {obj}, i64 {ty})"
+        )
+        .unwrap();
+        writeln!(o, "  br label %rs{v}.fim").unwrap();
+        writeln!(o, "rs{v}.fim:").unwrap();
+        self.current_label = format!("rs{v}.fim");
     }
 
     /// `dartforge_rti_e` (`v is T`) with a cache at the use site
@@ -3775,6 +3892,14 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     /// The address of the slot of a global, in `%ga<v>`.
+    /// Whether the `Ref` globals of the module are rooted by their slots (the
+    /// lean area of production under tracing memory) rather than by
+    /// `dartforge_gc_global_root` on each store. ARC keeps the registration:
+    /// the global registry is also its record of ownership.
+    fn slots_are_roots(&self) -> bool {
+        self.lean_area && !self.module.arc_memory
+    }
+
     fn global_address(&mut self, v: u32, sym_name: &str) {
         let slot = *self.global_slots.get(sym_name).unwrap_or_else(|| {
             panic!("compiler bug: global @{sym_name} without a slot in the area")

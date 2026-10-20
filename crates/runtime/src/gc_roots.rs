@@ -244,6 +244,20 @@ struct GlobalsArea {
     slots: Vec<i64>,
 }
 
+impl Drop for GlobalsArea {
+    /// The collector must not read the slots of a freed area: forget them (the
+    /// heap of the thread may already be gone at thread exit, then nothing
+    /// collects anymore).
+    fn drop(&mut self) {
+        let p = self.slots.as_ptr();
+        let _ = HEAP.try_with(|heap| {
+            if let Ok(mut heap) = heap.try_borrow_mut() {
+                heap.forget_area_roots(p);
+            }
+        });
+    }
+}
+
 thread_local! {
     static AREAS: RefCell<Vec<GlobalsArea>> = const { RefCell::new(Vec::new()) };
     /// The allocations that stopped being an area's (see above).
@@ -342,12 +356,16 @@ pub unsafe extern "C" fn dartforge_globals_area(descriptor: *const i64) -> *mut 
     // SAFETY: guaranteed by the caller. The lean descriptor of the production
     // executable (`[key, -n]`, without the names) does not reload: n zeroed slots,
     // without names and without slack.
-    let (key, names, lean) = unsafe {
+    // The lean descriptor also lists the `Ref` slots, `[key, -n, m, slot…]`:
+    // the collector reads them as roots (`Heap::register_area_roots`).
+    let (key, names, lean, ref_slots) = unsafe {
         let raw = *descriptor.add(1);
         if raw < 0 {
-            (*descriptor, &[][..], Some(raw.unsigned_abs() as usize))
+            let m = usize::try_from(*descriptor.add(2)).unwrap_or(0);
+            let slots = std::slice::from_raw_parts(descriptor.add(3), m);
+            (*descriptor, &[][..], Some(raw.unsigned_abs() as usize), slots)
         } else {
-            (*descriptor, std::slice::from_raw_parts(descriptor.add(2), raw as usize), None)
+            (*descriptor, std::slice::from_raw_parts(descriptor.add(2), raw as usize), None, &[][..])
         }
     };
     let p = AREAS.with(|areas| {
@@ -357,7 +375,16 @@ pub unsafe extern "C" fn dartforge_globals_area(descriptor: *const i64) -> *mut 
         }
         if let Some(n) = lean {
             areas.push(GlobalsArea { descriptors: vec![d], key, names: Vec::new(), slots: vec![0; n] });
-            return areas.last_mut().expect("just pushed").slots.as_mut_ptr();
+            let p = areas.last_mut().expect("just pushed").slots.as_mut_ptr();
+            let refs: Vec<u32> = ref_slots
+                .iter()
+                .filter_map(|&s| u32::try_from(s).ok().filter(|&s| (s as usize) < n))
+                .collect();
+            // SAFETY: a lean area never grows nor moves (no reload): its slots
+            // live until the thread's areas drop, which forgets them first
+            // (`AreaRootsGuard`).
+            HEAP.with(|heap| unsafe { heap.borrow_mut().register_area_roots(p, &refs) });
+            return p;
         }
         if let Some(i) = areas.iter().position(|a| a.key == key) {
             let a = &mut areas[i];
@@ -373,10 +400,10 @@ pub unsafe extern "C" fn dartforge_globals_area(descriptor: *const i64) -> *mut 
                 a.descriptors.push(d);
                 return a.slots.as_mut_ptr();
             }
-            let old_value = areas.remove(i);
+            let mut old_value = areas.remove(i);
             let mut new_area = GlobalsArea { descriptors: vec![d], key, names: names.to_vec(), slots: new_slots(names.len()) };
             migrate_area(&old_value, &mut new_area);
-            RETIRED_AREAS.with(|x| x.borrow_mut().push(old_value.slots));
+            RETIRED_AREAS.with(|x| x.borrow_mut().push(std::mem::take(&mut old_value.slots)));
             areas.push(new_area);
             forget_area_table();
         } else {

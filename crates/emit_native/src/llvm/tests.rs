@@ -2225,3 +2225,47 @@ fn calls_to_non_collecting_functions_are_not_collection_points() {
     let reloadable = LlvmEmitter::new(&m).emit_all();
     assert!(body_of(&reloadable, "walk").contains("%gcq = alloca"));
 }
+
+/// In the lean area of production a store into a `Ref` global is a plain
+/// `store`: the descriptor lists the slot and the collector reads it. With the
+/// full area (development, JIT) the store still registers the root.
+#[test]
+fn lean_area_lists_ref_slots_instead_of_registering_stores() {
+    let v0 = ValueId(0);
+    let f = function(
+        "keep",
+        vec![(v0, "x".to_string(), Type::Ref)],
+        Type::Void,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![(
+                ValueId(1),
+                Instruction::StoreGlobal {
+                    symbol: "dfg.kept".into(),
+                    val: Operand::Val(v0),
+                    ty: Type::Ref,
+                    root: Some(0),
+                },
+                Type::Void,
+            )],
+            terminator: Terminator::Return(None),
+        }],
+    );
+    let mut m = Module::new();
+    m.globals.push((0, Type::Ref, "dfg.kept".into()));
+    m.functions.push(f);
+    let lean = LlvmEmitter::new(&m).with_lean_area(true).emit_all();
+    assert!(!body_of(&lean, "keep").contains("dartforge_gc_global_root"));
+    let descriptor = lean
+        .lines()
+        .find(|l| l.starts_with("@df.area = "))
+        .expect("area descriptor");
+    let slot = descriptor
+        .rsplit("i64 ")
+        .next()
+        .and_then(|s| s.trim_end_matches(']').parse::<i64>().ok());
+    assert!(descriptor.contains("[4 x i64]"), "{descriptor}");
+    assert!(slot.is_some_and(|s| s >= 0), "{descriptor}");
+    let full = LlvmEmitter::new(&m).emit_all();
+    assert!(body_of(&full, "keep").contains("dartforge_gc_global_root"));
+}

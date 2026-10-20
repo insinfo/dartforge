@@ -219,6 +219,11 @@ fn actual_format_widened_booleans_preserve_all_eight_checked_return_rewrites() {
         let entry = temporary.path().join("main.dart");
         std::fs::write(&entry, "import 'format.dart'; void main() { print(convertFormatValue(1, Format.uint2, Format.float32)); }").unwrap();
         with_entry_context(&entry, None, |ctx| {
+            // The checked round trip alone: the primitive multiply and clamp
+            // (on by default) lower the same operators into guarded paths with
+            // boxes of their own.
+            ctx.primitive_multiply_enabled = false;
+            ctx.primitive_clamp_enabled = false;
             let mut module = crate::lower::lower_program(ctx);
             assert!(module.errors.is_empty(), "{:?}", module.errors);
             assert!(!module.sdk_library);

@@ -1767,6 +1767,10 @@ pub struct Heap {
     /// Current value of each `Ref` global of the program (top-level variable or
     /// static field), by id: permanent roots (N6/G6 of the contract).
     globals: crate::hash::HashMap<i64, i64>,
+    /// The `Ref` slots of the lean globals areas of this isolate (production):
+    /// the start of each area and the indices of its `Ref` slots. The
+    /// collector reads them as roots ([`Heap::register_area_roots`]).
+    area_roots: Vec<(*const i64, Box<[u32]>)>,
     /// Roots that live in the runtime and not in a frame (G6): the pending exception
     /// and the current stack trace. 0 = none.
     runtime_roots: [i64; 2],
@@ -1976,6 +1980,7 @@ impl Heap {
             gc_disabled: std::env::var("DARTFORGE_GC_OFF").as_deref() == Ok("1"),
             collection_deferred: 0,
             globals: crate::hash::HashMap::default(),
+            area_roots: Vec::new(),
             runtime_roots: [0, 0],
             message_owners: crate::hash::HashMap::default(),
             next_message_owner: 0,
@@ -3761,6 +3766,27 @@ impl Heap {
         }
     }
 
+    /// Registers the `Ref` slots `slots` of the globals area that starts at
+    /// `area` as roots: each collection reads the current value of every one
+    /// (null and `Smi` are skipped). The generated code then stores into those
+    /// slots without telling the runtime (the lean area of production).
+    ///
+    /// # Safety
+    /// `area` has every index of `slots` and stays allocated, at the same
+    /// address, until [`Heap::forget_area_roots`] for it.
+    #[allow(unsafe_code)]
+    pub unsafe fn register_area_roots(&mut self, area: *const i64, slots: &[u32]) {
+        if slots.is_empty() || self.area_roots.iter().any(|(a, _)| *a == area) {
+            return;
+        }
+        self.area_roots.push((area, slots.into()));
+    }
+
+    /// Drops the registration of the area that starts at `area`.
+    pub fn forget_area_roots(&mut self, area: *const i64) {
+        self.area_roots.retain(|(a, _)| *a != area);
+    }
+
     /// Enters (`true`) or leaves (`false`) a region where allocations never
     /// collect. The stack overflow handler builds its error inside one
     /// (`gc_roots.rs`, `dartforge_stack_overflow`): the overflow happens in the
@@ -3783,7 +3809,18 @@ impl Heap {
     /// Pushes the roots into `dest`: the runtime's permanent ones, the
     /// globals, the ready finalizations and the frames (the runtime's and the
     /// generated code's shadow stack).
+    #[allow(unsafe_code)]
     fn root_list(&self, dest: &mut Vec<i64>) {
+        for (area, slots) in &self.area_roots {
+            for &slot in slots.iter() {
+                // SAFETY: `register_area_roots`: the area outlives its
+                // registration and has the slot.
+                let value = unsafe { area.add(slot as usize).read() };
+                if smi::e_handle(value) {
+                    dest.push(value);
+                }
+            }
+        }
         dest.extend(self.message_owners.values().copied());
         dest.extend(self.code_owners.keys().copied());
         dest.extend(self.enum_values.values().copied());
@@ -5810,6 +5847,31 @@ mod unified_space {
         let mut h = Heap::new(false);
         h.verify = true;
         h
+    }
+
+    /// A registered `Ref` slot of a globals area keeps its object alive and
+    /// follows a later store into the slot; null and `Smi` are skipped; a
+    /// forgotten area roots nothing.
+    #[test]
+    #[allow(unsafe_code)]
+    fn area_root_slots_are_read_at_each_collection() {
+        let mut heap = heap();
+        let first = list(&mut heap, 1);
+        let second = list(&mut heap, 2);
+        let mut area: Vec<i64> = vec![first, 7 << 1 | 1, 0];
+        // SAFETY: `area` lives until the end of the test and has the slots.
+        unsafe { heap.register_area_roots(area.as_ptr(), &[0, 1, 2]) };
+        heap.collect();
+        assert!(heap.is_live_object(first));
+        assert!(!heap.is_live_object(second));
+        let third = list(&mut heap, 3);
+        area[0] = third;
+        heap.collect();
+        assert!(heap.is_live_object(third));
+        assert!(!heap.is_live_object(first));
+        heap.forget_area_roots(area.as_ptr());
+        heap.collect();
+        assert!(!heap.is_live_object(third));
     }
 
     /// A general `_List` (`REFS`) of `len` null elements, with cards if large.

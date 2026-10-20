@@ -1502,6 +1502,16 @@ pub const EXTERNS: &[Extern] = &[
         },
     },
     Extern {
+        decl: "declare void @dartforge_rti_set_cache(ptr, i64, i64)",
+        // Interns IDs and may reformat the list with boxes/GC, without throwing a
+        // Dart exception nor running Dart getters/callbacks.
+        effects: Effects {
+            allocates: true,
+            throws: false,
+            calls_dart: false,
+        },
+    },
+    Extern {
         decl: "declare void @dartforge_rti_named_record(i64, i64, i64)",
         effects: Effects {
             allocates: true,
