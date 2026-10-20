@@ -1,0 +1,132 @@
+[
+  {
+    "file": "README.md",
+    "bytes": 5000,
+    "sha256": "33bc207ccc506eb995e86f2dbe3481e7a18d08f23f51dff3159c10792deee767"
+  },
+  {
+    "file": "artifact-bindings.json",
+    "bytes": 1286,
+    "sha256": "1e912c190bbed5f8388a0b4afac7ed630856007a2d7074357c25eed07880a4d4"
+  },
+  {
+    "file": "checks.json",
+    "bytes": 1584,
+    "sha256": "d04cbe5a39f184645b0ef3f63807e0c94c1b4c7a4dd099ef623af38a86c93619"
+  },
+  {
+    "file": "clippy.log",
+    "bytes": 376,
+    "sha256": "506ad9739222209d53d4aee6cad91df966827bcb13f54292a5d54f9c64e4ead0"
+  },
+  {
+    "file": "directed.log",
+    "bytes": 3577,
+    "sha256": "b1917a51897a2a94242b0f74b96706501396cb2096865a5ae4aba6075ab7cbb7"
+  },
+  {
+    "file": "doc.log",
+    "bytes": 1106,
+    "sha256": "8acc509cd26ef393d52ef76e4edd30ebcd70fd876fdc2a7937b822e14422478d"
+  },
+  {
+    "file": "explorer-command.json",
+    "bytes": 488,
+    "sha256": "f343cfcfbe937257a7f71cd86012184cdd44645fb9e69995ccb62e371a7001e6"
+  },
+  {
+    "file": "explorer.json",
+    "bytes": 1257,
+    "sha256": "f2065e80e5d67f315af5809bbafd70c4f214838d4744cf64c805f7c927cb6d68"
+  },
+  {
+    "file": "explorer.stderr",
+    "bytes": 1,
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+  },
+  {
+    "file": "feature-clippy.log",
+    "bytes": 397,
+    "sha256": "fa828aef21eaa3b0941551b9f2754144d75b3caa564459144866afaa97852c9b"
+  },
+  {
+    "file": "fmt-excerpt.log",
+    "bytes": 6166,
+    "sha256": "b72814a0f65e5a5539705b89cf410a7e053928a67c578bf29f4102975febdb76"
+  },
+  {
+    "file": "format-checks.json",
+    "bytes": 809,
+    "sha256": "b6f3bfef80c35ecf95968b45b8f77c3839159d9cca52b89899ea670fa9044c70"
+  },
+  {
+    "file": "image-doc.log",
+    "bytes": 520,
+    "sha256": "2d80a715b81bc90c65d21ed7e0fc1b6f11bcc8ec00896194a23bd9fd810310ff"
+  },
+  {
+    "file": "initial-checks.json",
+    "bytes": 482,
+    "sha256": "91f39372c45000255d5eec90b165c620d5eef77be196d25baa185cdcbdd443b9"
+  },
+  {
+    "file": "initial-clippy.log",
+    "bytes": 2059,
+    "sha256": "9a32a438139e059b5c73d7ee211edbc767b970f39a2d02edea9f6aedeaa2c7c9"
+  },
+  {
+    "file": "initial-directed.log",
+    "bytes": 3826,
+    "sha256": "fc9fa3c090065278963218742253bab671bc3ceb335b1aa132250bdcf6e849f6"
+  },
+  {
+    "file": "initial-status.json",
+    "bytes": 320,
+    "sha256": "994d9de899a65e93b787deccffd1cd438c73ae7dd22b3c9fd6974f350c02fb6a"
+  },
+  {
+    "file": "inspector.log",
+    "bytes": 179,
+    "sha256": "aa244db2279c532ca72d358d18cf50ad39ca4b5daba9ecd0bf4249b1666f3562"
+  },
+  {
+    "file": "linked-fixtures.json",
+    "bytes": 4905,
+    "sha256": "3a433deaae12db06acc844ef4d811ece71edf46c20e8b58898b295944d6cd92e"
+  },
+  {
+    "file": "log-bindings.json",
+    "bytes": 6422,
+    "sha256": "35275714aaf6d7d3b1bad7c0aba0c42662073fec70e5c816fd165aeb62d0c92a"
+  },
+  {
+    "file": "missing-linker-initial.log",
+    "bytes": 3213,
+    "sha256": "921800865f664438e6371b652d93eca764c4a0da48cd7d7a401129259316e336"
+  },
+  {
+    "file": "native-lib.log",
+    "bytes": 102921,
+    "sha256": "ccc526073fd56e59228fcc198f08d3e338caae635e1f7158a1df2222456eee18"
+  },
+  {
+    "file": "pointers.c",
+    "bytes": 16988,
+    "sha256": "b41908119f4627914479707827f8c394728fcc21134092332910ee68042ebdbf"
+  },
+  {
+    "file": "retain-linked-fixtures.py",
+    "bytes": 1748,
+    "sha256": "e39369ad1cd78a6b26250a1c0b29f3026ca290ceaf39e3abb8d776e668a8c2e0"
+  },
+  {
+    "file": "source-bindings.json",
+    "bytes": 632,
+    "sha256": "f73eb71e471b311fee1d9a26865c562db7c8e54d2d3929c027434122f847d65c"
+  },
+  {
+    "file": "validate-checks.py",
+    "bytes": 1985,
+    "sha256": "e14ba0061d766615fc0e73c0f5d6787d02979ccd725540e4152ce1bc8ef8d419"
+  }
+]

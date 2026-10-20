@@ -1,0 +1,37 @@
+[
+  {
+    "path": "target/desktop-matrix/cross-windows-x64/explorer.exe",
+    "bytes": 37394944,
+    "sha256": "c6e117a3db66dbe73c040f38718bdb43ddc7e37fdbaf03a4f6ed9701acd993ff"
+  },
+  {
+    "path": "target/string-length-validation/debug/examples/inspect_linked_images",
+    "bytes": 3128728,
+    "sha256": "c6ed6f739777bc296b05d4c2f676630525c6adbd6a0ae721438d74a441ce0b2c"
+  },
+  {
+    "path": "target/pe-relocation-validation/aarch64-pc-windows-msvc.exe",
+    "bytes": 23552,
+    "sha256": "a28b41a8f7783d741f222d5521cbedd433de63aaff50ede1ae899463493e8d4f"
+  },
+  {
+    "path": "target/pe-relocation-validation/aarch64-pc-windows-msvc.obj",
+    "bytes": 38612,
+    "sha256": "cf7d56286c0df5eac6d044379e1d0ae7c9950908afad536984ef11533fb31c31"
+  },
+  {
+    "path": "target/pe-relocation-validation/pointers.c",
+    "bytes": 16988,
+    "sha256": "b41908119f4627914479707827f8c394728fcc21134092332910ee68042ebdbf"
+  },
+  {
+    "path": "target/pe-relocation-validation/x86_64-pc-windows-msvc.exe",
+    "bytes": 23552,
+    "sha256": "ce143b55739f03bd89cbb31c6f0b06b2366ece6bb0b4ff06c1b3acaa6ceee2a8"
+  },
+  {
+    "path": "target/pe-relocation-validation/x86_64-pc-windows-msvc.obj",
+    "bytes": 38598,
+    "sha256": "a8c73bd459aa376c0f41df5d4f9f3a9910a88346472f824ea898c2ee53e742f1"
+  }
+]

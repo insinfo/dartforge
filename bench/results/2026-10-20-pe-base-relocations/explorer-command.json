@@ -1,0 +1,11 @@
+{
+  "command": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/examples/inspect_linked_images",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/desktop-matrix/cross-windows-x64/explorer.exe"
+  ],
+  "exit": 0,
+  "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/desktop-matrix/cross-windows-x64/explorer.exe",
+  "bytes": 37394944,
+  "sha256": "c6e117a3db66dbe73c040f38718bdb43ddc7e37fdbaf03a4f6ed9701acd993ff",
+  "executed": false
+}

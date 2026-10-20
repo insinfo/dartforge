@@ -1,0 +1,81 @@
+[
+  {
+    "command": [
+      "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+      "-target",
+      "x86_64-pc-windows-msvc",
+      "-c",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pe-relocation-validation/pointers.c",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pe-relocation-validation/x86_64-pc-windows-msvc.obj"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/lld-link",
+      "/entry:entry",
+      "/subsystem:console",
+      "/nodefaultlib",
+      "/dynamicbase",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pe-relocation-validation/x86_64-pc-windows-msvc.obj",
+      "/out:/Volumes/ssd_dock/MyRustProjects/dartforge/target/pe-relocation-validation/x86_64-pc-windows-msvc.exe"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/examples/inspect_linked_images",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pe-relocation-validation/x86_64-pc-windows-msvc.exe"
+    ],
+    "exit": 0,
+    "stdout": "{\"architecture\":\"X86_64\",\"bytes\":23552,\"digest\":\"1131cc57de27e2ae4fca1a7cc13344cf3b2acc18854cc2fb877251978ad37f11\",\"format\":\"Pe\",\"loader_memory_verified\":false,\"macho_relocations\":null,\"path\":\"/Volumes/ssd_dock/MyRustProjects/dartforge/target/pe-relocation-validation/x86_64-pc-windows-msvc.exe\",\"pe_relocations\":{\"blocks\":5,\"coff_characteristics\":34,\"dll_characteristics\":33120,\"entries\":2100,\"image_bytes\":40960,\"image_digest\":\"1131cc57de27e2ae4fca1a7cc13344cf3b2acc18854cc2fb877251978ad37f11\",\"managed_address\":5368737792,\"managed_bytes\":24,\"managed_characteristics\":1073741888,\"other_directories\":[],\"overlap_examples\":[],\"overlapping_writes\":0,\"padding_entries\":0,\"potential_writes\":2100,\"preferred_base\":5368709120,\"table_address\":32768,\"table_bytes\":4240,\"table_digest\":\"0d134578351408a256906c235b80d128d03e5885df16f68c38958b17ffe80234\",\"types\":{\"10\":2100}},\"relocations\":null,\"string_classes\":{\"6\":1},\"string_section_bytes\":24,\"string_section_digest\":\"095ce601bf3d363f595d34f122c4c1df46caba76c0c450e17375f04e57135660\",\"strings\":1}\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+      "-target",
+      "aarch64-pc-windows-msvc",
+      "-c",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pe-relocation-validation/pointers.c",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pe-relocation-validation/aarch64-pc-windows-msvc.obj"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/lld-link",
+      "/entry:entry",
+      "/subsystem:console",
+      "/nodefaultlib",
+      "/dynamicbase",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pe-relocation-validation/aarch64-pc-windows-msvc.obj",
+      "/out:/Volumes/ssd_dock/MyRustProjects/dartforge/target/pe-relocation-validation/aarch64-pc-windows-msvc.exe"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/examples/inspect_linked_images",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pe-relocation-validation/aarch64-pc-windows-msvc.exe"
+    ],
+    "exit": 0,
+    "stdout": "{\"architecture\":\"Aarch64\",\"bytes\":23552,\"digest\":\"9b7cdb42ef760050d80918979eaa673f9cd0931d5867886fa5e3af70ed574bd3\",\"format\":\"Pe\",\"loader_memory_verified\":false,\"macho_relocations\":null,\"path\":\"/Volumes/ssd_dock/MyRustProjects/dartforge/target/pe-relocation-validation/aarch64-pc-windows-msvc.exe\",\"pe_relocations\":{\"blocks\":5,\"coff_characteristics\":34,\"dll_characteristics\":33120,\"entries\":2100,\"image_bytes\":40960,\"image_digest\":\"9b7cdb42ef760050d80918979eaa673f9cd0931d5867886fa5e3af70ed574bd3\",\"managed_address\":5368737792,\"managed_bytes\":24,\"managed_characteristics\":1073741888,\"other_directories\":[],\"overlap_examples\":[],\"overlapping_writes\":0,\"padding_entries\":0,\"potential_writes\":2100,\"preferred_base\":5368709120,\"table_address\":32768,\"table_bytes\":4240,\"table_digest\":\"0d134578351408a256906c235b80d128d03e5885df16f68c38958b17ffe80234\",\"types\":{\"10\":2100}},\"relocations\":null,\"string_classes\":{\"6\":1},\"string_section_bytes\":24,\"string_section_digest\":\"095ce601bf3d363f595d34f122c4c1df46caba76c0c450e17375f04e57135660\",\"strings\":1}\n",
+    "stderr": ""
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pe-relocation-validation/pointers.c",
+    "source_sha256": "b41908119f4627914479707827f8c394728fcc21134092332910ee68042ebdbf",
+    "executed": false
+  }
+]

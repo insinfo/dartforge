@@ -5,6 +5,22 @@ métodos montadas na ligação") e dos itens 1 e 4 de §4 (teste de ausência de
 "por que isto ficou"). Escrita em 2026-09-30 sobre `0ae614d8`. `EN/` é
 `crates/emit_native/src/`, `RT/` é `crates/runtime/src/`, `VM/` é `E:\references\dart-sdk\`.
 
+## Atualização de 20/10/2026: relocações de base PE
+
+A inspeção de imagens agora lê o diretório de relocações de base PE32+ em
+Windows x64/ARM64, sem depender do nome da seção. Confere mapeamentos, blocos e
+spans de escrita HIGHLOW/DIR64; entradas ABSOLUTE são preenchimento. Escritas
+sobre cabeçalhos ou a própria tabela, tipos desconhecidos e mapeamentos ambíguos
+são recusados. Os outros diretórios do loader permanecem observações abertas.
+
+Imagens recém-ligadas das duas arquiteturas tiveram 2.100 escritas DIR64 em
+cinco blocos, sem atingir strings. No explorador Windows preservado, as 51.190
+escritas declaradas não sobrepõem os 871.040 bytes de strings estáticas. Nenhum
+arquivo foi executado nesta inspeção. Imports/TLS/configuração do loader,
+inicializadores nativos, marcadores e limites realmente registrados ainda não
+estão provados; a inicialização do SDK e a poda de backends continuam pendentes.
+[Evidências](../bench/results/2026-10-20-pe-base-relocations/README.md).
+
 ## Atualização de 20/10/2026: ordem de visita da dominância
 
 A validação estrutural reutiliza uma travessia iterativa em ordem reversa de

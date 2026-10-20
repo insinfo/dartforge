@@ -1,6 +1,7 @@
 //! Read back final managed string sections, without certifying loader fixups.
 pub mod elf_relocations;
 pub mod macho_relocations;
+pub mod pe_relocations;
 
 use crate::pruning::allocation_inventory::images::validate_storage;
 use dartforge_runtime::layout::cid;

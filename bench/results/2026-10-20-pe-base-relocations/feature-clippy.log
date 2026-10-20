@@ -1,0 +1,7 @@
+    Checking ring v0.17.14
+    Checking flate2 v1.1.10
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Checking rustls-webpki v0.103.15
+    Checking rustls v0.23.45
+    Checking dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.30s

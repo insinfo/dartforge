@@ -2,6 +2,23 @@
 
 ## Atualização de 20/10/2026
 
+- A auditoria de imagens cobre agora as relocações de base PE32+ de Windows
+  x64/ARM64: lê o diretório real, confere mapeamentos, blocos e spans completos
+  HIGHLOW/DIR64, conta preenchimento ABSOLUTE e recusa formatos desconhecidos,
+  tabelas parciais e escritas no próprio controle. Nove testes novos passaram;
+  imagens das duas arquiteturas com 2.100 ponteiros tiveram cinco blocos e
+  nenhuma escrita sobre strings. O explorador Windows preservado teve 51.190
+  escritas declaradas, sem sobrepor os 871.040 bytes de strings estáticas.
+  Arquivos foram inspecionados, sem execução. Passaram os 975 testes nativos
+  com ignorados, Clippy estrito, docs sem avisos e o exemplo de documentação.
+  A primeira rodada não encontrou `lld-link` no PATH; uma rejeição posterior
+  do Clippy foi corrigida, com logs preservados e validação completa repetida.
+  Imports/TLS/configuração do loader, inicializadores, marcadores e limites
+  publicados ainda não estão provados. A alteração não autoriza registro/poda,
+  não corrige a ausência dos backends nem o fmt global e não demonstra ganho
+  de desempenho ou aprovação integral. Evidências:
+  `bench/results/2026-10-20-pe-base-relocations/README.md`.
+
 - O ponto fixo FFI de `prune_hir` reutiliza os fatos imutáveis dos corpos e
   tabelas, substituindo apenas a entrada e seus nomes exclusivos por rodada.
   O empréstimo do módulo impede mutações durante o reuso e termina antes das

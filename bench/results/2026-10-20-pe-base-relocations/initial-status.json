@@ -1,0 +1,16 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "dartforge-emit-native",
+    "--lib",
+    "linked_images::pe_relocations",
+    "--",
+    "--include-ignored",
+    "--nocapture"
+  ],
+  "exit": 101,
+  "note": "Initial run omitted LLVM bin from PATH: lld-link not found; eight other tests passed."
+}

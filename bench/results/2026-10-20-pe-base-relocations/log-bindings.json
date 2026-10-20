@@ -1,0 +1,149 @@
+[
+  {
+    "source": "/tmp/forge-pe-checks/checks.json",
+    "stored": "checks.json",
+    "original_bytes": 1584,
+    "original_sha256": "d04cbe5a39f184645b0ef3f63807e0c94c1b4c7a4dd099ef623af38a86c93619",
+    "stored_sha256": "d04cbe5a39f184645b0ef3f63807e0c94c1b4c7a4dd099ef623af38a86c93619"
+  },
+  {
+    "source": "/tmp/forge-pe-checks/directed.log",
+    "stored": "directed.log",
+    "original_bytes": 3578,
+    "original_sha256": "cbc6b8ec953a08f37fcf8fed0841b655612a74d2dd85b1e04c949143adcec33c",
+    "stored_sha256": "b1917a51897a2a94242b0f74b96706501396cb2096865a5ae4aba6075ab7cbb7"
+  },
+  {
+    "source": "/tmp/forge-pe-checks/clippy.log",
+    "stored": "clippy.log",
+    "original_bytes": 376,
+    "original_sha256": "506ad9739222209d53d4aee6cad91df966827bcb13f54292a5d54f9c64e4ead0",
+    "stored_sha256": "506ad9739222209d53d4aee6cad91df966827bcb13f54292a5d54f9c64e4ead0"
+  },
+  {
+    "source": "/tmp/forge-pe-checks/feature-clippy.log",
+    "stored": "feature-clippy.log",
+    "original_bytes": 397,
+    "original_sha256": "fa828aef21eaa3b0941551b9f2754144d75b3caa564459144866afaa97852c9b",
+    "stored_sha256": "fa828aef21eaa3b0941551b9f2754144d75b3caa564459144866afaa97852c9b"
+  },
+  {
+    "source": "/tmp/forge-pe-checks/doc.log",
+    "stored": "doc.log",
+    "original_bytes": 1106,
+    "original_sha256": "8acc509cd26ef393d52ef76e4edd30ebcd70fd876fdc2a7937b822e14422478d",
+    "stored_sha256": "8acc509cd26ef393d52ef76e4edd30ebcd70fd876fdc2a7937b822e14422478d"
+  },
+  {
+    "source": "/tmp/forge-pe-checks/inspector.log",
+    "stored": "inspector.log",
+    "original_bytes": 179,
+    "original_sha256": "aa244db2279c532ca72d358d18cf50ad39ca4b5daba9ecd0bf4249b1666f3562",
+    "stored_sha256": "aa244db2279c532ca72d358d18cf50ad39ca4b5daba9ecd0bf4249b1666f3562"
+  },
+  {
+    "source": "/tmp/forge-pe-checks/image-doc.log",
+    "stored": "image-doc.log",
+    "original_bytes": 520,
+    "original_sha256": "2d80a715b81bc90c65d21ed7e0fc1b6f11bcc8ec00896194a23bd9fd810310ff",
+    "stored_sha256": "2d80a715b81bc90c65d21ed7e0fc1b6f11bcc8ec00896194a23bd9fd810310ff"
+  },
+  {
+    "source": "/tmp/forge-pe-checks/native-lib.log",
+    "stored": "native-lib.log",
+    "original_bytes": 102922,
+    "original_sha256": "f8ca25a5b3cab69d95e6c998f024b7670543a3b57899e9491c63054227c17c55",
+    "stored_sha256": "ccc526073fd56e59228fcc198f08d3e338caae635e1f7158a1df2222456eee18"
+  },
+  {
+    "source": "/tmp/forge-pe-checks/initial-clippy.log",
+    "stored": "initial-clippy.log",
+    "original_bytes": 2059,
+    "original_sha256": "9a32a438139e059b5c73d7ee211edbc767b970f39a2d02edea9f6aedeaa2c7c9",
+    "stored_sha256": "9a32a438139e059b5c73d7ee211edbc767b970f39a2d02edea9f6aedeaa2c7c9"
+  },
+  {
+    "source": "/tmp/forge-pe-checks/initial-checks.json",
+    "stored": "initial-checks.json",
+    "original_bytes": 482,
+    "original_sha256": "91f39372c45000255d5eec90b165c620d5eef77be196d25baa185cdcbdd443b9",
+    "stored_sha256": "91f39372c45000255d5eec90b165c620d5eef77be196d25baa185cdcbdd443b9"
+  },
+  {
+    "source": "/tmp/forge-pe-checks/initial-directed.log",
+    "stored": "initial-directed.log",
+    "original_bytes": 3827,
+    "original_sha256": "50236b668c8bccd3108289b24abe178ffae22deddd74feb1c3414c8972949b0a",
+    "stored_sha256": "fc9fa3c090065278963218742253bab671bc3ceb335b1aa132250bdcf6e849f6"
+  },
+  {
+    "source": "/tmp/forge-pe-checks/format-checks.json",
+    "stored": "format-checks.json",
+    "original_bytes": 809,
+    "original_sha256": "b6f3bfef80c35ecf95968b45b8f77c3839159d9cca52b89899ea670fa9044c70",
+    "stored_sha256": "b6f3bfef80c35ecf95968b45b8f77c3839159d9cca52b89899ea670fa9044c70"
+  },
+  {
+    "source": "/tmp/forge-pe-checks/explorer.json",
+    "stored": "explorer.json",
+    "original_bytes": 1257,
+    "original_sha256": "f2065e80e5d67f315af5809bbafd70c4f214838d4744cf64c805f7c927cb6d68",
+    "stored_sha256": "f2065e80e5d67f315af5809bbafd70c4f214838d4744cf64c805f7c927cb6d68"
+  },
+  {
+    "source": "/tmp/forge-pe-checks/explorer.stderr",
+    "stored": "explorer.stderr",
+    "original_bytes": 0,
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+  },
+  {
+    "source": "/tmp/forge-pe-checks/explorer-command.json",
+    "stored": "explorer-command.json",
+    "original_bytes": 488,
+    "original_sha256": "f343cfcfbe937257a7f71cd86012184cdd44645fb9e69995ccb62e371a7001e6",
+    "stored_sha256": "f343cfcfbe937257a7f71cd86012184cdd44645fb9e69995ccb62e371a7001e6"
+  },
+  {
+    "source": "/tmp/forge-pe-checks/linked-fixtures.json",
+    "stored": "linked-fixtures.json",
+    "original_bytes": 4905,
+    "original_sha256": "3a433deaae12db06acc844ef4d811ece71edf46c20e8b58898b295944d6cd92e",
+    "stored_sha256": "3a433deaae12db06acc844ef4d811ece71edf46c20e8b58898b295944d6cd92e"
+  },
+  {
+    "source": "/tmp/forge-pe-checks/retain-linked-fixtures.py",
+    "stored": "retain-linked-fixtures.py",
+    "original_bytes": 1748,
+    "original_sha256": "e39369ad1cd78a6b26250a1c0b29f3026ca290ceaf39e3abb8d776e668a8c2e0",
+    "stored_sha256": "e39369ad1cd78a6b26250a1c0b29f3026ca290ceaf39e3abb8d776e668a8c2e0"
+  },
+  {
+    "source": "/tmp/forge-pe-directed-initial.log",
+    "stored": "missing-linker-initial.log",
+    "original_bytes": 3213,
+    "original_sha256": "921800865f664438e6371b652d93eca764c4a0da48cd7d7a401129259316e336",
+    "stored_sha256": "921800865f664438e6371b652d93eca764c4a0da48cd7d7a401129259316e336"
+  },
+  {
+    "source": "/tmp/forge-pe-checks.py",
+    "stored": "validate-checks.py",
+    "original_bytes": 1985,
+    "original_sha256": "e14ba0061d766615fc0e73c0f5d6787d02979ccd725540e4152ce1bc8ef8d419",
+    "stored_sha256": "e14ba0061d766615fc0e73c0f5d6787d02979ccd725540e4152ce1bc8ef8d419"
+  },
+  {
+    "source": "/tmp/forge-pe-checks/fmt.log",
+    "stored": "fmt-excerpt.log",
+    "original_bytes": 15781201,
+    "original_sha256": "882b8aed2ae4d6cb1b20d5d9826ade160b83ad7fa350f6e2668cf0e64110f1cc",
+    "stored_sha256": "b72814a0f65e5a5539705b89cf410a7e053928a67c578bf29f4102975febdb76"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pe-relocation-validation/pointers.c",
+    "stored": "pointers.c",
+    "original_bytes": 16988,
+    "original_sha256": "b41908119f4627914479707827f8c394728fcc21134092332910ee68042ebdbf",
+    "stored_sha256": "b41908119f4627914479707827f8c394728fcc21134092332910ee68042ebdbf"
+  }
+]

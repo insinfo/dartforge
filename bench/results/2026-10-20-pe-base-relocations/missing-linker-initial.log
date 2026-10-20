@@ -1,0 +1,34 @@
+   Compiling ring v0.17.14
+   Compiling libz-sys v1.1.29
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+   Compiling rustls v0.23.45
+   Compiling dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+   Compiling flate2 v1.1.10
+   Compiling rustls-webpki v0.103.15
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 23s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 9 tests
+test linked_images::pe_relocations::tests::absent_base_relocations_do_not_certify_other_loader_effects ... ok
+test linked_images::pe_relocations::tests::directory_rvas_not_section_names_control_base_relocation_decoding ... ok
+test linked_images::pe_relocations::tests::repeated_writes_are_counted_and_examples_are_bounded ... ok
+test linked_images::pe_relocations::tests::self_modifying_control_unmapped_and_overflowing_targets_are_rejected ... ok
+test linked_images::pe_relocations::tests::ambiguous_mappings_and_inconsistent_headers_do_not_hide_writes ... ok
+test linked_images::pe_relocations::tests::complete_write_spans_and_half_open_edges_determine_overlap ... ok
+test linked_images::pe_relocations::tests::malformed_blocks_unknown_types_and_partial_directories_fail_closed ... ok
+
+thread 'linked_images::pe_relocations::tests::fresh_linked_pe_images_cover_multiple_blocks_and_preserve_string_bytes' (2686582) panicked at crates/emit_native/src/linked_images/pe_relocations/tests.rs:219:14:
+called `Result::unwrap()` on an `Err` value: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test linked_images::pe_relocations::tests::fresh_linked_pe_images_cover_multiple_blocks_and_preserve_string_bytes ... FAILED
+{"audit":{"blocks":256,"coff_characteristics":34,"dll_characteristics":33120,"entries":51318,"image_bytes":37412864,"image_digest":"50e55af979345e2d446588183df1decd9c503ebd7bc34c00749584d7e45d6cf2","managed_address":5405114368,"managed_bytes":871040,"managed_characteristics":1073741888,"other_directories":[{"address":35954924,"bytes":180,"index":1},{"address":36020224,"bytes":379872,"index":3},{"address":35954200,"bytes":40,"index":9},{"address":35956416,"bytes":1312,"index":12}],"overlap_examples":[],"overlapping_writes":0,"padding_entries":128,"potential_writes":51190,"preferred_base":5368709120,"table_address":37306368,"table_bytes":104684,"table_digest":"cece941600b10974030fcdd99582b995da4fbe5ba8c6d63135a848c2c92ce3e6","types":{"0":128,"10":51190}},"executed":false,"path":"/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/desktop-matrix/cross-windows-x64/explorer.exe"}
+test linked_images::pe_relocations::tests::recorded_explorer_declared_base_writes_do_not_overlap_managed_strings ... ok
+
+failures:
+
+failures:
+    linked_images::pe_relocations::tests::fresh_linked_pe_images_cover_multiple_blocks_and_preserve_string_bytes
+
+test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 966 filtered out; finished in 0.58s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

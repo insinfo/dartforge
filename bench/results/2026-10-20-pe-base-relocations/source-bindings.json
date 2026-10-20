@@ -1,0 +1,18 @@
+[
+  {
+    "path": "crates/emit_native/src/linked_images.rs",
+    "sha256": "d88d13db273e799b91e5d83c21667d3274bc65038e69d1f57eb0239934bceb9f"
+  },
+  {
+    "path": "crates/emit_native/src/linked_images/pe_relocations.rs",
+    "sha256": "5906e2242992267de78dd7e65591bde73bf3a29d1fd643ce817c21fea9752d00"
+  },
+  {
+    "path": "crates/emit_native/src/linked_images/pe_relocations/tests.rs",
+    "sha256": "266d233ec663904900564fa885750db9b7992cff4d432890df92c336db49a37d"
+  },
+  {
+    "path": "crates/emit_native/examples/inspect_linked_images.rs",
+    "sha256": "c1150d5a1b1075ec24be76d41a3d4fc90812dcc093847dc534c27be479654f06"
+  }
+]
