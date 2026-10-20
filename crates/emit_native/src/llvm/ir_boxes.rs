@@ -672,6 +672,38 @@ impl LlvmEmitter<'_> {
     /// runtime keeps the single handle, `Heap::tearoff`).
     pub(super) fn emit_tearoff(&mut self, v: u32, code_symbol: &str) {
         self.annotate_external(code_symbol, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
+        // The typed body of the function (`lower/closures.rs`,
+        // `typed_tearoff_body`), when the uniform entry of this module calls it:
+        // its ABI comes from its signature, the code `type_abi` gives the type.
+        let typed = code_symbol
+            .strip_suffix("$tear")
+            .map(|base| format!("{base}$tt"))
+            .and_then(|tt| self.function_by_symbol.get(tt.as_str()).map(|f| (tt, *f)))
+            .filter(|_| !self.module.arc_memory);
+        if let Some((tt, f)) = typed {
+            let digit = |t: Type| match t {
+                Type::I64 => 2,
+                Type::F64 => 3,
+                Type::I1 => 4,
+                _ => 1,
+            };
+            let mut abi: i64 = 1;
+            for t in f
+                .params
+                .iter()
+                .skip(1)
+                .map(|p| p.2)
+                .chain(std::iter::once(f.return_ty))
+            {
+                abi = abi * 5 + digit(t);
+            }
+            writeln!(
+                self.out,
+                "  %v{v} = call i64 @dartforge_tearoff_typed(i64 ptrtoint (ptr @{code_symbol} to i64), i64 ptrtoint (ptr @{tt} to i64), i64 {abi})"
+            )
+            .unwrap();
+            return;
+        }
         writeln!(
             self.out,
             "  %v{v} = call i64 @dartforge_tearoff(i64 ptrtoint (ptr @{code_symbol} to i64))"

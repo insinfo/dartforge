@@ -1232,12 +1232,37 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 .ctx
                 .symbol_name(self.ctx.program.functions[fid].name)
                 .to_string();
+            // The typed body `$tt` (`env, p0…) -> r`, in the representations of the
+            // function type): the canonical tear-off carries it (`llvm`,
+            // `emit_tearoff`), and a call through a function type with the same
+            // ABI skips the uniform entry, as with a closure.
+            let typed = self.typed_tearoff_body(fid, &target, &name);
             let mut e = FnBuilder::new(self.ctx, unit, symbol_ent.clone(), name, Type::Ref);
-            e.add_param("closure".to_string(), Type::Ref);
+            let closure = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
             let args = Operand::Val(e.add_param_vector(DartEntryVector::Arguments));
             let desc = Operand::Val(e.add_param_vector(DartEntryVector::Descriptor));
             e.declare_arc_uniform_return();
-            if let Some(vals) = e.unpack(&infos, args.clone(), desc.clone()) {
+            if let Some(vals) = e.unpack(&infos, args.clone(), desc.clone())
+                && let Some((symbol_tt, reprs, ret)) = &typed
+            {
+                // The checked entry calls the typed body (which keeps it alive in
+                // the pruning; the inliner joins them).
+                e.check_entry_arguments(fid, &vals);
+                let mut call_args = vec![closure];
+                for (v, &t) in vals.into_iter().zip(reprs) {
+                    call_args.push(e.coerce(v, t));
+                }
+                let r = e.emit_call_with_check(
+                    Instruction::CallStatic {
+                        symbol: symbol_tt.clone(),
+                        args: call_args,
+                        ret_ty: *ret,
+                    },
+                    *ret,
+                );
+                let r = e.coerce(r, Type::Ref);
+                e.terminate(Terminator::Return(Some(r)));
+            } else if let Some(vals) = e.unpack(&infos, args.clone(), desc.clone()) {
                 // The arguments of a dynamic call, checked as in the
                 // VM (" of 'name'") before being converted.
                 e.check_entry_arguments(fid, &vals);
@@ -1270,6 +1295,65 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // RTI: the signature of the function (`f is R Function(P)`).
         self.define_tearoff_rti(t.clone(), fid, None);
         t
+    }
+
+    /// The typed body of the tear-off of the top-level or static function `fid`
+    /// (`<target>$tt`): the environment (unused) and the parameters in the
+    /// representations of its function type, calling `fid` directly. `None` under
+    /// ARC, for a generic function or a signature without a typed ABI
+    /// ([`Self::type_abi`]: optional or named parameters).
+    fn typed_tearoff_body(
+        &mut self,
+        fid: usize,
+        target: &str,
+        name: &str,
+    ) -> Option<(String, Vec<Type>, Type)> {
+        if self.ctx.arc_memory || self.generic_function(fid) {
+            return None;
+        }
+        let signature = self.ctx.outline.functions.get(fid)?.signature;
+        let (reprs, ret, _) = self.type_abi(signature)?;
+        if reprs.len() != self.ctx.outline.functions[fid].parameters.len() {
+            return None;
+        }
+        let symbol = format!("{target}$tt");
+        if !self.done_entries.insert(symbol.clone()) {
+            return Some((symbol, reprs, ret));
+        }
+        let mut b = FnBuilder::new(
+            self.ctx,
+            self.unit_id,
+            symbol.clone(),
+            name.to_string(),
+            ret,
+        );
+        b.add_param("closure".to_string(), Type::Ref);
+        let params: Vec<Operand> = reprs
+            .iter()
+            .enumerate()
+            .map(|(i, &t)| Operand::Val(b.add_param(format!("p{i}"), t)))
+            .collect();
+        let own: Vec<Type> = self.ctx.outline.functions[fid]
+            .parameters
+            .iter()
+            .map(|p| b.repr(p.ty))
+            .collect();
+        let vals: Vec<Operand> = params
+            .into_iter()
+            .zip(own)
+            .map(|(v, t)| b.coerce(v, t))
+            .collect();
+        let r = b.call_direct(fid, None, vals);
+        if !b.is_terminated() {
+            let r = if ret == Type::Ref && r == Operand::Constant(Constant::Null) {
+                r
+            } else {
+                b.coerce(r, ret)
+            };
+            b.terminate(Terminator::Return(Some(r)));
+        }
+        self.absorb(b);
+        Some((symbol, reprs, ret))
     }
 
     /// Tear-off of an instance method: a new closure with the receiver in the

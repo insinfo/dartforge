@@ -508,7 +508,10 @@ impl LlvmEmitter<'_> {
         let shared = if self.module.arc_memory {
             self.module.arc_shared_functions.contains(symbol)
         } else {
-            symbol.ends_with("$tear") || symbol.ends_with("$tearm") || symbol.starts_with("dfc.")
+            symbol.ends_with("$tear")
+                || symbol.ends_with("$tt")
+                || symbol.ends_with("$tearm")
+                || symbol.starts_with("dfc.")
         };
         if !shared {
             return ("", String::new());

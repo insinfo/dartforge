@@ -224,11 +224,18 @@ impl Heap {
     /// table): a closure without context and without typed body, the same one
     /// on every call (`identical(f, f)`), a permanent root.
     pub fn tearoff(&mut self, code: i64) -> Ref {
+        self.tearoff_typed(code, 0, 0)
+    }
+    /// [`Heap::tearoff`] whose closure, when this call creates it, also carries
+    /// the typed body `typed` with its ABI `abi` (0, 0: none). The canonical
+    /// closure is the first one created for `code`: a later call with a typed
+    /// body gets it as it is.
+    pub fn tearoff_typed(&mut self, code: i64, typed: i64, abi: i64) -> Ref {
         assert!(code >= 0, "invalid code ID");
         if let Some(h) = self.registered_tearoff(code) {
             return h;
         }
-        let h = self.new_closure(code, (0, false), 0, 0);
+        let h = self.new_closure(code, (0, false), typed, abi);
         self.register_tearoff(code, h);
         h
     }

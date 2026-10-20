@@ -843,6 +843,7 @@ dartforge_string_new	1	0	0
 dartforge_string_repeat	1	1	0
 dartforge_tagged_to_string	1	1	0
 dartforge_tearoff	1	0	0
+dartforge_tearoff_typed	1	0	0
 dartforge_throw_with_stack_trace	1	1	0
 dartforge_to_string_bool	1	0	0
 dartforge_to_string_f64	1	0	0

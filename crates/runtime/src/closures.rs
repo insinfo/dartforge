@@ -36,6 +36,24 @@ pub extern "C" fn dartforge_tearoff(code_id: i64) -> i64 {
     HEAP.with(|heap| heap.borrow_mut().tearoff(code_id))
 }
 
+/// [`dartforge_tearoff`] with the typed body of the function (`typed`, its ABI
+/// `abi`), stored when this call creates the canonical tear-off: a typed call
+/// (`dartforge_closure_typed`, the inline check of the emitter) then skips the
+/// uniform entry. May allocate the first time; neither throws nor runs Dart.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let t = dartforge_tearoff_typed(91, 1234, 7);
+/// assert_eq!(t, dartforge_tearoff_typed(91, 1234, 7));
+/// assert_eq!(t, dartforge_tearoff(91));
+/// assert_eq!(dartforge_closure_typed(t, 7), 1234);
+/// assert_eq!(dartforge_closure_typed(t, 8), 0);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_tearoff_typed(code_id: i64, typed: i64, abi: i64) -> i64 {
+    HEAP.with(|heap| heap.borrow_mut().tearoff_typed(code_id, typed, abi))
+}
+
 /// [`dartforge_tearoff`] under ARC: the canonical tear-off with an owner of the
 /// code, independent of the registration that keeps it. May allocate the first
 /// time; neither throws nor runs Dart.

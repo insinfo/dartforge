@@ -665,6 +665,10 @@ pub const EXTERNS: &[Extern] = &[
         effects: ALLOCATES_WITHOUT_THROWING,
     },
     Extern {
+        decl: "declare i64 @dartforge_tearoff_typed(i64, i64, i64)",
+        effects: ALLOCATES_WITHOUT_THROWING,
+    },
+    Extern {
         decl: "declare void @dartforge_gc_global_root(i64, i64)",
         effects: ALLOCATES_WITHOUT_THROWING,
     },
