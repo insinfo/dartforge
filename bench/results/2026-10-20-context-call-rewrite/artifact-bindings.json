@@ -1,0 +1,117 @@
+[
+  {
+    "path": "target/context-calls-validation/.df_tmp/after-development.ll",
+    "bytes": 111275,
+    "sha256": "5d507a11fd157f84b280e5e7ab778d7f7b910240ceabe39c2733d774256ad609"
+  },
+  {
+    "path": "target/context-calls-validation/.df_tmp/after-production.ll",
+    "bytes": 574181,
+    "sha256": "0bd728f57543f73a114ba4c9ee2604852a2b9061cc218d9dcde969111c40f20d"
+  },
+  {
+    "path": "target/context-calls-validation/.df_tmp/after-unpruned.ll",
+    "bytes": 3423086,
+    "sha256": "5a5a54bf3f4fec8143cb345b9ed902c23756a08acb9ac0994da319c4a029b780"
+  },
+  {
+    "path": "target/context-calls-validation/.df_tmp/before-production.ll",
+    "bytes": 574167,
+    "sha256": "dc13335a8f9ecf1c861a841a889578f91721edf34efc22db9a819404966662fc"
+  },
+  {
+    "path": "target/context-calls-validation/.df_tmp/linux-arm64-fixture.ll",
+    "bytes": 574664,
+    "sha256": "38806b6bbda6760400cba5b6d53889b23fac9e75e291af4e686b74962131768e"
+  },
+  {
+    "path": "target/context-calls-validation/.df_tmp/windows-x64-fixture.ll",
+    "bytes": 574226,
+    "sha256": "07095a332a443d9c58826b459e11cc0cf302a89ce03004e591a02b9571e0855e"
+  },
+  {
+    "path": "target/context-calls-validation/after-development",
+    "bytes": 57136,
+    "sha256": "8ac370aa21f581a802eed175a469c340829d05b9697e9d6d5a698c98c4589560"
+  },
+  {
+    "path": "target/context-calls-validation/after-development.contracts.json",
+    "bytes": 762,
+    "sha256": "9c6818899f0b992e89195e49c1f64cb326a97f755350097ea562943e6bf736c3"
+  },
+  {
+    "path": "target/context-calls-validation/after-production",
+    "bytes": 2996048,
+    "sha256": "095a0d2dd4fda0a0c133da0129ebdc58f84b3bba1d4b48e2c3817d89fbde9dea"
+  },
+  {
+    "path": "target/context-calls-validation/after-production.contracts.json",
+    "bytes": 760,
+    "sha256": "34f5b795ee82b28c69f24236ef300bc44b0525cb6db5671b6b80c6ff9ddffaeb"
+  },
+  {
+    "path": "target/context-calls-validation/after-unpruned",
+    "bytes": 10296144,
+    "sha256": "e659380c4bc925875d27d54b76d08e0661d4baa621d1ee9c7312b7bb4d5d72e1"
+  },
+  {
+    "path": "target/context-calls-validation/after-unpruned.contracts.json",
+    "bytes": 758,
+    "sha256": "90e66a187e1450dee9c88a414e11a6509e1e44c0c04c849cf17c366da64fce59"
+  },
+  {
+    "path": "target/context-calls-validation/libdfsdk_deeb13347454cd3e.dylib",
+    "bytes": 41883440,
+    "sha256": "7586efe089f140c63bc050d819d65e6f930053e153b368dbfe817f8a6001c47f"
+  },
+  {
+    "path": "target/context-calls-validation/linux-arm64-fixture",
+    "bytes": 3230552,
+    "sha256": "6d2184ee1fe7455915cd36be01d1ee14b7b65a61489b24bc262cc6cbe5c660c1"
+  },
+  {
+    "path": "target/context-calls-validation/linux-arm64-fixture.contracts.json",
+    "bytes": 763,
+    "sha256": "a8bc5d9e323caebc1949d2896033c8275a5200ce49d61a24da518afa1e388ad6"
+  },
+  {
+    "path": "target/context-calls-validation/linux-result.json",
+    "bytes": 488,
+    "sha256": "d05df3ab9724f28262f0d75089738c4882630aabcafeb490aad95534be97ca5d"
+  },
+  {
+    "path": "target/context-calls-validation/linux-run.py",
+    "bytes": 1016,
+    "sha256": "a5681ba9ee123d019351b2011a6548d3c7a40f1d84364ddfed81c148444f5d99"
+  },
+  {
+    "path": "target/context-calls-validation/windows-result.json",
+    "bytes": 557,
+    "sha256": "6e2c2e1615bd9e1f389c8adbd1aed560a9d3bdd42454fdea3bcc950e370d931c"
+  },
+  {
+    "path": "target/context-calls-validation/windows-run.ps1",
+    "bytes": 1661,
+    "sha256": "3bf23e25e59084dc8a2fc4097917813941734b0a71404a97e12adffe9e7c81c7"
+  },
+  {
+    "path": "target/context-calls-validation/windows-x64-fixture.exe",
+    "bytes": 3174912,
+    "sha256": "fc81edc0a43ee16ee855241774255d5ef5cdfc02fa468f7670e45f4d1bdd43f5"
+  },
+  {
+    "path": "target/context-calls-validation/windows-x64-fixture.exe.contracts.json",
+    "bytes": 767,
+    "sha256": "9eff85b724bd6acf05b76ac254c6e85e3754435704b781f92a2a7aabae013b8f"
+  },
+  {
+    "path": "target/test-tools/dartforge-before-context-footprints",
+    "bytes": 197947168,
+    "sha256": "ff5022413c2cde10722e007fa5cc443ac8d2b513eb29d6d894a33037623557cd"
+  },
+  {
+    "path": "target/test-tools/dartforge-context-calls",
+    "bytes": 197949664,
+    "sha256": "3ac0623a2324f17af6a053b77edd3ebe9cc25ab475e6303474bc20b8453f1e9d"
+  }
+]

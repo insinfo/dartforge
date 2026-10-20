@@ -1,0 +1,17 @@
+[
+  {
+    "path": "crates/emit_native/src/sdk_module.rs",
+    "bytes": 94828,
+    "sha256": "d627ff087bcb16482f2d8d36fde050a5f9e9e072a40d23754e474b3be25f72b4"
+  },
+  {
+    "path": "crates/emit_native/src/sdk_module/context_calls.rs",
+    "bytes": 6360,
+    "sha256": "7278035a69e2e33ae8cbaa9c25d32fc0be43775abfa609baa3ee4d42e489117c"
+  },
+  {
+    "path": "crates/emit_native/tests/fixtures/context_literal/main.dart",
+    "bytes": 128,
+    "sha256": "1634e0315b25a2b0f78737faa0336498b6e0121507dd4a76bb6d660f563029d3"
+  }
+]

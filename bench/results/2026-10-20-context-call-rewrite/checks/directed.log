@@ -1,0 +1,11 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.57s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 4 tests
+test sdk_module::context_calls::tests::context_calls_preserve_quoted_bytes_and_comments ... ok
+test sdk_module::context_calls::tests::context_calls_preserve_existing_helpers_including_native_tls_slow_path ... ok
+test sdk_module::context_calls::tests::context_calls_ignore_definition_words_inside_function_bodies ... ok
+test sdk_module::context_calls::tests::context_calls_rewrite_inline_bodies_and_remain_idempotent ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 1006 filtered out; finished in 0.00s

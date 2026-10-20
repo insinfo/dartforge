@@ -1,0 +1,32 @@
+[
+  {
+    "label": "dart-vm",
+    "exit": 0,
+    "stdout": "call ptr @dartforge_context()\n29\n\"call ptr @dartforge_context()\"; caf\u00e9\n",
+    "stderr": ""
+  },
+  {
+    "label": "production-compile",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-before-context-footprints",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/context_literal/main.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--timings",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/context-calls-validation/before-production",
+      "--optimize"
+    ],
+    "exit": 1,
+    "seconds": 7.842153582999999,
+    "stdout": "",
+    "stderr": "  HIR pruning: 5 of 41 functions, 7 of 22 pairs, 0 FFI signatures, 1 reachability rounds (2.950835334s)\n  HIR:       baixar 3.030511583s, otimizar 3.83125ms\n  Pruning:   156 of 663 tables live, 2885 of 50111 pairs, 5271 of 46709 symbols; outside the IR: 46 functions, 3 globals, 0 MB (178.048792ms)\nerror: Clang failed to compile the IR (exit status: 1):\n1e7908bbfefabc1493adf23880f7602e.ll:660:147: error: constant expression type mismatch: got type '[25 x i8]' but expected '[32 x i8]'\n  660 | @\"df.s.39f78c4f31ff29ff8c2833d9bd4047b8\" = linkonce_odr constant { i64, i64, i64, [32 x i8] } { i64 25770131973, i64 951281088, i64 29, [32 x i8] c\"call ptr @df.context()\\00\\00\\00\" }, section \"__DATA_CONST,__dfimg\", align 8\n      |                                                                                                                                                   ^\n1 error generated.\n",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null,
+      "DARTFORGE_NO_TABLE_PRUNING": null,
+      "DARTFORGE_KEEP_IR": "1"
+    },
+    "compiler_sha256": "ff5022413c2cde10722e007fa5cc443ac8d2b513eb29d6d894a33037623557cd"
+  }
+]

@@ -2,6 +2,21 @@
 
 ## Atualização de 20/10/2026
 
+- Corrigida a substituição textual do contexto AOT: uma string Dart contendo
+  `call ptr @dartforge_context()` era alterada e fazia Clang rejeitar o tamanho
+  do inicializador. O scanner agora preserva strings, comentários, identificadores
+  e assembly entre aspas. Um helper já definido, inclusive com nome escapado,
+  preserva a primeira configuração; a reaplicação não reescreve seu caminho
+  lento nem duplica a definição. Duas regressões falharam antes; passaram quatro
+  testes novos e 1.010 testes nativos com ignorados, Clippy estrito e docs sem
+  avisos. A fixture real coincidiu com a VM Dart em AOT macOS produção,
+  desenvolvimento e sem poda, JIT macOS e AOT cruzado Linux ARM64/Windows x64,
+  normal/sob estresse de GC. Cópias nas VMs conferidas por hash e ambas novamente
+  suspensas. Sem mudança de runtime/bundles, nova matriz GUI/JIT dos hóspedes,
+  permissão adicional de poda ou ganho de desempenho medido. Fmt global,
+  aprovação integral e poda dos backends continuam pendentes. Evidências:
+  `bench/results/2026-10-20-context-call-rewrite/README.md`.
+
 - O registro das tabelas do SDK montadas no link agora usa o verificador dos
   getters constantes antes de formar um lote. São 662 registros para uma
   chamada na fixture real, preservando ordem, CIDs e tabelas vazias; o caminho

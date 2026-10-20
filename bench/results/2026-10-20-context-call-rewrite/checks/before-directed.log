@@ -1,0 +1,34 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.49s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 3 tests
+test sdk_module::context_calls::tests::context_calls_rewrite_inline_bodies_and_remain_idempotent ... ok
+test sdk_module::context_calls::tests::context_calls_preserve_quoted_bytes_and_comments ... FAILED
+test sdk_module::context_calls::tests::context_calls_preserve_existing_helpers_including_native_tls_slow_path ... FAILED
+
+failures:
+
+---- sdk_module::context_calls::tests::context_calls_preserve_quoted_bytes_and_comments stdout ----
+
+thread 'sdk_module::context_calls::tests::context_calls_preserve_quoted_bytes_and_comments' (2985429) panicked at crates/emit_native/src/sdk_module/context_calls.rs:132:9:
+assertion `left == right` failed
+  left: "@text = private constant [29 x i8] c\"call ptr @df.context()\\00\"\n; call ptr @df.context()\n@\"call ptr @df.context()\" = global i8 0\ndefine void @f() {\n  %\"call ptr @df.context()\" = add i64 1, 2\n  call void asm sideeffect \"\\22call ptr @df.context()\\22\", \"\"()\n  ; define ptr @df.context()\n\n@dartforge_context_slot = external global i64, align 8\ndefine internal ptr @df.context() nounwind willreturn memory(none) {\n  %o = load i64, ptr @dartforge_context_slot, align 8, !invariant.load !{}\n  %t = call i64 asm \"mrs $0, TPIDRRO_EL0\", \"=r\"() nounwind memory(none)\n  %b = and i64 %t, -8\n  %a = add i64 %b, %o\n  %p = inttoptr i64 %a to ptr\n  %c = load ptr, ptr %p, align 8, !invariant.load !{}\n  ret ptr %c\n}\n"
+ right: "@text = private constant [29 x i8] c\"call ptr @dartforge_context()\\00\"\n; call ptr @dartforge_context()\n@\"call ptr @dartforge_context()\" = global i8 0\ndefine void @f() {\n  %\"call ptr @dartforge_context()\" = add i64 1, 2\n  call void asm sideeffect \"\\22call ptr @dartforge_context()\\22\", \"\"()\n  ; define ptr @df.context()\n"
+
+---- sdk_module::context_calls::tests::context_calls_preserve_existing_helpers_including_native_tls_slow_path stdout ----
+
+thread 'sdk_module::context_calls::tests::context_calls_preserve_existing_helpers_including_native_tls_slow_path' (2985428) panicked at crates/emit_native/src/sdk_module/context_calls.rs:140:13:
+assertion `left == right` failed
+  left: "define internal ptr @df.context() {\n %c = call ptr @df.context()\n ret ptr %c\n}\n\n@dartforge_context_slot = external dso_local global i64, align 8\ndefine internal ptr @df.context() nounwind willreturn memory(none) alwaysinline {\n  %o = load i64, ptr @dartforge_context_slot, align 8, !invariant.load !{}\n  %t = call i64 asm \"mrs $0, TPIDRRO_EL0\", \"=r\"() nounwind memory(none)\n  %b = and i64 %t, -8\n  %a = add i64 %b, %o\n  %p = inttoptr i64 %a to ptr\n  %c = load ptr, ptr %p, align 8, !invariant.load !{}\n  ret ptr %c\n}\n"
+ right: "define internal ptr @df.context() {\n %c = call ptr @dartforge_context()\n ret ptr %c\n}\n"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    sdk_module::context_calls::tests::context_calls_preserve_existing_helpers_including_native_tls_slow_path
+    sdk_module::context_calls::tests::context_calls_preserve_quoted_bytes_and_comments
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 1006 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

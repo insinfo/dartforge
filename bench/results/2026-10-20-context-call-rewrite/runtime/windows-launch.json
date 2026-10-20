@@ -1,0 +1,16 @@
+{
+  "command": [
+    "prlctl",
+    "exec",
+    "Windows11",
+    "--current-user",
+    "powershell",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    "\\\\Mac\\ssd_dock\\MyRustProjects\\dartforge\\target\\context-calls-validation\\windows-run.ps1"
+  ],
+  "exit": 0,
+  "stdout": "[{\"stdout\":\"call ptr @dartforge_context()\\n29\\n\\\"call ptr @dartforge_context()\\\"; caf\u00e9\\n\",\"stderr\":\"\",\"sha256\":\"fc81edc0a43ee16ee855241774255d5ef5cdfc02fa468f7670e45f4d1bdd43f5\",\"stress\":false,\"exit\":0},{\"stdout\":\"call ptr @dartforge_context()\\n29\\n\\\"call ptr @dartforge_context()\\\"; caf\u00e9\\n\",\"stderr\":\"\",\"sha256\":\"fc81edc0a43ee16ee855241774255d5ef5cdfc02fa468f7670e45f4d1bdd43f5\",\"stress\":true,\"exit\":0}]\n",
+  "stderr": ""
+}

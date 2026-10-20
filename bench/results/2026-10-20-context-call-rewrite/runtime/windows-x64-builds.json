@@ -1,0 +1,28 @@
+[
+  {
+    "name": "windows-x64-fixture",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-context-calls",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/context_literal/main.dart",
+      "--optimize",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--target",
+      "windows-x64",
+      "--target-bundle",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/windows-x64",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/context-calls-validation/windows-x64-fixture.exe"
+    ],
+    "exit": 0,
+    "seconds": 94.72584412500001,
+    "compiler_sha256": "3ac0623a2324f17af6a053b77edd3ebe9cc25ab475e6303474bc20b8453f1e9d",
+    "bytes": 3174912,
+    "sha256": "fc81edc0a43ee16ee855241774255d5ef5cdfc02fa468f7670e45f4d1bdd43f5",
+    "environment": {
+      "DARTFORGE_KEEP_IR": "1",
+      "DARTFORGE_PARALLEL_PARTS": "1"
+    }
+  }
+]

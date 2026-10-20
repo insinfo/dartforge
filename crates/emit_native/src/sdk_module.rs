@@ -16,6 +16,8 @@ use crate::generator::{Format, Generation, Generator};
 use dartforge_elements::sdk::SdkLayout;
 use std::path::{Path, PathBuf};
 
+mod context_calls;
+
 /// The overlay target in `native_sdk/libraries.json`.
 pub const OVERLAY_TARGET: &str = "dartforge_native";
 
@@ -1145,15 +1147,14 @@ pub enum ContextInTls {
 /// slot of the SDK DLL's runtime through the GOT.
 pub fn with_context_in_tls(ir: &str, mode: ContextInTls, variable: &str, single_image: bool) -> String {
     const CALL: &str = "call ptr @dartforge_context()";
-    if !ir.contains(CALL) {
+    let Some(mut s) = context_calls::rewrite(ir) else {
         return ir.to_string();
-    }
+    };
     let attribute = match mode {
         ContextInTls::Inline => " alwaysinline",
         ContextInTls::Free => "",
         ContextInTls::PerCall => " noinline",
     };
-    let mut s = ir.replace(CALL, "call ptr @df.context()");
     if crate::target::target_os() == crate::target::Os::MacOs && crate::target::is_aarch64() {
         s.push_str(&context_in_tsd(attribute, single_image));
         return s;
