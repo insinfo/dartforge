@@ -46,6 +46,8 @@ tests. A compiler built in a separate target directory also avoids replacement.
 Keep LLVM tools on PATH when runtime SDK
 support libraries need to be built; selecting a prefix for Cargo does not add
 runtime tools to the caller's PATH.
+The native macro executor tests use `DARTFORGE_NATIVE_COMPILER`; set it to the
+same preserved compiler when running the complete ignored-test suite.
 
 On macOS, standalone C-link tests also need a configured C SDK. When using an
 external LLVM Clang on PATH, set `SDKROOT` to an installed compatible macOS SDK
@@ -55,8 +57,10 @@ cannot change the environment inherited by Clang launched inside a test. Record
 these settings with the test results. A missing `libSystem` before the native
 call runs is a toolchain prerequisite failure, not ABI conformance evidence.
 
-On PowerShell, `scripts/check.ps1` runs these checks
-together and requires documentation to build without warnings. CI checks behavior only: it
+On PowerShell, `scripts/check.ps1` runs these checks, including ignored tests,
+together and requires documentation to build without warnings. It checks that
+Cargo, Dart and Node are on PATH before starting; configure the native compiler
+and other ignored-test prerequisites above before invoking it. CI checks behavior only: it
 does not run `cargo fmt` or `cargo doc` (the project owner's decision; see the header of
 `.github/workflows/ci.yml`).
 The differential comparison with Dart 3.6.2 (VM, `dartdevc` and production) is

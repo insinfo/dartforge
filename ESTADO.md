@@ -2,6 +2,18 @@
 
 ## Atualização de 19/10/2026
 
+- A rodada ampla anterior terminou: corpus nativo de builders aprovado e os
+  quatro testes de transparência Angular aprovados, incluindo edição por arquivo
+  (557,38 s para a suíte Angular). Depois, os 15 testes básicos JavaScript falharam
+  porque Node não estava no PATH. O mesmo executável de testes passou 15/15 ao
+  incluir a instalação existente do Node; o log original foi preservado. O runner
+  PowerShell agora verifica Cargo/Dart/Node antes de começar e inclui os testes
+  ignorados. A descoberta do ambiente evita Join-Path em drives inexistentes;
+  sintaxe e recusa antecipada de Node ausente foram conferidas no macOS. A
+  continuação Cargo exclui o pacote de build já executado e ainda estava na
+  linkedição nesta observação; não há aprovação global nem nova matriz desktop.
+  Evidências: `bench/results/2026-10-19-workspace-node-preflight/README.md`.
+
 - A rodada ampla original avançou: o corpus de builders pelo executor nativo
   passou em 2.428,12 s, com o compilador de referência preservado por SHA-256.
   A seleção estava sem filtro; o inventário observado contém dez casos planejados.

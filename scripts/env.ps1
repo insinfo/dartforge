@@ -1,7 +1,7 @@
 # Prefer explicitly configured toolchains. Use the SSD copy when available.
 if (!$env:CARGO_HOME -and !$env:RUSTUP_HOME) {
     foreach ($rustRoot in @('E:\Rust', 'D:\Rust')) {
-        if (Test-Path (Join-Path $rustRoot 'cargo\bin\cargo.exe')) {
+        if ((Test-Path -LiteralPath $rustRoot) -and (Test-Path (Join-Path $rustRoot 'cargo\bin\cargo.exe'))) {
             $env:CARGO_HOME = Join-Path $rustRoot 'cargo'
             $env:RUSTUP_HOME = Join-Path $rustRoot 'rustup'
             break
@@ -30,7 +30,7 @@ if (!$env:DARTFORGE_CLANG -and !(Get-Command clang -ErrorAction SilentlyContinue
 # variavel a build do workspace inteiro falha. Veja docs/JIT.md.
 if (!$env:LLVM_SYS_221_PREFIX) {
     foreach ($prefix in @($env:DARTFORGE_LLVM_DIR, 'E:\llvm\clang+llvm-22.1.8-x86_64-pc-windows-msvc')) {
-        if ($prefix -and (Test-Path (Join-Path $prefix 'bin\llvm-config.exe'))) {
+        if ($prefix -and (Test-Path -LiteralPath $prefix) -and (Test-Path (Join-Path $prefix 'bin\llvm-config.exe'))) {
             $env:LLVM_SYS_221_PREFIX = $prefix
             break
         }

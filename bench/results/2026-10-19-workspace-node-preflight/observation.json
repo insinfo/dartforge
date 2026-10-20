@@ -1,0 +1,31 @@
+{
+  "source_revision": "f4898d3b796443efb1627b00a5e258737a2c5723",
+  "node": {
+    "path": "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node",
+    "version": "v24.21.0"
+  },
+  "js_test_command": [
+    "target/debug/deps/basic-2faabe9e6463d67a",
+    "--include-ignored"
+  ],
+  "js_test_exit": 0,
+  "js_test_path_prefix": [
+    "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin"
+  ],
+  "sha256": {
+    "bench/results/2026-10-19-workspace-node-preflight/original-workspace.log": "54868555e3c4b549f146132f550cdd7d9a4e4ac47e42d35252e22c8834cf3f30",
+    "bench/results/2026-10-19-workspace-node-preflight/js-basic.log": "54ecbb2eb0d1a3e914fc3d1e0a33a69c667d615db4383be5699eef2382d8824a",
+    "bench/results/2026-10-19-workspace-node-preflight/missing-node.log": "37f708fb05986849116ba35d68f66bba365c8d91ea6a8e6961575af3131db428",
+    "target/debug/deps/basic-2faabe9e6463d67a": "ced9f2ae6e59291ef83793595ba7c4f44a277476d7ca088afab0a8135682ecb5",
+    "target/test-tools/dartforge": "0945d0980bc86c875156713f4b00c28f1063d40d2442a602730a05c76ffcfbcd"
+  },
+  "continuation": {
+    "log": "/tmp/forge-workspace-node-configured.log",
+    "cargo_pid": 48605,
+    "excluded_package": "dartforge-build",
+    "reason": "Builder and Angular suites already completed in the preserved original run; this continuation is not a complete workspace invocation.",
+    "status_at_observation": "linking; no terminal result",
+    "missing_later_prerequisite": "DARTFORGE_NATIVE_COMPILER was not configured in this process; native macro checks require a separately configured run."
+  }
+}
