@@ -61,6 +61,17 @@ pub(super) fn metadata_startups(
             owners.entry(*cid).or_default().push(summary);
         }
     }
+    let frame = i64::from(crate::lower::async_sm::ASYNC_FRAME_ID);
+    // The reserved frame display label has no factory role in the runtime's
+    // name-based allocation paths. It must not alias any nominal/table/layout
+    // declaration or introduce subtype premises. This grants no allocation fact.
+    let frame_display_only = summaries.iter().all(|summary| {
+        !summary.nominal_classes.contains(&frame)
+            && !summary.ambiguous_classes.contains(&frame)
+            && !summary.tables.iter().any(|table| table.cid == frame)
+            && !summary.declared_field_layouts.contains_key(&(frame as u32))
+            && !summary.parent_edges.iter().any(|(child, parent)| *child == frame || *parent == frame)
+    });
     let mut accepted = HashSet::new();
     for function in functions {
         let Some(summary) = summaries.iter().find(|s| s.module == function.module) else {
@@ -111,6 +122,7 @@ pub(super) fn metadata_startups(
             .collect();
         let valid_cid = |cid: i64| {
             (0..=i64::from(i32::MAX)).contains(&cid)
+                && cid != frame
                 && nominal.contains(&cid)
                 && !ambiguous.contains(&cid)
                 && owners.get(&cid).is_some_and(|items| {
@@ -146,9 +158,6 @@ pub(super) fn metadata_startups(
                     let Some(cid) = literal(&call.arguments[0]) else {
                         return false;
                     };
-                    if !valid_cid(cid) || !summary.nominal_classes.contains(&cid) {
-                        return false;
-                    }
                     let Some((text, key)) = text_constant(
                         &function.module,
                         &call.arguments[1],
@@ -157,6 +166,13 @@ pub(super) fn metadata_startups(
                     ) else {
                         return false;
                     };
+                    if cid == frame {
+                        if !frame_display_only || text != crate::lower::async_sm::ASYNC_FRAME_NAME {
+                            return false;
+                        }
+                    } else if !valid_cid(cid) || !summary.nominal_classes.contains(&cid) {
+                        return false;
+                    }
                     covered_names.insert(key);
                     match class_names.insert(cid, text.into()) {
                         Some(previous) => previous == text,

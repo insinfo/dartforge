@@ -1,0 +1,30 @@
+   Compiling ring v0.17.14
+   Compiling libz-sys v1.1.29
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+   Compiling flate2 v1.1.10
+   Compiling rustls v0.23.45
+   Compiling dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+   Compiling rustls-webpki v0.103.15
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.97s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 17 tests
+test gcmap::tests::compact_maps_reject_frame_and_return_overflow ... ok
+test optimize::inline::frame_site_tests::copied_frame_certificates_follow_ssa_sites_not_just_caller_or_size ... ok
+test optimize::arc::shared_slots::tests::lowering_rejects_collision_exhausted_ids_and_frame_reopened_in_loop ... ok
+test optimize::arc::shared_slots::tests::lowering_uses_one_frame_and_preserves_identity_of_aliased_captures ... ok
+test llvm::tests::roots_frame_on_every_ret ... ok
+test llvm::arc_context::tests::ref_alloca_requires_frame_even_without_live_ssa_values ... ok
+test optimize::arc::slot_lives::tests::rejects_closed_frame_or_forged_index_even_with_correct_i64 ... ok
+test optimize::arc::slot_lives::tests::callee_does_not_close_frame_or_mix_capture_indices ... ok
+test lower::async_sm::ref_restoration_tests::ref_restored_from_frame_gets_keepalive_before_mutating_child ... ok
+test pruning::allocation_inventory::imports::tests::frame_names::shared_display_is_idempotent_but_never_a_subtype_certificate ... ok
+test pruning::allocation_inventory::imports::tests::frame_names::frame_name_is_entry_only_and_does_not_authorize_an_allocator ... ok
+test pruning::class_reachability::tests::frame_metadata::frame_display_does_not_expand_the_closed_class_universe ... ok
+test pruning::allocation_inventory::imports::tests::frame_names::frame_display_cannot_alias_nominal_tables_layouts_or_subtype_claims ... ok
+test pruning::allocation_inventory::imports::tests::frame_names::different_names_ids_pointer_capabilities_and_allocating_startups_stay_open ... ok
+test lower::async_sm::frame_abi_tests::actual_async_and_generator_allocators_publish_per_resume_body_layouts ... ok
+test pruning::class_reachability::tests::frame_metadata::compiled_frame_display_preserves_subtype_queries_under_gc_stress ... ok
+test lower::async_sm::frame_abi_tests::event_loop_without_local_frames_keeps_callback_without_frame_metadata ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 967 filtered out; finished in 0.95s

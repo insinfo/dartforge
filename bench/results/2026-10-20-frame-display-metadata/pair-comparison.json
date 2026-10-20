@@ -1,0 +1,54 @@
+[
+  {
+    "label": "before",
+    "name": "explorer-before",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-sdk-image-owner",
+      "compile-native",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+      "--optimize",
+      "--emit-ir",
+      "--digest",
+      "--timings",
+      "--packages",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/frame-name-validation/before.ll"
+    ],
+    "exit": 0,
+    "seconds": 123.096546,
+    "compiler_sha256": "76b235c37c0cfcab8ee80eff244d41fa8245f07b99705d903a34af227afad2cd",
+    "ir_sha256": "0e9cff28f0f9e9a04f86aecdccdf66d4fb9c123617e02014e2bd4d5c124e212d",
+    "ir_bytes": 293593137,
+    "reachability_rounds": 2,
+    "stderr": "  HIR pruning: 38484 of 146307 functions, 39874 of 176819 pairs, 318 FFI signatures, 2 reachability rounds (25.502655958s)\n  HIR:       baixar 47.226080583s, otimizar 24.667036417s\n--- Native Emission Timings ---\n  Front-end: 11.602077834s\n  World:     715.653459ms (30876 of 64332 program functions live)\n  HIR:       71.893181458s\n  LLVM IR:   30.992145875s\n  IR:        293593137 bytes, 20206 from the SDK (0.0%)\n"
+  },
+  {
+    "label": "after",
+    "name": "explorer-after",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-frame-name",
+      "compile-native",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+      "--optimize",
+      "--emit-ir",
+      "--digest",
+      "--timings",
+      "--packages",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/frame-name-validation/after.ll"
+    ],
+    "exit": 0,
+    "seconds": 100.0665755,
+    "compiler_sha256": "dce40a8e27ad983e795b7568c2e25697f89681dc6748ec312f2f57441424f720",
+    "ir_sha256": "0e9cff28f0f9e9a04f86aecdccdf66d4fb9c123617e02014e2bd4d5c124e212d",
+    "ir_bytes": 293593137,
+    "reachability_rounds": 2,
+    "stderr": "  HIR pruning: 38484 of 146307 functions, 39874 of 176819 pairs, 318 FFI signatures, 2 reachability rounds (17.934518375s)\n  HIR:       baixar 36.688691667s, otimizar 20.8015595s\n--- Native Emission Timings ---\n  Front-end: 9.751360625s\n  World:     572.819917ms (30876 of 64332 program functions live)\n  HIR:       57.490324625s\n  LLVM IR:   24.546049792s\n  IR:        293593137 bytes, 20206 from the SDK (0.0%)\n"
+  }
+]

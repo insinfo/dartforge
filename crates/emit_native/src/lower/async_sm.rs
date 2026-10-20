@@ -56,6 +56,8 @@ type SuccessEdgeWrites = (BlockId, BlockId, Vec<(ValueId, Instruction, Type)>);
 /// Class id of the frame of an `async` function (below the record
 /// shapes, `context::SHAPE_BASE_ID`).
 pub const ASYNC_FRAME_ID: u32 = 0x3FFF_FF00;
+/// Display metadata only; shared frame CIDs do not imply a nominal type or layout.
+pub(crate) const ASYNC_FRAME_NAME: &str = "_AsyncFrame";
 
 const Q_STATE: usize = 0;
 const Q_COMPLETER: usize = 1;

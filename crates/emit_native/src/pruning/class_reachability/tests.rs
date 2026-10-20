@@ -2380,3 +2380,6 @@ fn erased_import_abis_do_not_certify_managed_values_or_argument_packets() {
 }
 
 mod storage_tests;
+
+#[path = "tests/frame_metadata.rs"]
+mod frame_metadata;

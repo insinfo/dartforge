@@ -2,6 +2,21 @@
 
 ## Atualização de 20/10/2026
 
+- O certificado de inicialização reconhece agora apenas o par reservado de CID
+  e rótulo `_AsyncFrame`, sem tratá-lo como classe nominal ou layout fixo.
+  Declarações nominais, tabelas, layouts e relações de subtipo conflitantes em
+  qualquer resumo selecionado recusam essa exceção. Chamadas comuns e alocações
+  continuam sem autorização. O inventário real certifica oito entradas de
+  metadados, incluindo `dart:developer`; a primeira entrada de imagem/helpers
+  segue sem prova. Passaram 984 testes nativos com ignorados, incluindo seis
+  novos, Clippy estrito e documentação sem avisos. As consultas de subtipo em
+  executáveis nativos mantiveram o resultado com registro amplo/restrito e GC
+  normal/sob estresse. A fixture de runtime coincidiu com a VM antes/depois em
+  AOT de produção/desenvolvimento e JIT macOS, normal/sob estresse. O IR completo
+  do explorador permaneceu idêntico (293.593.137 bytes); não houve nova matriz
+  Windows/Linux nem medição de ganho. Poda de backends, fmt global e aprovação integral seguem
+  pendentes. Evidências: `bench/results/2026-10-20-frame-display-metadata/README.md`.
+
 - O bundle completo do SDK registra sua imagem apenas pela primeira raiz de
   inicialização: as chamadas geradas caíram de 15 para uma, também confirmadas
   nas relocações dos objetos de desenvolvimento. A emissão pública por biblioteca

@@ -939,3 +939,23 @@ certificarem sete entradas apenas nominais/textuais; a entrada inicial com image
 mais helpers continua aberta. Os testes exigem o conjunto exato de entradas e
 um único proprietário no inventário selecionado. Evidências e limites:
 [proprietário da imagem SDK](../bench/results/2026-10-20-sdk-image-owner/README.md).
+
+## Rótulo reservado de frame assíncrono (20/10/2026)
+
+O par exato de CID reservado e bytes privados `_AsyncFrame` pode agora receber
+certificado apenas na raiz de inicialização. Isso acrescenta `dart:developer`
+às sete entradas acima, sem declarar classe nominal, layout fixo ou relação de
+subtipo: frames compartilham CID e têm armazenamento variável por retomada.
+Qualquer declaração nominal, ambiguidade, tabela, layout ou aresta de parentesco
+com esse CID em qualquer resumo selecionado impede a exceção. Chamadas comuns e
+alocações não ganham permissão. As demais verificações de corpo, ABI, binding,
+ponteiro e conteúdo continuam obrigatórias.
+
+Não é seguro aceitar nomes arbitrários: o runtime usa o nome de StackTrace para
+escolher uma classe alocável. A exceção exige o rótulo reservado exato, que não
+participa dessa escolha. Os testes cobrem conflitos locais/importados e mostram
+que publicação de nome não amplia o conjunto ativo nem altera consultas reais
+de subtipo, com registro amplo/restrito e GC normal/sob estresse. A primeira
+entrada do SDK continua sem prova de imagem/helpers; a poda estrangeira e a
+aprovação integral permanecem pendentes. Evidências:
+[metadados de frame](../bench/results/2026-10-20-frame-display-metadata/README.md).

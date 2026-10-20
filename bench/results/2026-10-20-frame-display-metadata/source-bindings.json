@@ -1,0 +1,30 @@
+[
+  {
+    "path": "crates/emit_native/src/lower/async_sm.rs",
+    "sha256": "9ceb3f703eb9a0c2020768cce5274df8491218e9b0c47c6d244b968ea0579b40"
+  },
+  {
+    "path": "crates/emit_native/src/lower/mod.rs",
+    "sha256": "14dab135e27d8658acb5ce219ce9ea386e9cf99f1ca93db95fb2bc66584fcb9b"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/imports/registry.rs",
+    "sha256": "91d2c11ae853a4768e83c2f623ff217f5c1d9f40a6d8cf025881863d48c6ad66"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/imports/tests.rs",
+    "sha256": "c7d8138116cc7786859aa50a0e446e4f06780e6817da1f91877b0888c78044cf"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/imports/tests/frame_names.rs",
+    "sha256": "c11153f44b621bf2efa37b16729384cdc7fdeb8eb4e52a0f7d125ec9464996c0"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/class_reachability/tests.rs",
+    "sha256": "32b73beebc1acf3880fd82683fff8ae3f0c3190af8678ee54c7397b4933f3db1"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/class_reachability/tests/frame_metadata.rs",
+    "sha256": "a33ab3b42cf2528878ce24ef0d9f15d3fb3a9e0df9d4dbbc70939f6e00114001"
+  }
+]

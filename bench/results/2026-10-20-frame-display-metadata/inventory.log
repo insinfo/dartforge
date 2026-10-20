@@ -1,0 +1,8 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.55s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 1 test
+{"allocation_closures":428,"checked_static_strings":5240,"clean_source_images":15,"image_registrations":1,"image_string_cids":[6],"key":"9734c45007553b208736fb763b877f68","metadata_startups":["df.register.dart$3acollection","df.register.dart$3amath","df.register.dart$3aconvert","df.register.dart$3atyped_data","df.register.dart$3adeveloper","df.register.dart$3anativewrappers","df.register.dart$3a_http","df.register.dart$3amirrors"],"reviewed_empty_closures":428,"startup_complete":false,"table_declarations":662,"unique_definitions":32676}
+test pruning::allocation_inventory::imports::tests::actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 983 filtered out; finished in 17.10s

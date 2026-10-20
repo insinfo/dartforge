@@ -1,0 +1,26 @@
+   Compiling ring v0.17.14
+   Compiling libz-sys v1.1.29
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+   Compiling rustls v0.23.45
+   Compiling dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+   Compiling flate2 v1.1.10
+   Compiling rustls-webpki v0.103.15
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.09s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 2 tests
+
+thread 'pruning::allocation_inventory::imports::tests::frame_names::frame_name_is_entry_only_and_does_not_authorize_an_allocator' (2757791) panicked at crates/emit_native/src/pruning/allocation_inventory/imports/tests/frame_names.rs:21:5:
+assertion failed: inventory.entry(symbol)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test pruning::allocation_inventory::imports::tests::frame_names::frame_name_is_entry_only_and_does_not_authorize_an_allocator ... FAILED
+test pruning::allocation_inventory::imports::tests::frame_names::different_names_ids_pointer_capabilities_and_allocating_startups_stay_open ... ok
+
+failures:
+
+failures:
+    pruning::allocation_inventory::imports::tests::frame_names::frame_name_is_entry_only_and_does_not_authorize_an_allocator
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 978 filtered out; finished in 0.05s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

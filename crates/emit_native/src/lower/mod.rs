@@ -1077,7 +1077,7 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
     }) {
         module.classes.push(ClassDef {
             id: async_sm::ASYNC_FRAME_ID,
-            name: "_AsyncFrame".to_string(),
+            name: async_sm::ASYNC_FRAME_NAME.to_string(),
             field_count: 0,
             vtable: Vec::new(),
             to_string_symbol: None,

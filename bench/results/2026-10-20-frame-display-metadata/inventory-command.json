@@ -1,0 +1,15 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "dartforge-emit-native",
+    "--lib",
+    "actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup",
+    "--",
+    "--include-ignored",
+    "--nocapture"
+  ],
+  "exit": 0
+}

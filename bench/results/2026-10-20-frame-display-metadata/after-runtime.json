@@ -1,0 +1,147 @@
+[
+  {
+    "label": "dart-vm",
+    "exit": 0,
+    "stdout": "{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"count\":3}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\ncmVnaXN0ZXJlZA==\n",
+    "stderr": ""
+  },
+  {
+    "label": "production-compile",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-frame-name",
+      "compile-native",
+      "/tmp/forge-frame-name-runtime/static-startup.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--timings",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/frame-name-validation/after-production",
+      "--optimize"
+    ],
+    "exit": 0,
+    "seconds": 97.104366708,
+    "stdout": "",
+    "stderr": "  HIR pruning: 17 of 54 functions, 7 of 22 pairs, 0 FFI signatures, 1 reachability rounds (92.058443542s)\n  HIR:       baixar 92.136966958s, otimizar 9.091834ms\n  Pruning:   181 of 663 tables live, 3396 of 50111 pairs, 6038 of 46742 symbols; outside the IR: 38 functions, 14 globals, 0 MB (175.04375ms)\n--- Native Compilation Timings ---\n  Front-end: 1.501454708s\n  World:     29.274208ms (3 of 3 program functions live)\n  HIR:       92.146067417s\n  LLVM IR:   7.444209ms\n  IR:        171333 bytes, 0 from the SDK (0.0%)\n  Objeto:    12.736917ms (cache)\n  Link:      337.189417ms\n  Total:     94.9490515s\n  Pico Mem:  0 KB\n",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null
+    },
+    "compiler_sha256": "dce40a8e27ad983e795b7568c2e25697f89681dc6748ec312f2f57441424f720"
+  },
+  {
+    "label": "production-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/frame-name-validation/after-production"
+    ],
+    "exit": 0,
+    "seconds": 0.24378754100000322,
+    "stdout": "{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"count\":3}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\ncmVnaXN0ZXJlZA==\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null
+    },
+    "compiler_sha256": "dce40a8e27ad983e795b7568c2e25697f89681dc6748ec312f2f57441424f720",
+    "executable_sha256": "a062731bf2da7147e5e8c52a1c6067420a41216878970edab0746f1e637c9295"
+  },
+  {
+    "label": "production-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/frame-name-validation/after-production"
+    ],
+    "exit": 0,
+    "seconds": 0.012807499999993865,
+    "stdout": "{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"count\":3}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\ncmVnaXN0ZXJlZA==\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": "1"
+    },
+    "compiler_sha256": "dce40a8e27ad983e795b7568c2e25697f89681dc6748ec312f2f57441424f720",
+    "executable_sha256": "a062731bf2da7147e5e8c52a1c6067420a41216878970edab0746f1e637c9295"
+  },
+  {
+    "label": "development-compile",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-frame-name",
+      "compile-native",
+      "/tmp/forge-frame-name-runtime/static-startup.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--timings",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/frame-name-validation/after-development"
+    ],
+    "exit": 0,
+    "seconds": 46.599966834,
+    "stdout": "",
+    "stderr": "  HIR pruning: 17 of 54 functions, 7 of 22 pairs, 0 FFI signatures, 1 reachability rounds (44.766446166s)\n  HIR:       baixar 44.868438291s, otimizar 9.282ms\n--- Native Compilation Timings ---\n  Front-end: 1.097622791s\n  World:     27.5395ms (3 of 3 program functions live)\n  HIR:       44.877728916s\n  LLVM IR:   7.400792ms\n  IR:        171595 bytes, 0 from the SDK (0.0%)\n  Objeto:    2.538916ms (cache)\n  Link:      19.922166ms\n  Total:     46.584721959s\n  Pico Mem:  0 KB\n",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null
+    },
+    "compiler_sha256": "dce40a8e27ad983e795b7568c2e25697f89681dc6748ec312f2f57441424f720"
+  },
+  {
+    "label": "development-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/frame-name-validation/after-development"
+    ],
+    "exit": 0,
+    "seconds": 0.8384404169999868,
+    "stdout": "{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"count\":3}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\ncmVnaXN0ZXJlZA==\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null
+    },
+    "compiler_sha256": "dce40a8e27ad983e795b7568c2e25697f89681dc6748ec312f2f57441424f720",
+    "executable_sha256": "a49303e0cc35e0cac4c95bc6bbcaf8bd56ceec325523e8d10446d2adb24be12b"
+  },
+  {
+    "label": "development-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/frame-name-validation/after-development"
+    ],
+    "exit": 0,
+    "seconds": 0.03684558399999105,
+    "stdout": "{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"count\":3}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\ncmVnaXN0ZXJlZA==\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": "1"
+    },
+    "compiler_sha256": "dce40a8e27ad983e795b7568c2e25697f89681dc6748ec312f2f57441424f720",
+    "executable_sha256": "a49303e0cc35e0cac4c95bc6bbcaf8bd56ceec325523e8d10446d2adb24be12b"
+  },
+  {
+    "label": "jit-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-frame-name",
+      "run",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "/tmp/forge-frame-name-runtime/static-startup.dart"
+    ],
+    "exit": 0,
+    "seconds": 1.7439200000000028,
+    "stdout": "{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"count\":3}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\ncmVnaXN0ZXJlZA==\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null
+    },
+    "compiler_sha256": "dce40a8e27ad983e795b7568c2e25697f89681dc6748ec312f2f57441424f720"
+  },
+  {
+    "label": "jit-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-frame-name",
+      "run",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "/tmp/forge-frame-name-runtime/static-startup.dart"
+    ],
+    "exit": 0,
+    "seconds": 2.1332969169999956,
+    "stdout": "{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"count\":3}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\ncmVnaXN0ZXJlZA==\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": "1"
+    },
+    "compiler_sha256": "dce40a8e27ad983e795b7568c2e25697f89681dc6748ec312f2f57441424f720"
+  }
+]
