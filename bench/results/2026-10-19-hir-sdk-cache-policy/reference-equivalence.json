@@ -1,0 +1,9 @@
+{
+  "fixed_default_ir_equals_old_compiler_reconstructed_reference": true,
+  "ir_sha256": "10c77f9a1e938e5be15521bf4550dfdb8d8ecf274270a09dda9ec159d2635399",
+  "source_sha256": "6b51511c736d4a3ccfb5c3f01551a14ae794431e45dce83841a568beb4c0fc7f",
+  "old_reference_evidence": "../2026-10-19-dense-dominators/before-fresh-cache.json",
+  "cache_root": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/hir-cache-validation/native-cache",
+  "native_mode_execution_test_added": false,
+  "compiler_snapshot_sha256_verified": true
+}

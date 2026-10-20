@@ -2,6 +2,19 @@
 
 ## Atualização de 19/10/2026
 
+- Corrigida a causa da divergência do cache: `DARTFORGE_OPTIMIZE_HIR=0` alterava
+  o SDK emitido sem alterar sua chave compilada. O compilador anterior reproduziu
+  byte a byte os 15 resumos problemáticos com esse modo. O teste novo falhou antes
+  da correção; agora cobre os perfis desenvolvimento/produção, três destinos e
+  composição com RELR. A opção usa a mesma política dos passes na chave do SDK,
+  preservando a chave do catálogo de classes ao alternar o modo. Integração real
+  em cache isolado criou duas entradas e reutilizou a otimizada ao voltar para
+  `1`, com objetos/resumos intactos e IDs estáveis. Passaram 921 testes nativos,
+  sete dirigidos de cache, Clippy estrito e documentação sem avisos. A suíte
+  ampla original segue nos builders com o compilador anterior preservado;
+  fmt global e aprovação integral continuam pendentes. Evidências:
+  `bench/results/2026-10-19-hir-sdk-cache-policy/README.md`.
+
 - A análise de proveniência física usa bitmaps na dominância, mantendo o ponto
   fixo e o orçamento de 512 blocos. Uma amostragem do builder real mostrou o
   custo anterior nas cópias/interseções de árvores. Passaram 920 testes de

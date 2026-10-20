@@ -1,0 +1,134 @@
+[
+  {
+    "source": "/tmp/forge-hir-cache-before-fix.log",
+    "stored": "before-fix.log",
+    "original_sha256": "7fb19268a5623b0bb95adac03cf63f3cf508248c632ab54a1dc5258f5dfc856d",
+    "stored_sha256": "7fb19268a5623b0bb95adac03cf63f3cf508248c632ab54a1dc5258f5dfc856d"
+  },
+  {
+    "source": "/tmp/forge-hir-cache-after-fix.log",
+    "stored": "after-fix.log",
+    "original_sha256": "06d63e20357dd3ca05312f1b69689d9d45416cf34cfbdbaa742e64c55769ce65",
+    "stored_sha256": "4bf17fbe4ea20cf81047282a4de7d9bf5381ebf805b2afed807fa5e6ac14cba1"
+  },
+  {
+    "source": "/tmp/forge-hir-policy-checks.py",
+    "stored": "run-checks.py",
+    "original_sha256": "d08b651124301cc018ae2cbb61db82ac9b0a8707b69f5ce7ca1c72611e36c71c",
+    "stored_sha256": "d08b651124301cc018ae2cbb61db82ac9b0a8707b69f5ce7ca1c72611e36c71c"
+  },
+  {
+    "source": "/tmp/forge-hir-cache-integration.py",
+    "stored": "validate-cache.py",
+    "original_sha256": "1e2af0adc652cf5a65120c9a59a5984da14e1368053689ed2983087c254282ae",
+    "stored_sha256": "1e2af0adc652cf5a65120c9a59a5984da14e1368053689ed2983087c254282ae"
+  },
+  {
+    "source": "target/dense-dominator-validation/disabled-cache-reproduction.json",
+    "stored": "old-disabled-sdk-reproduction.json",
+    "original_sha256": "013857bf592c57e08fa349ee6945a1ddf4a2f1e21f38f753ff44108adb757c5c",
+    "stored_sha256": "013857bf592c57e08fa349ee6945a1ddf4a2f1e21f38f753ff44108adb757c5c"
+  },
+  {
+    "source": "target/dense-dominator-validation/before-hir-disabled.json",
+    "stored": "old-disabled-emission.json",
+    "original_sha256": "3efe3b9f2e1b619724c28746f4f0859ad08aeeac9e3295b64a52ef4c44261438",
+    "stored_sha256": "3efe3b9f2e1b619724c28746f4f0859ad08aeeac9e3295b64a52ef4c44261438"
+  },
+  {
+    "source": "target/dense-dominator-validation/before-hir-disabled.stderr",
+    "stored": "old-disabled-emission.stderr",
+    "original_sha256": "db69ae2235409a504010cf4d040abde4a92db8896b1544759ccf031b04f22207",
+    "stored_sha256": "db69ae2235409a504010cf4d040abde4a92db8896b1544759ccf031b04f22207"
+  },
+  {
+    "source": "target/dense-dominator-validation/before-hir-disabled.stdout",
+    "stored": "old-disabled-emission.stdout",
+    "original_sha256": "1101c23b635db58ffb76706ee7149d039ab2abc35839910b416b7708556d666c",
+    "stored_sha256": "1101c23b635db58ffb76706ee7149d039ab2abc35839910b416b7708556d666c"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/hir-cache-validation/runs.json",
+    "stored": "runs.json",
+    "original_sha256": "f213e63d1873c44200054004745ca8b7e28add590cb3231734ddef850703c1e6",
+    "stored_sha256": "f213e63d1873c44200054004745ca8b7e28add590cb3231734ddef850703c1e6"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/hir-cache-validation/verification.json",
+    "stored": "verification.json",
+    "original_sha256": "aab7cc19455d4d28cb0afd47270ae7cf2aa8a2e5aa535a7883a620e3acc5901f",
+    "stored_sha256": "aab7cc19455d4d28cb0afd47270ae7cf2aa8a2e5aa535a7883a620e3acc5901f"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/hir-cache-validation/default.stdout",
+    "stored": "default.stdout",
+    "original_sha256": "5bc2ccc0b37790315815351611797b07fdbace2244a87df7595253f81ba6b32e",
+    "stored_sha256": "5bc2ccc0b37790315815351611797b07fdbace2244a87df7595253f81ba6b32e"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/hir-cache-validation/default.stderr",
+    "stored": "default.stderr",
+    "original_sha256": "d764cb114fdab77ea469081b244fb10dd1bda968fb5862daecc986fadf1e8534",
+    "stored_sha256": "d764cb114fdab77ea469081b244fb10dd1bda968fb5862daecc986fadf1e8534"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/hir-cache-validation/disabled.stdout",
+    "stored": "disabled.stdout",
+    "original_sha256": "1101c23b635db58ffb76706ee7149d039ab2abc35839910b416b7708556d666c",
+    "stored_sha256": "1101c23b635db58ffb76706ee7149d039ab2abc35839910b416b7708556d666c"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/hir-cache-validation/disabled.stderr",
+    "stored": "disabled.stderr",
+    "original_sha256": "142c87b42a6ed04b531c3e399c5e25e82735c9b80b7b6d4b1e5e6b71818c9647",
+    "stored_sha256": "142c87b42a6ed04b531c3e399c5e25e82735c9b80b7b6d4b1e5e6b71818c9647"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/hir-cache-validation/enabled.stdout",
+    "stored": "enabled.stdout",
+    "original_sha256": "5bc2ccc0b37790315815351611797b07fdbace2244a87df7595253f81ba6b32e",
+    "stored_sha256": "5bc2ccc0b37790315815351611797b07fdbace2244a87df7595253f81ba6b32e"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/hir-cache-validation/enabled.stderr",
+    "stored": "enabled.stderr",
+    "original_sha256": "75bde5a9474859f68f9893d0339579d1feae16f040b75f42bf06d380b83c9b69",
+    "stored_sha256": "75bde5a9474859f68f9893d0339579d1feae16f040b75f42bf06d380b83c9b69"
+  },
+  {
+    "source": "/tmp/forge-hir-policy-checks/compiler.log",
+    "stored": "compiler.log",
+    "original_sha256": "584bef9834418b79556d7f4d89cb755ee81ee50525814b7df9c822ee8c8622b4",
+    "stored_sha256": "584bef9834418b79556d7f4d89cb755ee81ee50525814b7df9c822ee8c8622b4"
+  },
+  {
+    "source": "/tmp/forge-hir-policy-checks/native-lib.log",
+    "stored": "native-lib.log",
+    "original_sha256": "d476dc4744c7cf94a6f67ae3a4154f559d0d11bd7c37664ef74253e7d6f71f2c",
+    "stored_sha256": "73a20226f932af055a4dcc5d110b987acd378f40cff7fe5a46607ac5fda6f330"
+  },
+  {
+    "source": "/tmp/forge-hir-policy-checks/clippy.log",
+    "stored": "clippy.log",
+    "original_sha256": "53978ad0c94746a8f7242e7b22b36c195f83e8cee1568efa1f2b1fca91d95cf5",
+    "stored_sha256": "53978ad0c94746a8f7242e7b22b36c195f83e8cee1568efa1f2b1fca91d95cf5"
+  },
+  {
+    "source": "/tmp/forge-hir-policy-checks/feature-clippy.log",
+    "stored": "feature-clippy.log",
+    "original_sha256": "51f6ca24110cb32fdc303324b1f66c598140514a3f5a64656f2e6fb1dbe8c89d",
+    "stored_sha256": "51f6ca24110cb32fdc303324b1f66c598140514a3f5a64656f2e6fb1dbe8c89d"
+  },
+  {
+    "source": "/tmp/forge-hir-policy-checks/doc.log",
+    "stored": "doc.log",
+    "original_sha256": "8a6c49a1ca203abec827f06a33ce58d21717e5916a9e9cc7d3cf8ad289a09df4",
+    "stored_sha256": "8a6c49a1ca203abec827f06a33ce58d21717e5916a9e9cc7d3cf8ad289a09df4"
+  },
+  {
+    "source": "/tmp/forge-hir-policy-checks/results.json",
+    "stored": "results.json",
+    "original_sha256": "95b4f361145b69232c85ed990fc23fa362e1e313efff9ed4b2d08dc5db46b01f",
+    "stored_sha256": "95b4f361145b69232c85ed990fc23fa362e1e313efff9ed4b2d08dc5db46b01f"
+  }
+]

@@ -1217,6 +1217,15 @@ frontend, runtime), da identidade do Clang e das bandeiras
 compilado como sempre (os corpos do SDK **não** são inferidos nem baixados
 por programa) e referencia os símbolos do SDK.
 
+**Correção de cache em 19/10/2026:** `DARTFORGE_OPTIMIZE_HIR=0` também altera os
+objetos, o bitcode e os resumos do SDK. Esse modo recebe uma chave compilada
+separada nos dois perfis. A variável ausente e o valor `1` compartilham o modo
+otimizado; a chave do catálogo de classes/fonte não muda ao alternar a opção.
+A impressão digital do compilador atualizado invalida os artefatos anteriores.
+Não é necessário editar manifestos nem apagar o cache de outro compilador em
+execução. Reprodução da colisão antiga e validação da separação:
+[evidências](../bench/results/2026-10-19-hir-sdk-cache-policy/README.md).
+
 **Dois perfis** (exigência do proprietário, 2026-09-23):
 
 * **desenvolvimento, teste, CI e JIT** — o SDK e o runtime numa **DLL em

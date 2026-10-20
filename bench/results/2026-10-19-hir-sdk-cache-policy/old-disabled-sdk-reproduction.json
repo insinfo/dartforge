@@ -1,0 +1,127 @@
+{
+  "same_sdk_key": "5de6da02057aa61971140a41b1bc5bba",
+  "mode": "DARTFORGE_OPTIMIZE_HIR=0",
+  "files": [
+    {
+      "name": "_compact_hash.poda",
+      "cached_bytes": 167330,
+      "disabled_bytes": 167330,
+      "cached_sha256": "e6bf7e2df9592e50c52207732e2d17f4082f6eabf1d4fd5701b9ca7385a050c9",
+      "disabled_sha256": "e6bf7e2df9592e50c52207732e2d17f4082f6eabf1d4fd5701b9ca7385a050c9",
+      "equal": true
+    },
+    {
+      "name": "_http.poda",
+      "cached_bytes": 840937,
+      "disabled_bytes": 840937,
+      "cached_sha256": "d1816de31b7a873fdf9e93d387f822507c815313e378916e472b131693018477",
+      "disabled_sha256": "d1816de31b7a873fdf9e93d387f822507c815313e378916e472b131693018477",
+      "equal": true
+    },
+    {
+      "name": "_internal.poda",
+      "cached_bytes": 470742,
+      "disabled_bytes": 470742,
+      "cached_sha256": "cd73b57b5e443eb3fbb1ac5234259b31df341a0f2c58e3843f388e0b615ec3f3",
+      "disabled_sha256": "cd73b57b5e443eb3fbb1ac5234259b31df341a0f2c58e3843f388e0b615ec3f3",
+      "equal": true
+    },
+    {
+      "name": "async.poda",
+      "cached_bytes": 629137,
+      "disabled_bytes": 629137,
+      "cached_sha256": "48a2505659b6455fa19d67e962958a05f8a2fe304e4d3c4fc6e418b072e69300",
+      "disabled_sha256": "48a2505659b6455fa19d67e962958a05f8a2fe304e4d3c4fc6e418b072e69300",
+      "equal": true
+    },
+    {
+      "name": "collection.poda",
+      "cached_bytes": 440425,
+      "disabled_bytes": 440425,
+      "cached_sha256": "113fa91672fc9b5c67c1e6b4c80bc69a8273e918627086ad78849ffc45137079",
+      "disabled_sha256": "113fa91672fc9b5c67c1e6b4c80bc69a8273e918627086ad78849ffc45137079",
+      "equal": true
+    },
+    {
+      "name": "convert.poda",
+      "cached_bytes": 439334,
+      "disabled_bytes": 439334,
+      "cached_sha256": "35a0a3267e3ef6ef81cbf119411830b1571043635072968dca5a5ef105ac1a54",
+      "disabled_sha256": "35a0a3267e3ef6ef81cbf119411830b1571043635072968dca5a5ef105ac1a54",
+      "equal": true
+    },
+    {
+      "name": "core.poda",
+      "cached_bytes": 859332,
+      "disabled_bytes": 859332,
+      "cached_sha256": "a2ca14a2d779c94d1fc7fb1746c123004c75d33cbdc206c61141920c0c930d5f",
+      "disabled_sha256": "a2ca14a2d779c94d1fc7fb1746c123004c75d33cbdc206c61141920c0c930d5f",
+      "equal": true
+    },
+    {
+      "name": "developer.poda",
+      "cached_bytes": 56191,
+      "disabled_bytes": 56191,
+      "cached_sha256": "0ad4e955755daae66d8eefb60927fadcdddbd45b7189bb8ebc5dcb023bf4e76c",
+      "disabled_sha256": "0ad4e955755daae66d8eefb60927fadcdddbd45b7189bb8ebc5dcb023bf4e76c",
+      "equal": true
+    },
+    {
+      "name": "ffi.poda",
+      "cached_bytes": 151808,
+      "disabled_bytes": 151808,
+      "cached_sha256": "d1815a555e95fa3d6876d1c27d0e2eb6d25490011914af906bff28cd18fa6b6a",
+      "disabled_sha256": "d1815a555e95fa3d6876d1c27d0e2eb6d25490011914af906bff28cd18fa6b6a",
+      "equal": true
+    },
+    {
+      "name": "io.poda",
+      "cached_bytes": 1137838,
+      "disabled_bytes": 1137838,
+      "cached_sha256": "c8775ed5442f93ce4e1d9813e081ff9f9d9485c09dc88ae8c2144e4ebf2ce3a1",
+      "disabled_sha256": "c8775ed5442f93ce4e1d9813e081ff9f9d9485c09dc88ae8c2144e4ebf2ce3a1",
+      "equal": true
+    },
+    {
+      "name": "isolate.poda",
+      "cached_bytes": 81168,
+      "disabled_bytes": 81168,
+      "cached_sha256": "bfe7825722ecf17a2c724dd08f14bd2e1d318a8828e47f50c693b5d19a11f48f",
+      "disabled_sha256": "bfe7825722ecf17a2c724dd08f14bd2e1d318a8828e47f50c693b5d19a11f48f",
+      "equal": true
+    },
+    {
+      "name": "math.poda",
+      "cached_bytes": 54680,
+      "disabled_bytes": 54680,
+      "cached_sha256": "4d926483a03d475d106d7de9c9fb04844f40f1f1fe47f683fb0cd62e7c1043e3",
+      "disabled_sha256": "4d926483a03d475d106d7de9c9fb04844f40f1f1fe47f683fb0cd62e7c1043e3",
+      "equal": true
+    },
+    {
+      "name": "mirrors.poda",
+      "cached_bytes": 36969,
+      "disabled_bytes": 36969,
+      "cached_sha256": "c44bb879bdb6df9fd2ef2ad33908c253d3e0a41e00b34777689dc0f3ec9dea84",
+      "disabled_sha256": "c44bb879bdb6df9fd2ef2ad33908c253d3e0a41e00b34777689dc0f3ec9dea84",
+      "equal": true
+    },
+    {
+      "name": "nativewrappers.poda",
+      "cached_bytes": 9032,
+      "disabled_bytes": 9032,
+      "cached_sha256": "da785f2954e57e9c7ea0c6f494e17913bd2c4f26dacf7a56905b65b327bdb74e",
+      "disabled_sha256": "da785f2954e57e9c7ea0c6f494e17913bd2c4f26dacf7a56905b65b327bdb74e",
+      "equal": true
+    },
+    {
+      "name": "typed_data.poda",
+      "cached_bytes": 1034243,
+      "disabled_bytes": 1034243,
+      "cached_sha256": "dc9daa5d654437b4ff59651f32e4a122b9f8b3ff2729b62585b88c6b22613e68",
+      "disabled_sha256": "dc9daa5d654437b4ff59651f32e4a122b9f8b3ff2729b62585b88c6b22613e68",
+      "equal": true
+    }
+  ],
+  "all_equal": true
+}

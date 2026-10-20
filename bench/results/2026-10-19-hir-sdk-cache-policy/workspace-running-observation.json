@@ -1,0 +1,11 @@
+{
+  "observed_at": "2026-10-20T00:53:21.739684+00:00",
+  "status_at_observation": "running",
+  "processes": [
+    "34294  1957       27:20 /Volumes/ssd_dock/tools/rust/rustup/toolchains/1.98.1-aarch64-apple-darwin/bin/cargo test --locked --workspace -- --include-ignored",
+    "41034 34341       00:25 /Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge compile-native /var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/.tmpGKSqbK/riverpod_generator/.dart_tool/dartforge/build/bootstrap.dart -o /var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/.tmpGKSqbK/riverpod_generator/.dart_tool/dartforge/build/executor-bcf9f79025a38809.tmp --packages /var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/.tmpGKSqbK/riverpod_generator/.dart_tool/dartforge/build/package_config.json --sdk /Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+  ],
+  "log": "/tmp/forge-workspace-20261019-configured.log",
+  "old_compiler_hash_unchanged": true,
+  "global_approval_claimed": false
+}

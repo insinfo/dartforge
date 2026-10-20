@@ -103,7 +103,7 @@ pub(crate) fn prepare_for_emission(module: &mut Module, arc_memory: bool, by_tab
 }
 
 /// Are the passes turned off by the environment?
-fn disabled() -> bool {
+pub(crate) fn disabled() -> bool {
     std::env::var("DARTFORGE_OPTIMIZE_HIR").is_ok_and(|v| v == "0")
 }
 

@@ -1,0 +1,22 @@
+[
+  {
+    "path": "crates/emit_native/src/sdk_module.rs",
+    "sha256": "9a4ae2bbb40d6c9581a6246e74eaf5792e4ab45d512c7c6e928013a70aff11e0"
+  },
+  {
+    "path": "crates/emit_native/src/optimize/mod.rs",
+    "sha256": "0efa6adfb95d95281e7afa33c13c6781fdd92bff941add8b3f7631635ca6d5c6"
+  },
+  {
+    "path": "docs/NATIVO-PLANO.md",
+    "sha256": "f3b5b35cc4f4e9845ce9c74a5d9eb100cb81126f2a06a58eff6c804c9b60bf68"
+  },
+  {
+    "path": "docs/NATIVO-PODA-DE-TABELAS.md",
+    "sha256": "a87dc820df61f49fc7a5ea9a84a242ac152434a4c8b30c5b437904589e6df87d"
+  },
+  {
+    "path": "ESTADO.md",
+    "sha256": "567dbfb7b716dc22d388263e7a3f2875fccbb23846e3378559eae9ba0090331c"
+  }
+]

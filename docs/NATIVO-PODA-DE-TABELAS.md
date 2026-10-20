@@ -21,6 +21,10 @@ de tempo da compilação inteira. Evidências e observação de diferença entre
 antigo e SDK reconstruído:
 [registros](../bench/results/2026-10-19-dense-dominators/README.md).
 
+A diferença de cache foi reproduzida com `DARTFORGE_OPTIMIZE_HIR=0`: o modo não
+entrava na chave do SDK compilado. A correção separa os dois perfis por política
+HIR, conforme os [registros da investigação](../bench/results/2026-10-19-hir-sdk-cache-policy/README.md).
+
 ## 0. Resumo
 
 Hoje, no `aot --optimize`, toda classe instanciada mantém vivo **todo** membro que ela tem ou

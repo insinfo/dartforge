@@ -1,0 +1,22 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.96s
+     Running unittests src/lib.rs (target/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 1 test
+{"keys":[{"development":"880cb5fc08030fc122ba8a1e6dd0d171","production":"5b38576191bf952accff7a168bda1bb0","source":"90ccf68ee8cba9a1c6531b8da921407b"},{"development":"880cb5fc08030fc122ba8a1e6dd0d171","production":"5b38576191bf952accff7a168bda1bb0","source":"90ccf68ee8cba9a1c6531b8da921407b"},{"development":"880cb5fc08030fc122ba8a1e6dd0d171","production":"5b38576191bf952accff7a168bda1bb0","source":"90ccf68ee8cba9a1c6531b8da921407b"}],"packed":false,"target":"linux-arm64"}
+
+thread 'sdk_module::selected_source_cache_tests::hir_policy_separates_both_sdk_profiles_without_changing_source_keys' (2388965) panicked at crates/emit_native/src/sdk_module.rs:1614:21:
+assertion `left != right` failed: linux-arm64, packed=false, production
+  left: String("5b38576191bf952accff7a168bda1bb0")
+ right: String("5b38576191bf952accff7a168bda1bb0")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test sdk_module::selected_source_cache_tests::hir_policy_separates_both_sdk_profiles_without_changing_source_keys ... FAILED
+
+failures:
+
+failures:
+    sdk_module::selected_source_cache_tests::hir_policy_separates_both_sdk_profiles_without_changing_source_keys
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 920 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`
