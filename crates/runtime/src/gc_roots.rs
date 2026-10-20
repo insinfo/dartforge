@@ -86,20 +86,33 @@ fn fatal_context(message: &str) -> ! {
 /// got past its prologue.
 const STACK_SLACK: usize = 256 * 1024;
 
-/// The lowest address the current thread's stack may use, plus the
-/// [`STACK_SLACK`]; 1 when the system does not tell (no check).
-#[allow(unsafe_code)]
+/// The stack Dart code may use on one thread: that of the main thread on macOS and
+/// Linux. An isolate thread reserves more ([`crate::isolates`], 64 MiB) as room
+/// for the runtime, not for deeper Dart recursion: an unbounded recursion on it
+/// went 2 million frames deep, and unwinding them by tables (`--exceptions
+/// tables`) took 2.9 s. The VM gives every Dart thread, the main isolate's
+/// included, 1 MiB (`OSThread::GetMaxStackSize`, `128 * kWordSize * KB`) minus
+/// up to 128 KiB of headroom, and throws at about 58 thousand frames of a simple
+/// recursion; frames here are larger (the roots frame), so the budget stays
+/// above the VM's rather than risk a recursion the VM accepts.
+const DART_STACK: usize = 8 * 1024 * 1024;
+
+/// The lowest address Dart code on the current thread may use: the bottom of the
+/// stack plus the [`STACK_SLACK`], and no more than [`DART_STACK`] below its top;
+/// 1 when the system does not tell (no check).
 fn thread_stack_limit() -> usize {
-    let base = stack_base();
     // The `slack` sabotage (D8, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.3):
     // 4 KiB are not enough to build and throw the `StackOverflowError`.
     let slack = if crate::heap::sabotage("slack") { 4 * 1024 } else { STACK_SLACK };
-    if base == 0 { 1 } else { base + slack }
+    match stack_bounds() {
+        Some((low, high)) if low != 0 => (low + slack).max(high.saturating_sub(DART_STACK)),
+        _ => 1,
+    }
 }
 
 #[cfg(windows)]
 #[allow(unsafe_code)]
-fn stack_base() -> usize {
+fn stack_bounds() -> Option<(usize, usize)> {
     #[link(name = "kernel32")]
     unsafe extern "system" {
         fn GetCurrentThreadStackLimits(low: *mut usize, high: *mut usize);
@@ -107,12 +120,12 @@ fn stack_base() -> usize {
     let (mut low, mut high) = (0usize, 0usize);
     // SAFETY: two pointers to local `usize`s.
     unsafe { GetCurrentThreadStackLimits(&mut low, &mut high) };
-    low
+    Some((low, high))
 }
 
 #[cfg(target_os = "linux")]
 #[allow(unsafe_code)]
-fn stack_base() -> usize {
+fn stack_bounds() -> Option<(usize, usize)> {
     // `pthread_attr_t` has 56 bytes on glibc x86-64 and 64 on aarch64.
     #[repr(C, align(8))]
     struct PthreadAttr([u8; 64]);
@@ -128,17 +141,17 @@ fn stack_base() -> usize {
     // at the end.
     unsafe {
         if pthread_getattr_np(pthread_self(), &mut a) != 0 {
-            return 0;
+            return None;
         }
         let ok = pthread_attr_getstack(&a, &mut address, &mut size) == 0;
         pthread_attr_destroy(&mut a);
-        if ok { address } else { 0 }
+        ok.then(|| (address, address.saturating_add(size)))
     }
 }
 
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)]
-fn stack_base() -> usize {
+fn stack_bounds() -> Option<(usize, usize)> {
     unsafe extern "C" {
         fn pthread_self() -> usize;
         fn pthread_get_stackaddr_np(t: usize) -> usize;
@@ -147,13 +160,14 @@ fn stack_base() -> usize {
     // SAFETY: queries about the current thread; the address is the top of the stack.
     unsafe {
         let t = pthread_self();
-        pthread_get_stackaddr_np(t).saturating_sub(pthread_get_stacksize_np(t))
+        let high = pthread_get_stackaddr_np(t);
+        Some((high.saturating_sub(pthread_get_stacksize_np(t)), high))
     }
 }
 
 #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
-fn stack_base() -> usize {
-    0
+fn stack_bounds() -> Option<(usize, usize)> {
+    None
 }
 
 /// A function's prologue found the frame below the stack limit
@@ -555,6 +569,23 @@ pub unsafe extern "C" fn dartforge_gc_stats(out: *mut u64) {
 #[cfg(test)]
 mod tests_gc_roots {
     use super::*;
+
+    #[test]
+    fn dart_code_gets_at_most_eight_mib_of_a_larger_thread_stack() {
+        std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(|| {
+                let Some((low, high)) = stack_bounds() else { return };
+                let here = &low as *const usize as usize;
+                assert!(low < here && here < high);
+                let limit = thread_stack_limit();
+                assert_eq!(limit, high - DART_STACK);
+                assert!(limit > low + STACK_SLACK);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
 
     #[test]
     fn lean_descriptor_gives_n_zeroed_slots_and_same_area() {
