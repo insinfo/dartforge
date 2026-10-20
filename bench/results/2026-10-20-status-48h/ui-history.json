@@ -1,0 +1,102 @@
+[
+  {
+    "commit": "15aff7042318d2fa56661ffed4360c81a41a86b8",
+    "date": "2026-10-19T02:25:56-03:00",
+    "subject": "Add multi-choice name range filters to Details headers"
+  },
+  {
+    "commit": "9893e03145f478aac99934972ddc1177e3f5a871",
+    "date": "2026-10-19T02:16:16-03:00",
+    "subject": "fix(win32): route painted caption input and retain cursor fallback"
+  },
+  {
+    "commit": "0795e74bc4542212b41bc8702a92edda5bd99dae",
+    "date": "2026-10-19T01:56:42-03:00",
+    "subject": "fix(popups): retarget secondary clicks outside open menus"
+  },
+  {
+    "commit": "762d755576c25f1e105d9115c3aacb40a1587437",
+    "date": "2026-10-19T01:45:57-03:00",
+    "subject": "feat(linux): integrate window tabs with client title bars"
+  },
+  {
+    "commit": "dfa850e98bb9b34c6249337b138aa8d0ce987ec0",
+    "date": "2026-10-19T01:35:24-03:00",
+    "subject": "feat(explorer): add configurable details columns"
+  },
+  {
+    "commit": "0cf575f2467f80146f04f1693b6477550c4619e6",
+    "date": "2026-10-19T01:08:51-03:00",
+    "subject": "feat(explorer): make the navigation sidebar resizable"
+  },
+  {
+    "commit": "9f60c80c630f274e03cea5ec523c52b7a41b32bf",
+    "date": "2026-10-19T01:00:44-03:00",
+    "subject": "feat(win32): integrate application tabs into the title bar"
+  },
+  {
+    "commit": "4db167fb61d1b974405dee6498230bdd81f285d3",
+    "date": "2026-10-19T00:33:34-03:00",
+    "subject": "fix(explorer): resolve context menus from the clicked item"
+  },
+  {
+    "commit": "3f3d7920c2cfe27c7bdf5be6b8bcebfd93cee85a",
+    "date": "2026-10-19T00:23:52-03:00",
+    "subject": "fix(explorer): make file hover tips opt-in"
+  },
+  {
+    "commit": "3d7dcf4a2c853ad3c88f88b9c9a286823da4a14b",
+    "date": "2026-10-19T00:20:13-03:00",
+    "subject": "fix(windows): preserve owner geometry when restoring focus"
+  },
+  {
+    "commit": "2f04ff46e44640cbb398eabace99aec3200395f0",
+    "date": "2026-10-19T00:06:04-03:00",
+    "subject": "fix(explorer): preserve inline rename while selecting text"
+  },
+  {
+    "commit": "a52e02136a0d14f3adba82ee87d24432abbca265",
+    "date": "2026-10-18T23:52:13-03:00",
+    "subject": "feat(explorer): open modeless properties windows and select tooltip presentation"
+  },
+  {
+    "commit": "464f48fe7972972f3841f4900b56a20c3fc84821",
+    "date": "2026-10-18T23:44:17-03:00",
+    "subject": "fix(popups): preserve desktop alpha and isolate owner hover"
+  },
+  {
+    "commit": "bec1db44fa328478d32e39c181f39ffe3d1ee072",
+    "date": "2026-10-18T23:03:48-03:00",
+    "subject": "fix(input): release detached focus targets and render multiline tooltips"
+  },
+  {
+    "commit": "99b86f3c234758a27e54a033ed754abcd083ef67",
+    "date": "2026-10-18T22:57:49-03:00",
+    "subject": "fix(rendering): smooth thin rounded borders"
+  },
+  {
+    "commit": "ba6e4b06f0a16a15e91e0435c463959337777a11",
+    "date": "2026-10-18T22:54:08-03:00",
+    "subject": "feat(explorer): add portable folder options and productivity commands"
+  },
+  {
+    "commit": "c90e5ea998040d85e786c87cabf5d46a6417cf5f",
+    "date": "2026-10-18T21:54:05-03:00",
+    "subject": "fix(menu): preserve selected action before disposing native popup"
+  },
+  {
+    "commit": "a34991052bedb67eec2940efb3452d951f9dc2d8",
+    "date": "2026-10-18T21:47:49-03:00",
+    "subject": "feat(wayland): present OpenGL buffers through DMA-BUF and size popups after layout"
+  },
+  {
+    "commit": "d16c0b67f7cd4c591e3ec404d11e32e39e8a9e9e",
+    "date": "2026-10-18T21:06:33-03:00",
+    "subject": "fix(tooltip): fill corners on opaque native popup surfaces"
+  },
+  {
+    "commit": "68481bf3bcdd90e3b54d3333d5e42834ae27b282",
+    "date": "2026-10-18T21:02:36-03:00",
+    "subject": "fix(desktop): correct X11 context menus and resize cursors"
+  }
+]

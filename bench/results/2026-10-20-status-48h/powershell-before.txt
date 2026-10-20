@@ -1,0 +1,6 @@
+Exception: /Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-20-status-48h/validate-powershell.ps1:29
+Line |
+  29 |          throw ('Wrong argument boundary: ' + ($arguments -join ' '))
+     |          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | Wrong argument boundary: run entry.dart --sdk sdk/lib --packages
+     | package_config.json -- --sdk application-owned --

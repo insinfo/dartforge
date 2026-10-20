@@ -1,0 +1,17 @@
+{
+  "command": [
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+    "compile",
+    "exe",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+    "-o",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/explorer-dart"
+  ],
+  "exit": 0,
+  "seconds": 8.339115833,
+  "stdout": "Generated: /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/explorer-dart\n",
+  "stderr": "",
+  "ui_head": "15aff7042318d2fa56661ffed4360c81a41a86b8",
+  "bytes": 12257440,
+  "sha256": "588eab982c2bf095d3d040ee3fc6b228da725f69b618291f435652c22f268b87"
+}

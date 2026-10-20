@@ -1,0 +1,15 @@
+{
+  "passed": true,
+  "arguments": [
+    "run",
+    "--sdk",
+    "sdk/lib",
+    "--packages",
+    "package_config.json",
+    "entry.dart",
+    "--",
+    "--sdk",
+    "application-owned",
+    "--"
+  ]
+}

@@ -1,5 +1,333 @@
 # Estado do DartForge — 2026-10-20
 
+## Balanço das últimas 48 horas — corte em 20/10/2026 às 14:33:15
+
+Janela fixa: **18/10 às 14:33:15 → 20/10 às 14:33:15, UTC−3**.
+Foram **102 commits no DartForge**, até `bf412998`, e **20 no dart_ui**,
+até `15aff70`. Os inventários completos, com assunto, data e arquivos de cada
+commit do compilador, estão em
+[history.json](bench/results/2026-10-20-status-48h/history.json) e
+[ui-history.json](bench/results/2026-10-20-status-48h/ui-history.json).
+As medições novas abaixo foram feitas após esse corte, no mesmo código.
+As seções seguintes deste arquivo conservam o histórico: seus números e
+pendências devem ser lidos com a data de cada rodada.
+
+### Compilação JavaScript: medição nova em 20/10
+
+**Neste recorte pequeno, JS dev compila mais rápido que o DDC. Produção também
+compila mais rápido que dart2js O2, mas gera arquivos maiores.** Não há uma
+nova medição completa de webdev/ngdart ou de edição incremental nesta rodada.
+
+Mac M4 ARM64, Dart 3.6.2, Node 24.21.0; compiladores Rust construídos agora em
+`--release`, perfil padrão otimizado/ThinLTO. Um aquecimento por ferramenta e
+entrada; três processos novos medidos, alternando a ordem. Tempos incluem
+início do processo, compilação e escrita; filesystem aquecido, sem apagar caches
+do sistema. Todas as **12 combinações programa/ferramenta** executaram em Node
+com stdout idêntico ao da VM. Esses três programas não representam aplicações
+grandes nem demonstram paridade de toda a linguagem. Carga de um minuto durante
+os comandos JS: 4,94–5,47; as VMs estavam suspensas.
+
+| Entrada | JS dev, mediana | DDC direto, mediana | DDC / nosso | JS produção checked | dart2js O2 |
+|---|---:|---:|---:|---:|---:|
+| hello | 18,63 ms | 142,99 ms | 7,67× | 137,13 ms | 670,17 ms |
+| classes | 19,08 ms | 145,06 ms | 7,60× | 136,83 ms | 695,72 ms |
+| JSON | 20,51 ms | 158,61 ms | 7,73× | 297,78 ms | 815,70 ms |
+
+O DDC é chamado diretamente pelo snapshot, sem custo de webdev/build_runner.
+Não se compara nosso processo novo com um worker DDC persistente. Produção usa
+o padrão checked do `dartforge-jsprod`, sem `-O4`/`--omit-checks`; o comparador
+é `dart compile js -O2`, também sem omitir implicit checks.
+
+**Tamanho implantável em bytes: bruto / gzip9**, sem source maps. Para dev/DDC
+inclui módulos, launcher e **uma cópia do mesmo `dart_sdk.js`**; gzip é somado
+por arquivo. Para produção, inclui o arquivo autossuficiente emitido.
+
+| Entrada | JS dev | DDC | JS produção | dart2js O2 |
+|---|---:|---:|---:|---:|
+| hello | 7.089.075 / 838.342 | 7.088.414 / 838.070 | 47.262 / 16.362 | 33.591 / 11.102 |
+| classes | 7.100.116 / 840.033 | 7.100.449 / 840.057 | 54.287 / 18.551 | 37.055 / 12.257 |
+| JSON | 7.102.199 / 840.381 | 7.106.123 / 840.752 | 156.163 / 48.542 | 60.854 / 19.699 |
+
+Nosso dev e DDC ficam praticamente do mesmo tamanho quando o SDK compartilhado
+entra na conta. Nosso JS produção é **1,41× / 1,47× / 2,57×** maior em bruto
+e **1,47× / 1,51× / 2,46×** em gzip nestas entradas, respectivamente. O custo
+fixo do runtime é especialmente visível nos programas pequenos.
+
+Aplicações grandes têm resultados **históricos**, sem recompilação nesta rodada:
+em 14/10, `limitless_ui` produção tinha 3.535.556 B / 1.020.032 B gzip contra
+3.870.230 / 1.020.812 do O2; `new_sali`, 7.625.133 / 2.078.667 contra
+8.022.590 / 2.110.700. Portanto, o resultado de tamanho depende da aplicação.
+A comparação dev/webdev de 13/10 encontrou 4,9 contra 103 s e 19,4 contra 340 s,
+mas teve carga alta, poucas amostras e geração prévia no checkout: **não tratar
+“20×” como resultado atual nem como garantia de checkout limpo**.
+Método histórico: [DEV-VS-DDC](docs/DEV-VS-DDC.md).
+Resultados novos, comandos completos, hashes e reprodução:
+[evidências de 20/10](bench/results/2026-10-20-status-48h/README.md).
+
+### AOT: medição nova e ganhos de compilação registrados
+
+Executáveis macOS ARM64 reconstruídos com `--optimize`, política padrão de
+exceções, contra `dart compile exe` 3.6.2. Cinco execuções externas alternadas,
+quatro amostras internas por núcleo: **20 amostras por ferramenta/núcleo**.
+Todos os checksums coincidem. O driver DartForge preservado é debug; os
+executáveis Dart gerados são otimizados. Seus tempos de compilação não servem
+para comparar a velocidade de um compilador release com o SDK oficial.
+
+| Núcleo | DartForge, mediana [mínimo] | Dart AOT, mediana [mínimo] |
+|---|---:|---:|
+| fib | 5 [5] ms | 9 [9] ms |
+| árvores | 21 [20] ms | 12 [11] ms |
+| numérico | 103 [98] ms | 98,5 [95] ms |
+| strings | 45 [43] ms | 46 [45] ms |
+| JSON | 74,5 [71] ms | 75 [70] ms |
+
+Fib está à frente; árvores continuam **1,75× mais lentas pela mediana**.
+Os demais ficam próximos neste recorte. Isso não substitui medições de HTTP,
+UI, memória ou aplicações prolongadas.
+
+| Executável, bytes em disco | DartForge | Dart AOT 3.6.2 | Nosso / Dart |
+|---|---:|---:|---:|
+| hello, compilados agora | 2.996.032 | 5.329.888 | 0,56× |
+| benchmark, compilados agora | 3.144.640 | 5.379.136 | 0,58× |
+| explorador macOS, mesmo dart_ui `15aff70` | 25.224.176 | 12.257.440 | 2,06× |
+
+O AOT do explorador DartForge vem da última matriz validada; o oficial foi
+recompilado agora, mas **não executado nesta comparação de tamanho**. Recursos,
+fontes e host AppKit externos não entram nesses bytes. Linux ARM64 e Windows
+x64 DartForge da matriz medem 37.619.528 e 37.224.960 B; não há par oficial
+novo nesses dois destinos. Não comparar tamanhos de formatos/sistemas distintos
+como se fossem efeito exclusivo do compilador.
+
+Ganhos locais de preparação/emissão demonstrados durante as 48 horas:
+
+| Alteração | Antes → depois | Alcance da medida |
+|---|---|---|
+| Reutilizar resumos HIR nas rodadas FFI | emissão 108,45 → 97,15 s; poda 25,74 → 17,92 s | médias de duas amostras/versão, debug, cache aquecido; IR idêntico |
+| Iterar bits ligados nas raízes GC | emissão 99,62749 → 95,57189 s (−4,1%); etapa LLVM 30,43604 → 26,54618 s | medianas de quatro amostras/versão, debug, ABBA; IR idêntico |
+| Validar inventário em streaming + chaves emprestadas | 0,33913 → 0,16486 s; RSS 759.930.880 → 72.794.112 B | etapa isolada com dependências release, não consumo total do compilador |
+| Serializar/hash sem strings temporárias completas | pico −136,3 MiB | harness isolado, não memória total do compilador |
+| SCC sem copiar adjacências suspensas | 22,723 → 0,810 ms, estrela com 10 mil nós | grafo sintético, não um build inteiro |
+| RELR opcional Linux | explorador 37.624.936 → 36.011.472 B (−4,29%) | mesmos insumos de ligação, revisão retida; desligado por padrão |
+
+As rodadas usam bases diferentes: **não somar percentuais**. O iterador de bits
+piora o microbenchmark totalmente denso em cerca de 3,09×; isso está preservado.
+Referências: [HIR](bench/results/2026-10-20-hir-summary-reuse/README.md),
+[raízes](bench/results/2026-10-20-root-bit-iteration/README.md),
+[streaming/chaves](bench/results/2026-10-20-borrowed-keys/README.md),
+[I/O](bench/results/2026-10-20-inventory-io/README.md),
+[SCC](bench/results/2026-10-19-build-quality/README.md),
+[RELR](bench/results/2026-10-19-linux-relr-packing/README.md).
+
+### O que mudou por ferramenta nestas 48 horas
+
+| Frente | Feito/corrigido | Evidência e limite |
+|---|---|---|
+| JS dev | Sessão residente recusa leitura obrigatoriamente inválida de final, preserva última emissão bem-sucedida e refaz estado após falha de escrita. Helper de medição restaura fontes. WebSocket testa o writer real e limites de tamanho UTF-8. Corpus deixa de publicar JS falso e retornar sucesso em erro. | 16 testes dev; 207 entradas aceitas com módulos idênticos antes/depois e uma rejeição intencional. Ganho de velocidade dessas correções não foi medido isoladamente. |
+| JS produção | Refatoração interna/Clippy, preservando políticas de RTI, checks, efeitos e otimizações. | 88 testes com ignorados habilitados, incluindo VM/Node/O2. Não houve nova otimização geral de tamanho nesta janela. |
+| Analyzer | Cache de dependências do pubspec evita copiar a chave em hits e separa modos normal/dev; testes passam a exigir SDK real. Comparador de paridade valida tipos, coordenadas, duplicatas, versão/saída do oráculo e preserva referências em falhas. | 89 fontes analisadas novamente pelo Dart: 417 diagnósticos iguais em código/local/comprimento. 210 testes analysis/parity e 16 cenários CLI na rodada posterior. Não é paridade completa de mensagens/linguagem. |
+| LSP | Completion resolve URIs `file:` percent-encoded uma única vez, incluindo espaços; preserva o prefixo digitado. Contextos nomeados e correção de 16 diagnósticos Clippy. | 258 testes + 17 doctests; seis respostas do servidor Dart 3.6.2 para os cenários de URI. Sem nova medição de latência/memória de servidor grande. |
+| Format | Varredura exige SDK/corpus não vazios, propaga erros de leitura, confere cobertura de tokens e recusa fallback escondido para outro SDK. Loader e formatter limpos no Clippy. | 426/426 arquivos aceitos do SDK iguais byte a byte ao `dart format`; 73 testes elements/formatter. Não é nova cobertura de todo Dart 3.13. |
+| `dartforge test` | Mantido o runner nativo baseado no Engine de `package:test`; suíte CLI native/JIT ampliada e executada de verdade. Sem nova plataforma de execução de testes nesta janela. | 83 testes CLI em 14 executáveis; totais abrangem outros comandos, não são 83 testes do runner. Browser, coverage, watch, `dart_test.yaml` e anotações de biblioteca continuam sem suporte. |
+| `dartforge pub get` | Metadados hosted só substituem o cache depois de validar identidade, versões, pubspec, digest e transporte. Resposta inválida deixa snapshot offline anterior utilizável; erro online continua erro. | 17 invocações reais contra registro loopback: resolução válida, oito rejeições e oito resoluções offline sem HTTP. Fontes/opções fora do subconjunto continuam recusadas. |
+| Builders/macros/Sass | Detector usa configuração parseada, não busca textual; IR/digest nativo usa o mesmo gerador do executável; correções de SCC; templates Angular mais compactos; regras `@` modernas de Sass corrigidas. | Corpus nativo de builders e quatro testes Angular passaram na coleta ampla; 372 artefatos Angular conferidos em rodada dirigida. Fallbacks e configurações não suportadas continuam explícitos. |
+
+O cache do analyzer, em 10 mil hits sintéticos de produção com pubspec de
+16.464 B, reduziu tráfego de alocação de 165.270.000 para 630.000 B; isso não é
+medição de RSS ou tempo do analyzer completo. Os placares anteriores de
+23.001/23.012 diagnósticos e os tempos analyze/format de 14/10 continuam
+históricos, sem nova varredura integral nesta atualização.
+
+Fontes: [JS](bench/results/2026-10-19-js-quality/README.md),
+[dev/produção](bench/results/2026-10-19-production-dev-quality/README.md),
+[analysis](bench/results/2026-10-19-diagnostics-quality/README.md),
+[paridade](bench/results/2026-10-19-parity-gates/README.md),
+[LSP](bench/results/2026-10-19-lsp-uri-paths/README.md),
+[LSP qualidade](bench/results/2026-10-19-lsp-quality/README.md),
+[format](bench/results/2026-10-19-formatter-loader/checks.json),
+[Pub](bench/results/2026-10-19-pub-cache-validation/README.md).
+Os totais são de rodadas distintas e sobrepostas: não representam uma soma de
+testes únicos ou uma execução única de todos os pacotes no HEAD.
+
+### Nativo, JIT, integração e explorador
+
+- Compilação cruzada real com bundles/sysroots verificados, cinco destinos
+  implementados; executados macOS→Linux ARM64, macOS→Windows x64 e
+  Linux→macOS ARM64. JIT é local ao sistema, sem execução JIT cruzada.
+- Corrigidos alocador/símbolos COFF no JIT Windows, propriedade dos dados de
+  contexto do SDK importado e seleção explícita de SDK em run/recarga/reinício.
+  O último teste envenena o SDK ambiente e prova que `--sdk` correto prevalece.
+- Backend: downcasts de literais preservando ordem de efeitos; proteção contra
+  otimização de recursão que impedia StackOverflowError; reutilização de
+  comprimento de strings com dominância; dominadores densos e ordem reversa
+  de pós-visita; resumos HIR reutilizados; registros de tabelas em lote;
+  metadados de frames async isolados da descoberta de event loops.
+- Poda/auditoria: leitores limitados de ELF/RELR, Mach-O/relocações clássicas e
+  chained fixups, PE, bitcode e archives; distinção entre ancestral nominal e
+  classe alocável; tabelas de Type; invalidação de certificados; limites de
+  entradas/callbacks e provas de footprints de alocação sem conceder pureza ou
+  permissão de poda. Literal LLVM contendo `@nome` deixa de criar aresta falsa.
+- Toolchain: descoberta LLVM portátil, ligação macOS compatível com bitcode 22,
+  29 símbolos adicionais de frameworks Apple, pré-checagem de SDKs-oráculo,
+  catálogo/cache alinhados às políticas de otimização e rooting. Fontes Rust
+  globais formatadas em commit isolado, sem afrouxar regras.
+- No dart_ui: bordas finas, transparência/cantos de popups, hover isolado do pai,
+  menu retargetado com um clique secundário, seleção pelo ponto clicado e menu
+  da área vazia; rename permanece ao selecionar texto; propriedades em janela
+  independente sem mover o pai; tooltips de arquivos opt-in e apresentação
+  configurável; opções de pasta/checkbox; abas integradas ao título Windows e
+  Linux; cursor/caption Windows; sidebar redimensionável, colunas configuráveis
+  e filtros múltiplos por faixa do nome. O inventário dos 20 commits acima
+  registra essas implementações; não equivale a teste visual exaustivo.
+
+Última matriz real, concluída antes deste balanço:
+
+| Ambiente | Explorador AOT | Explorador JIT | Menu AOT/JIT |
+|---|---|---|---|
+| macOS ARM64 / AppKit / CPU | passou | passou | passou / passou |
+| Ubuntu ARM64 / Wayland / OpenGL | passou, cruzado | passou | passou / passou |
+| Windows 11 ARM64 / executáveis x64 / D3D11 | passou, cruzado | passou | passou / passou |
+
+Fontes: 1.151 arquivos Dart da UI e 427 entradas verificadas do SDK coincidem
+nos três sistemas. Smokes curtos de dois frames e eventos enviados à aplicação,
+com popups nativos reais: **não certificam mouse físico, todos os botões,
+aparência, sessões longas ou todas as GPUs**. Windows ARM64 nativo continua
+sem destino implementado. VMs estão suspensas; este balanço não instalou agente
+residente nem reiniciou hóspedes.
+[Matriz e hashes](bench/results/2026-10-20-jit-sdk-selection/README.md).
+Ao revisar os comandos, corrigiu-se também o validador PowerShell para colocar
+`--sdk`/`--packages` antes da entrada em `run`, como já fazia o Python corrigido.
+Essa linha recebeu validação de sintaxe/ordem; não se declara uma nova matriz GUI.
+
+### Estado dos checks e o que falta
+
+- Últimos fmt, Clippy estrito do workspace e CLI native/JIT, e documentação
+  privada sem avisos: **passaram**. Backend nativo: última suíte dirigida
+  completa com **1.046 aprovados**, incluindo ignorados. Runtime: 324 unitários,
+  25 integrações e 88 doctests na rodada registrada.
+- A coleta ampla do workspace terminou em **101**, não aprovada. Um alvo falhou
+  por SDKs-oráculo não configurados e os dois testes passaram na reprise do mesmo
+  executável com os SDKs corretos. O outro permanece falhando de verdade:
+  `platform_constant_prunes_the_other_backends`, com seis definições estrangeiras
+  ainda retidas. Fmt/Clippy verdes não anulam essa falha.
+- Prioridade nativa: completar as provas de startup/registro e a poda de backends
+  inativos; reduzir o explorador, ainda 2,06× o Dart no macOS; melhorar árvores e
+  kernel de cor; medir HTTP e aplicações longas novamente; repetir a suíte ampla
+  após corrigir o gate. Não suprimir a expectativa para conseguir verde.
+- JS dev: nova comparação justa de worker residente/incremental e checkout limpo
+  nos dois projetos grandes; dependências da geração/builders, tráfego HTTP e
+  invalidação de API ainda merecem auditoria. A medição pequena acima não encerra
+  essas pendências. JS produção: reduzir runtime/RTI/gzip e regressões de JSON,
+  UTF-8 e coleções; não trocar checks por velocidade silenciosamente.
+- Analyzer/LSP/format: ampliar paridade 3.13/augmentations, mensagens, referências
+  e sessões grandes/incrementais. Sem novo placar global nesta janela.
+- Pub/test: ampliar fontes/opções de resolução, configuração de suites e
+  plataformas recusadas; executar esses fluxos nas VMs, além dos smokes desktop.
+- Distribuição: compatibilidade com sistemas antigos, recursos/host da UI e
+  validação visual/longa continuam necessários. O aviso de deployment target dos
+  objetos LLVM não foi convertido em certificação de macOS antigo.
+
+### Executar com Parallels Virtual Machines Control nesta máquina
+
+Controlador instalado: `/usr/local/bin/prlctl` (26.3.3). Os caminhos abaixo são
+os desta instalação. Executar uma VM por vez; seus 4 GB não comportaram build
+pesado e JIT simultâneos. `exec` administrativo não garante sessão gráfica:
+Windows usa `--current-user`, Linux usa o usuário `isaque` e a sessão Wayland.
+
+```sh
+prlctl list -a -o name,status
+prlctl start 'Ubuntu24.04_arm64'
+prlctl exec 'Ubuntu24.04_arm64' /bin/uname -m
+# Ao terminar os processos/testes:
+prlctl suspend 'Ubuntu24.04_arm64'
+
+prlctl start 'Windows11'
+prlctl exec 'Windows11' --current-user whoami.exe
+```
+
+Linux: compilar/executar o explorador e o smoke em AOT/JIT, dentro da sessão
+gráfica já iniciada. A saída é nova e não substitui a evidência anterior.
+
+```sh
+prlctl exec 'Ubuntu24.04_arm64' /usr/sbin/runuser -u isaque -- \
+  /usr/bin/env XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 \
+  DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus \
+  DARTFORGE_LLVM_DIR=/opt/llvm-22.1.8 \
+  PATH=/opt/llvm-22.1.8/bin:/usr/local/bin:/usr/bin:/bin \
+  python3 /media/psf/ssd_dock/MyRustProjects/dartforge/scripts/validate-native-desktop.py \
+  --compiler /home/isaque/projects/dartforge/target/native-validation/release/dartforge-current-desktop-fixed \
+  --ui-root /home/isaque/projects/dart_ui --sdk /opt/dart/3.6.2/dart-sdk/lib \
+  --out /home/isaque/.cache/dartforge/review-20261020 \
+  --backend wayland --presentation wayland-opengl --mode all
+```
+
+Windows: com o usuário conectado e LLVM x64 completo instalado:
+
+```sh
+prlctl exec 'Windows11' --current-user powershell.exe -NoProfile \
+  -ExecutionPolicy Bypass \
+  -File '\\Mac\ssd_dock\MyRustProjects\dartforge\scripts\validate-native-desktop.ps1' \
+  -Compiler 'C:\tools\dartforge\target\native-x64\x86_64-pc-windows-msvc\release\dartforge-current-desktop.exe' \
+  -UiRoot 'C:\tools\ui' -Sdk 'C:\tools\dart\3.6.2\dart-sdk\lib' \
+  -LlvmDirectory 'C:\tools\llvm-22.1.8' \
+  -Out 'C:\tools\validation\review-20261020' -Mode all
+# Ao concluir:
+prlctl suspend 'Windows11'
+```
+
+Para deixar o explorador aberto, execute diretamente na VM, removendo
+`--frames=2`; opções do compilador ficam **antes** do arquivo em `run` e
+argumentos do explorador ficam depois de `--`:
+
+```sh
+# Terminal Linux dentro da sessão gráfica:
+export DARTFORGE_LLVM_DIR=/opt/llvm-22.1.8
+export PATH=/opt/llvm-22.1.8/bin:$PATH
+export DART_UI_FONTS=/home/isaque/projects/dart_ui/assets/fonts
+cd /home/isaque/projects/dart_ui/examples/file_explorer
+/home/isaque/projects/dartforge/target/native-validation/release/dartforge-current-desktop-fixed \
+  run --sdk /opt/dart/3.6.2/dart-sdk/lib \
+  --packages .dart_tool/package_config.json bin/file_explorer.dart -- \
+  "$PWD" --lang=pt --backend=wayland --presentation=wayland-opengl
+```
+
+```powershell
+# PowerShell dentro da sessão Windows:
+$env:Path='C:\tools\llvm-22.1.8\bin;'+$env:Path
+$env:DARTFORGE_LLVM_DIR='C:\tools\llvm-22.1.8'
+$env:DART_UI_FONTS='C:\tools\ui\assets\fonts'
+Set-Location C:\tools\ui\examples\file_explorer
+& 'C:\tools\dartforge\target\native-x64\x86_64-pc-windows-msvc\release\dartforge-current-desktop.exe' `
+  run --sdk C:\tools\dart\3.6.2\dart-sdk\lib `
+  --packages .dart_tool\package_config.json bin\file_explorer.dart -- `
+  C:\tools\ui\examples\file_explorer --lang=pt --backend=win32 --presentation=direct3d11
+```
+
+Compilar no macOS para o destino, sem delegar a compilação à VM:
+
+```sh
+export DARTFORGE_LLVM_DIR=/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64
+export PATH="$DARTFORGE_LLVM_DIR/bin:$PATH"
+forge="$PWD/target/test-tools/dartforge-explicit-sdk"
+example=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer
+for target in linux-arm64 windows-x64; do
+  suffix=''; [ "$target" = windows-x64 ] && suffix=.exe
+  "$forge" compile-native "$example/bin/file_explorer.dart" --optimize \
+    --sdk /Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib \
+    --packages "$example/.dart_tool/package_config.json" \
+    --target "$target" --target-bundle "$PWD/target/cross-bundles/current/$target" \
+    -o "$PWD/target/explorer-review-$target$suffix"
+done
+```
+
+Copiar o executável à VM e conferir SHA-256 antes de executar; fornecer as
+fontes/recursos do destino com `DART_UI_FONTS`. Bundles precisam corresponder às
+fontes atuais; após alteração do runtime, executar `dartforge export-target`
+em diretório novo no destino e trazer o bundle ao host. Nunca editar o manifesto
+para forçar compatibilidade. Para reconstruir o compilador, sysroots e detalhes
+dos cinco destinos, consultar [CROSS-COMPILACAO](docs/CROSS-COMPILACAO.md).
+Os comandos desta seção documentam reprodução; não foram todos reexecutados
+durante este balanço. A matriz efetivamente executada está vinculada acima.
+
 ## Atualização de 20/10/2026
 
 - Corrigida a seleção do SDK na biblioteca carregada por `run` e pela recarga:

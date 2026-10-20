@@ -1,0 +1,542 @@
+[
+  {
+    "program": "bench/comparison/hello.dart",
+    "source_sha256": "7ff298a7a3bdd940af231b9c19078e7d3aae02f16a00bb7f453022b97800e72b",
+    "tool": "dev",
+    "seconds": [
+      0.0189058339999999,
+      0.018554749999999842,
+      0.018631708000000025
+    ],
+    "median_seconds": 0.018631708000000025,
+    "application": {
+      "bytes": 1217,
+      "gzip9_bytes": 695,
+      "files": [
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/dev/hello.js",
+          "bytes": 891,
+          "sha256": "8b7c179314f18cde263ae5025c30263387e0aaaf309f0ebeb5d4fea3c7561b33"
+        },
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/dev/main.mjs",
+          "bytes": 263,
+          "sha256": "dd61ab1c8ab7d8c10832119174a7023756de983b0c6774b771705b56787eeb2d"
+        },
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/dev/preambulo.js",
+          "bytes": 63,
+          "sha256": "1515caaa04663d6658e7199c3828b6b0581d0c8fe46737c9747e09a4839e8a25"
+        }
+      ]
+    },
+    "deployable": {
+      "bytes": 7089075,
+      "gzip9_bytes": 838342,
+      "files": [
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/runtime/ddc/dart_sdk.js",
+          "bytes": 7087858,
+          "sha256": "28dc6b642e1b3736dda5a7c46f5cbfab056f5b3560f31f802ef7ef94744218ea"
+        },
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/dev/hello.js",
+          "bytes": 891,
+          "sha256": "8b7c179314f18cde263ae5025c30263387e0aaaf309f0ebeb5d4fea3c7561b33"
+        },
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/dev/main.mjs",
+          "bytes": 263,
+          "sha256": "dd61ab1c8ab7d8c10832119174a7023756de983b0c6774b771705b56787eeb2d"
+        },
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/dev/preambulo.js",
+          "bytes": 63,
+          "sha256": "1515caaa04663d6658e7199c3828b6b0581d0c8fe46737c9747e09a4839e8a25"
+        }
+      ]
+    },
+    "matches_vm": true,
+    "stdout_sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+  },
+  {
+    "program": "bench/comparison/hello.dart",
+    "source_sha256": "7ff298a7a3bdd940af231b9c19078e7d3aae02f16a00bb7f453022b97800e72b",
+    "tool": "ddc",
+    "seconds": [
+      0.14223050000000015,
+      0.14299308299999947,
+      0.14401233400000013
+    ],
+    "median_seconds": 0.14299308299999947,
+    "application": {
+      "bytes": 556,
+      "gzip9_bytes": 423,
+      "files": [
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/ddc/app.js",
+          "bytes": 488,
+          "sha256": "4686bbc2054eabfbe6c68afd4b117bd26e36a0930df6d36c6bec6e453e254553"
+        },
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/ddc/main.mjs",
+          "bytes": 68,
+          "sha256": "a6b6291e037647bcc30768172b6994d1e38d354b5e99393d3328bd7a441b687d"
+        }
+      ]
+    },
+    "deployable": {
+      "bytes": 7088414,
+      "gzip9_bytes": 838070,
+      "files": [
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/runtime/ddc/dart_sdk.js",
+          "bytes": 7087858,
+          "sha256": "28dc6b642e1b3736dda5a7c46f5cbfab056f5b3560f31f802ef7ef94744218ea"
+        },
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/ddc/app.js",
+          "bytes": 488,
+          "sha256": "4686bbc2054eabfbe6c68afd4b117bd26e36a0930df6d36c6bec6e453e254553"
+        },
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/ddc/main.mjs",
+          "bytes": 68,
+          "sha256": "a6b6291e037647bcc30768172b6994d1e38d354b5e99393d3328bd7a441b687d"
+        }
+      ]
+    },
+    "matches_vm": true,
+    "stdout_sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+  },
+  {
+    "program": "bench/comparison/hello.dart",
+    "source_sha256": "7ff298a7a3bdd940af231b9c19078e7d3aae02f16a00bb7f453022b97800e72b",
+    "tool": "prod",
+    "seconds": [
+      0.13713408299999985,
+      0.13625141699999954,
+      0.1371654170000003
+    ],
+    "median_seconds": 0.13713408299999985,
+    "application": {
+      "bytes": 47262,
+      "gzip9_bytes": 16362,
+      "files": [
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/prod/app.js",
+          "bytes": 47262,
+          "sha256": "711b5b03f5458c20c322ed4161582256d41872357a5ff95c62f4ed68074b3ee1"
+        }
+      ]
+    },
+    "deployable": {
+      "bytes": 47262,
+      "gzip9_bytes": 16362,
+      "files": [
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/prod/app.js",
+          "bytes": 47262,
+          "sha256": "711b5b03f5458c20c322ed4161582256d41872357a5ff95c62f4ed68074b3ee1"
+        }
+      ]
+    },
+    "matches_vm": true,
+    "stdout_sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+  },
+  {
+    "program": "bench/comparison/hello.dart",
+    "source_sha256": "7ff298a7a3bdd940af231b9c19078e7d3aae02f16a00bb7f453022b97800e72b",
+    "tool": "o2",
+    "seconds": [
+      0.6712378340000003,
+      0.6701739999999998,
+      0.669057542
+    ],
+    "median_seconds": 0.6701739999999998,
+    "application": {
+      "bytes": 33591,
+      "gzip9_bytes": 11102,
+      "files": [
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/o2/app.js",
+          "bytes": 33591,
+          "sha256": "bba84a3eb8265aeabee9a24ba54a9f24e7e69f98d499648ea09c8ddd2a63322d"
+        }
+      ]
+    },
+    "deployable": {
+      "bytes": 33591,
+      "gzip9_bytes": 11102,
+      "files": [
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/o2/app.js",
+          "bytes": 33591,
+          "sha256": "bba84a3eb8265aeabee9a24ba54a9f24e7e69f98d499648ea09c8ddd2a63322d"
+        }
+      ]
+    },
+    "matches_vm": true,
+    "stdout_sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+  },
+  {
+    "program": "corpus/js/40_classes_basico.dart",
+    "source_sha256": "a940820efb4e6f5a7f6e3d60fd9fab8173378d92b74bcea8ecde1bd57d3ea840",
+    "tool": "dev",
+    "seconds": [
+      0.019040666000000428,
+      0.01963808300000025,
+      0.019084375000000264
+    ],
+    "median_seconds": 0.019084375000000264,
+    "application": {
+      "bytes": 12258,
+      "gzip9_bytes": 2386,
+      "files": [
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/dev/40_classes_basico.js",
+          "bytes": 11907,
+          "sha256": "2ce1502ae71243098c4c622485c74dfa932eb27369a35d361a0215b41697c866"
+        },
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/dev/main.mjs",
+          "bytes": 288,
+          "sha256": "c758e69861f3515dc4a51efb06c7e54c93a2f3b51964cfbd0fdb59fe209ca1da"
+        },
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/dev/preambulo.js",
+          "bytes": 63,
+          "sha256": "1515caaa04663d6658e7199c3828b6b0581d0c8fe46737c9747e09a4839e8a25"
+        }
+      ]
+    },
+    "deployable": {
+      "bytes": 7100116,
+      "gzip9_bytes": 840033,
+      "files": [
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/runtime/ddc/dart_sdk.js",
+          "bytes": 7087858,
+          "sha256": "28dc6b642e1b3736dda5a7c46f5cbfab056f5b3560f31f802ef7ef94744218ea"
+        },
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/dev/40_classes_basico.js",
+          "bytes": 11907,
+          "sha256": "2ce1502ae71243098c4c622485c74dfa932eb27369a35d361a0215b41697c866"
+        },
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/dev/main.mjs",
+          "bytes": 288,
+          "sha256": "c758e69861f3515dc4a51efb06c7e54c93a2f3b51964cfbd0fdb59fe209ca1da"
+        },
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/dev/preambulo.js",
+          "bytes": 63,
+          "sha256": "1515caaa04663d6658e7199c3828b6b0581d0c8fe46737c9747e09a4839e8a25"
+        }
+      ]
+    },
+    "matches_vm": true,
+    "stdout_sha256": "ca380db7bd01ff81d1a923049ebf4f6eb9ce354ea94ac2f872fe08a7b92d0f44"
+  },
+  {
+    "program": "corpus/js/40_classes_basico.dart",
+    "source_sha256": "a940820efb4e6f5a7f6e3d60fd9fab8173378d92b74bcea8ecde1bd57d3ea840",
+    "tool": "ddc",
+    "seconds": [
+      0.14435633300000017,
+      0.14505770800000128,
+      0.15212312499999925
+    ],
+    "median_seconds": 0.14505770800000128,
+    "application": {
+      "bytes": 12591,
+      "gzip9_bytes": 2410,
+      "files": [
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/ddc/app.js",
+          "bytes": 12518,
+          "sha256": "f02d3aae532c262694429b33edd55cd61f6406ecff95df132c63ce045608a003"
+        },
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/ddc/main.mjs",
+          "bytes": 73,
+          "sha256": "73370bca5291ede314469d4fdd0e52f6c4f3ade864d94575f14c86aaa1082647"
+        }
+      ]
+    },
+    "deployable": {
+      "bytes": 7100449,
+      "gzip9_bytes": 840057,
+      "files": [
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/runtime/ddc/dart_sdk.js",
+          "bytes": 7087858,
+          "sha256": "28dc6b642e1b3736dda5a7c46f5cbfab056f5b3560f31f802ef7ef94744218ea"
+        },
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/ddc/app.js",
+          "bytes": 12518,
+          "sha256": "f02d3aae532c262694429b33edd55cd61f6406ecff95df132c63ce045608a003"
+        },
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/ddc/main.mjs",
+          "bytes": 73,
+          "sha256": "73370bca5291ede314469d4fdd0e52f6c4f3ade864d94575f14c86aaa1082647"
+        }
+      ]
+    },
+    "matches_vm": true,
+    "stdout_sha256": "ca380db7bd01ff81d1a923049ebf4f6eb9ce354ea94ac2f872fe08a7b92d0f44"
+  },
+  {
+    "program": "corpus/js/40_classes_basico.dart",
+    "source_sha256": "a940820efb4e6f5a7f6e3d60fd9fab8173378d92b74bcea8ecde1bd57d3ea840",
+    "tool": "prod",
+    "seconds": [
+      0.13570270900000025,
+      0.13682591699999946,
+      0.14605195800000104
+    ],
+    "median_seconds": 0.13682591699999946,
+    "application": {
+      "bytes": 54287,
+      "gzip9_bytes": 18551,
+      "files": [
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/prod/app.js",
+          "bytes": 54287,
+          "sha256": "fddbdeacf47b6239fc6081354947836b70eb60568286554772d9a2f4fac65f53"
+        }
+      ]
+    },
+    "deployable": {
+      "bytes": 54287,
+      "gzip9_bytes": 18551,
+      "files": [
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/prod/app.js",
+          "bytes": 54287,
+          "sha256": "fddbdeacf47b6239fc6081354947836b70eb60568286554772d9a2f4fac65f53"
+        }
+      ]
+    },
+    "matches_vm": true,
+    "stdout_sha256": "ca380db7bd01ff81d1a923049ebf4f6eb9ce354ea94ac2f872fe08a7b92d0f44"
+  },
+  {
+    "program": "corpus/js/40_classes_basico.dart",
+    "source_sha256": "a940820efb4e6f5a7f6e3d60fd9fab8173378d92b74bcea8ecde1bd57d3ea840",
+    "tool": "o2",
+    "seconds": [
+      0.6956389589999992,
+      0.706187332999999,
+      0.6957171669999997
+    ],
+    "median_seconds": 0.6957171669999997,
+    "application": {
+      "bytes": 37055,
+      "gzip9_bytes": 12257,
+      "files": [
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/o2/app.js",
+          "bytes": 37055,
+          "sha256": "92799fd2fed7415b5093db9f3d4042bc0a1e54ce70fb683f27df5acc096cf672"
+        }
+      ]
+    },
+    "deployable": {
+      "bytes": 37055,
+      "gzip9_bytes": 12257,
+      "files": [
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/o2/app.js",
+          "bytes": 37055,
+          "sha256": "92799fd2fed7415b5093db9f3d4042bc0a1e54ce70fb683f27df5acc096cf672"
+        }
+      ]
+    },
+    "matches_vm": true,
+    "stdout_sha256": "ca380db7bd01ff81d1a923049ebf4f6eb9ce354ea94ac2f872fe08a7b92d0f44"
+  },
+  {
+    "program": "corpus/js/120_convert_json.dart",
+    "source_sha256": "78111fb648fff111eb563f2aaae18da8ac5e0e0b67ed6fb97604851e3db36fa4",
+    "tool": "dev",
+    "seconds": [
+      0.01970850000000013,
+      0.020511334000000048,
+      0.020507541999998935
+    ],
+    "median_seconds": 0.020507541999998935,
+    "application": {
+      "bytes": 14341,
+      "gzip9_bytes": 2734,
+      "files": [
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/dev/120_convert_json.js",
+          "bytes": 13992,
+          "sha256": "b29563db24419edf7a5d029688c74599efc6ac0a208446f67d717c4c24c7f7f7"
+        },
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/dev/main.mjs",
+          "bytes": 286,
+          "sha256": "b266f87cd4131db0654a3e925b0612ffe7d3eaa97780765a1df2989da79f06d9"
+        },
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/dev/preambulo.js",
+          "bytes": 63,
+          "sha256": "1515caaa04663d6658e7199c3828b6b0581d0c8fe46737c9747e09a4839e8a25"
+        }
+      ]
+    },
+    "deployable": {
+      "bytes": 7102199,
+      "gzip9_bytes": 840381,
+      "files": [
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/runtime/ddc/dart_sdk.js",
+          "bytes": 7087858,
+          "sha256": "28dc6b642e1b3736dda5a7c46f5cbfab056f5b3560f31f802ef7ef94744218ea"
+        },
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/dev/120_convert_json.js",
+          "bytes": 13992,
+          "sha256": "b29563db24419edf7a5d029688c74599efc6ac0a208446f67d717c4c24c7f7f7"
+        },
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/dev/main.mjs",
+          "bytes": 286,
+          "sha256": "b266f87cd4131db0654a3e925b0612ffe7d3eaa97780765a1df2989da79f06d9"
+        },
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/dev/preambulo.js",
+          "bytes": 63,
+          "sha256": "1515caaa04663d6658e7199c3828b6b0581d0c8fe46737c9747e09a4839e8a25"
+        }
+      ]
+    },
+    "matches_vm": true,
+    "stdout_sha256": "1298b6f81459dc8ad5accdc48aebac6e8270c3330b16c9f32e76efe214979eb1"
+  },
+  {
+    "program": "corpus/js/120_convert_json.dart",
+    "source_sha256": "78111fb648fff111eb563f2aaae18da8ac5e0e0b67ed6fb97604851e3db36fa4",
+    "tool": "ddc",
+    "seconds": [
+      0.15860574999999955,
+      0.1549554999999998,
+      0.1667598330000004
+    ],
+    "median_seconds": 0.15860574999999955,
+    "application": {
+      "bytes": 18265,
+      "gzip9_bytes": 3105,
+      "files": [
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/ddc/app.js",
+          "bytes": 18193,
+          "sha256": "8b1669ff114560970219a1c17ac0ff50188395ef110cddd8a7c5cbdf90971900"
+        },
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/ddc/main.mjs",
+          "bytes": 72,
+          "sha256": "29b0272beb06a02fd6c25a1d910a4b6e6a7fc2937457ed36288709c8600fc7c4"
+        }
+      ]
+    },
+    "deployable": {
+      "bytes": 7106123,
+      "gzip9_bytes": 840752,
+      "files": [
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/runtime/ddc/dart_sdk.js",
+          "bytes": 7087858,
+          "sha256": "28dc6b642e1b3736dda5a7c46f5cbfab056f5b3560f31f802ef7ef94744218ea"
+        },
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/ddc/app.js",
+          "bytes": 18193,
+          "sha256": "8b1669ff114560970219a1c17ac0ff50188395ef110cddd8a7c5cbdf90971900"
+        },
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/ddc/main.mjs",
+          "bytes": 72,
+          "sha256": "29b0272beb06a02fd6c25a1d910a4b6e6a7fc2937457ed36288709c8600fc7c4"
+        }
+      ]
+    },
+    "matches_vm": true,
+    "stdout_sha256": "1298b6f81459dc8ad5accdc48aebac6e8270c3330b16c9f32e76efe214979eb1"
+  },
+  {
+    "program": "corpus/js/120_convert_json.dart",
+    "source_sha256": "78111fb648fff111eb563f2aaae18da8ac5e0e0b67ed6fb97604851e3db36fa4",
+    "tool": "prod",
+    "seconds": [
+      0.29065208399999953,
+      0.2977801660000008,
+      0.3260242919999996
+    ],
+    "median_seconds": 0.2977801660000008,
+    "application": {
+      "bytes": 156163,
+      "gzip9_bytes": 48542,
+      "files": [
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/prod/app.js",
+          "bytes": 156163,
+          "sha256": "74f5b909e7474a2ce9518ae475c59624a371cd1a77f5cecef87572cf292b4f44"
+        }
+      ]
+    },
+    "deployable": {
+      "bytes": 156163,
+      "gzip9_bytes": 48542,
+      "files": [
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/prod/app.js",
+          "bytes": 156163,
+          "sha256": "74f5b909e7474a2ce9518ae475c59624a371cd1a77f5cecef87572cf292b4f44"
+        }
+      ]
+    },
+    "matches_vm": true,
+    "stdout_sha256": "1298b6f81459dc8ad5accdc48aebac6e8270c3330b16c9f32e76efe214979eb1"
+  },
+  {
+    "program": "corpus/js/120_convert_json.dart",
+    "source_sha256": "78111fb648fff111eb563f2aaae18da8ac5e0e0b67ed6fb97604851e3db36fa4",
+    "tool": "o2",
+    "seconds": [
+      0.8974438750000004,
+      0.7842125419999988,
+      0.8157021249999996
+    ],
+    "median_seconds": 0.8157021249999996,
+    "application": {
+      "bytes": 60854,
+      "gzip9_bytes": 19699,
+      "files": [
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/o2/app.js",
+          "bytes": 60854,
+          "sha256": "c6c582d4678a4dd491014adfaa7c5cb312cf9727d467adf87f5beed61b53b745"
+        }
+      ]
+    },
+    "deployable": {
+      "bytes": 60854,
+      "gzip9_bytes": 19699,
+      "files": [
+        {
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/o2/app.js",
+          "bytes": 60854,
+          "sha256": "c6c582d4678a4dd491014adfaa7c5cb312cf9727d467adf87f5beed61b53b745"
+        }
+      ]
+    },
+    "matches_vm": true,
+    "stdout_sha256": "1298b6f81459dc8ad5accdc48aebac6e8270c3330b16c9f32e76efe214979eb1"
+  }
+]

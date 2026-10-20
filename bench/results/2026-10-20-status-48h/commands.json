@@ -1,0 +1,1242 @@
+[
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.30904075000000003,
+    "exit": 0,
+    "stdout": "hello\n",
+    "stderr": "",
+    "load": [
+      5.474609375,
+      3.93017578125,
+      5.615234375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-build/release/dartforge",
+      "compile-js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/dev"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.603012958,
+    "exit": 0,
+    "stdout": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/dev (2 modules, 3 file(s) rewritten)\n",
+    "stderr": "",
+    "load": [
+      5.474609375,
+      3.93017578125,
+      5.615234375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/snapshots/dartdevc.dart.snapshot",
+      "--modules=es6",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/ddc/app.js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.2559887500000001,
+    "exit": 0,
+    "stdout": "",
+    "stderr": "",
+    "load": [
+      5.474609375,
+      3.93017578125,
+      5.615234375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-build/release/dartforge-jsprod",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/prod/app.js"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.554607042,
+    "exit": 0,
+    "stdout": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/prod/app.js (46 KB; 1 modules; user 0 KB; runtime 176 -> 176 KB, 0/0 live units)\ncompaction: 164 -> 46 KB\nworld: classes 0/0 instantiated + 0 type only; functions 1/1; 245 selectors; 5 round(s); world 3 ms, emission 29 ms, verifier 12 ms\n",
+    "stderr": "warning: The type cast is unnecessary because the value already has this type. at bytes 11918..12003\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 3554..3561\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 5265..5272\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 18451..18458\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 11194..11201\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 61857..61864\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 62616..62623\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 64378..64385\nwarning: Unreachable code (dead code). at bytes 93447..93467\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 105165..105172\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 166389..166396\nwarning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1869..1882\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4037..4044\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 18107..18114\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4952..4959\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 16105..16112\nwarning: unnecessary_type_check: Unnecessary type check; the result is always 'false'. at bytes 1300..1317\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 35052..35059\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 986..993\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 2123..2130\n(52 type warning(s); DARTFORGE_WARNINGS=N shows more)\nwarning: verifier: 75 gap(s) fixed; DARTFORGE_JSPROD_FIXES=N shows more\nwarning: verifier: _interceptors.JSArray.of cited in the text and pruned\nwarning: verifier: variable dart._functionRti cited in the text and pruned\nwarning: verifier: function dart._installIdentityEquals cited in the text and pruned\nwarning: verifier: function dart.addRtiResources cited in the text and pruned\nwarning: verifier: function dart.argumentError cited in the text and pruned\nwarning: verifier: function dart.const cited in the text and pruned\nwarning: verifier: function dart.copyProperties cited in the text and pruned\nwarning: verifier: function dart.defineExtensionAccessors cited in the text and pruned\nwarning: verifier: function dart.defineExtensionMethods cited in the text and pruned\nwarning: verifier: function dart.defineLazy cited in the text and pruned\nwarning: verifier: function dart.definePrimitiveHashCode cited in the text and pruned\nwarning: verifier: function dart.dtest cited in the text and pruned\nwarning: verifier: function dart.equals cited in the text and pruned\nwarning: verifier: function dart.fn cited in the text and pruned\nwarning: verifier: function dart.getFields cited in the text and pruned\nwarning: verifier: function dart.getGetters cited in the text and pruned\nwarning: verifier: function dart.getInterceptorForRti cited in the text and pruned\nwarning: verifier: function dart.getMethods cited in the text and pruned\nwarning: verifier: function dart.getThrown cited in the text and pruned\nwarning: verifier: function dart.hashCode cited in the text and pruned\nwarning: pending reference with no element: dart.types\n",
+    "load": [
+      5.474609375,
+      3.93017578125,
+      5.615234375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "compile",
+      "js",
+      "-O2",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/o2/app.js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.9173927919999998,
+    "exit": 0,
+    "stdout": "Compiled 10,159,006 input bytes (5,163,431 characters source) to 33,591 characters JavaScript in 0.33 seconds using 0.000 MB of memory\n",
+    "stderr": "",
+    "load": [
+      5.474609375,
+      3.93017578125,
+      5.615234375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-build/release/dartforge",
+      "compile-js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/dev"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.0189058339999999,
+    "exit": 0,
+    "stdout": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/dev (2 modules, 0 file(s) rewritten)\n",
+    "stderr": "",
+    "load": [
+      5.474609375,
+      3.93017578125,
+      5.615234375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/snapshots/dartdevc.dart.snapshot",
+      "--modules=es6",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/ddc/app.js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.14223050000000015,
+    "exit": 0,
+    "stdout": "",
+    "stderr": "",
+    "load": [
+      5.474609375,
+      3.93017578125,
+      5.615234375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-build/release/dartforge-jsprod",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/prod/app.js"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.13713408299999985,
+    "exit": 0,
+    "stdout": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/prod/app.js (46 KB; 1 modules; user 0 KB; runtime 176 -> 176 KB, 0/0 live units)\ncompaction: 164 -> 46 KB\nworld: classes 0/0 instantiated + 0 type only; functions 1/1; 245 selectors; 5 round(s); world 3 ms, emission 27 ms, verifier 12 ms\n",
+    "stderr": "warning: The type cast is unnecessary because the value already has this type. at bytes 11918..12003\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 3554..3561\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 5265..5272\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 18451..18458\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 11194..11201\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 61857..61864\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 62616..62623\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 64378..64385\nwarning: Unreachable code (dead code). at bytes 93447..93467\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 105165..105172\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 166389..166396\nwarning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1869..1882\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4037..4044\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 18107..18114\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4952..4959\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 16105..16112\nwarning: unnecessary_type_check: Unnecessary type check; the result is always 'false'. at bytes 1300..1317\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 35052..35059\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 986..993\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 2123..2130\n(52 type warning(s); DARTFORGE_WARNINGS=N shows more)\nwarning: verifier: 75 gap(s) fixed; DARTFORGE_JSPROD_FIXES=N shows more\nwarning: verifier: _interceptors.JSArray.of cited in the text and pruned\nwarning: verifier: variable dart._functionRti cited in the text and pruned\nwarning: verifier: function dart._installIdentityEquals cited in the text and pruned\nwarning: verifier: function dart.addRtiResources cited in the text and pruned\nwarning: verifier: function dart.argumentError cited in the text and pruned\nwarning: verifier: function dart.const cited in the text and pruned\nwarning: verifier: function dart.copyProperties cited in the text and pruned\nwarning: verifier: function dart.defineExtensionAccessors cited in the text and pruned\nwarning: verifier: function dart.defineExtensionMethods cited in the text and pruned\nwarning: verifier: function dart.defineLazy cited in the text and pruned\nwarning: verifier: function dart.definePrimitiveHashCode cited in the text and pruned\nwarning: verifier: function dart.dtest cited in the text and pruned\nwarning: verifier: function dart.equals cited in the text and pruned\nwarning: verifier: function dart.fn cited in the text and pruned\nwarning: verifier: function dart.getFields cited in the text and pruned\nwarning: verifier: function dart.getGetters cited in the text and pruned\nwarning: verifier: function dart.getInterceptorForRti cited in the text and pruned\nwarning: verifier: function dart.getMethods cited in the text and pruned\nwarning: verifier: function dart.getThrown cited in the text and pruned\nwarning: verifier: function dart.hashCode cited in the text and pruned\nwarning: pending reference with no element: dart.types\n",
+    "load": [
+      5.474609375,
+      3.93017578125,
+      5.615234375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "compile",
+      "js",
+      "-O2",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/o2/app.js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.6712378340000003,
+    "exit": 0,
+    "stdout": "Compiled 10,159,006 input bytes (5,163,431 characters source) to 33,591 characters JavaScript in 0.29 seconds using 0.000 MB of memory\n",
+    "stderr": "",
+    "load": [
+      5.474609375,
+      3.93017578125,
+      5.615234375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "compile",
+      "js",
+      "-O2",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/o2/app.js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.6701739999999998,
+    "exit": 0,
+    "stdout": "Compiled 10,159,006 input bytes (5,163,431 characters source) to 33,591 characters JavaScript in 0.29 seconds using 0.000 MB of memory\n",
+    "stderr": "",
+    "load": [
+      5.474609375,
+      3.93017578125,
+      5.615234375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-build/release/dartforge-jsprod",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/prod/app.js"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.13625141699999954,
+    "exit": 0,
+    "stdout": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/prod/app.js (46 KB; 1 modules; user 0 KB; runtime 176 -> 176 KB, 0/0 live units)\ncompaction: 164 -> 46 KB\nworld: classes 0/0 instantiated + 0 type only; functions 1/1; 245 selectors; 5 round(s); world 3 ms, emission 28 ms, verifier 12 ms\n",
+    "stderr": "warning: The type cast is unnecessary because the value already has this type. at bytes 11918..12003\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 3554..3561\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 5265..5272\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 18451..18458\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 11194..11201\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 61857..61864\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 62616..62623\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 64378..64385\nwarning: Unreachable code (dead code). at bytes 93447..93467\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 105165..105172\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 166389..166396\nwarning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1869..1882\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4037..4044\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 18107..18114\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4952..4959\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 16105..16112\nwarning: unnecessary_type_check: Unnecessary type check; the result is always 'false'. at bytes 1300..1317\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 35052..35059\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 986..993\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 2123..2130\n(52 type warning(s); DARTFORGE_WARNINGS=N shows more)\nwarning: verifier: 75 gap(s) fixed; DARTFORGE_JSPROD_FIXES=N shows more\nwarning: verifier: _interceptors.JSArray.of cited in the text and pruned\nwarning: verifier: variable dart._functionRti cited in the text and pruned\nwarning: verifier: function dart._installIdentityEquals cited in the text and pruned\nwarning: verifier: function dart.addRtiResources cited in the text and pruned\nwarning: verifier: function dart.argumentError cited in the text and pruned\nwarning: verifier: function dart.const cited in the text and pruned\nwarning: verifier: function dart.copyProperties cited in the text and pruned\nwarning: verifier: function dart.defineExtensionAccessors cited in the text and pruned\nwarning: verifier: function dart.defineExtensionMethods cited in the text and pruned\nwarning: verifier: function dart.defineLazy cited in the text and pruned\nwarning: verifier: function dart.definePrimitiveHashCode cited in the text and pruned\nwarning: verifier: function dart.dtest cited in the text and pruned\nwarning: verifier: function dart.equals cited in the text and pruned\nwarning: verifier: function dart.fn cited in the text and pruned\nwarning: verifier: function dart.getFields cited in the text and pruned\nwarning: verifier: function dart.getGetters cited in the text and pruned\nwarning: verifier: function dart.getInterceptorForRti cited in the text and pruned\nwarning: verifier: function dart.getMethods cited in the text and pruned\nwarning: verifier: function dart.getThrown cited in the text and pruned\nwarning: verifier: function dart.hashCode cited in the text and pruned\nwarning: pending reference with no element: dart.types\n",
+    "load": [
+      5.474609375,
+      3.93017578125,
+      5.615234375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/snapshots/dartdevc.dart.snapshot",
+      "--modules=es6",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/ddc/app.js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.14299308299999947,
+    "exit": 0,
+    "stdout": "",
+    "stderr": "",
+    "load": [
+      5.474609375,
+      3.93017578125,
+      5.615234375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-build/release/dartforge",
+      "compile-js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/dev"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.018554749999999842,
+    "exit": 0,
+    "stdout": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/dev (2 modules, 0 file(s) rewritten)\n",
+    "stderr": "",
+    "load": [
+      5.474609375,
+      3.93017578125,
+      5.615234375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-build/release/dartforge",
+      "compile-js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/dev"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.018631708000000025,
+    "exit": 0,
+    "stdout": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/dev (2 modules, 0 file(s) rewritten)\n",
+    "stderr": "",
+    "load": [
+      5.474609375,
+      3.93017578125,
+      5.615234375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/snapshots/dartdevc.dart.snapshot",
+      "--modules=es6",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/ddc/app.js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.14401233400000013,
+    "exit": 0,
+    "stdout": "",
+    "stderr": "",
+    "load": [
+      5.474609375,
+      3.93017578125,
+      5.615234375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-build/release/dartforge-jsprod",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/prod/app.js"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.1371654170000003,
+    "exit": 0,
+    "stdout": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/prod/app.js (46 KB; 1 modules; user 0 KB; runtime 176 -> 176 KB, 0/0 live units)\ncompaction: 164 -> 46 KB\nworld: classes 0/0 instantiated + 0 type only; functions 1/1; 245 selectors; 5 round(s); world 3 ms, emission 28 ms, verifier 12 ms\n",
+    "stderr": "warning: The type cast is unnecessary because the value already has this type. at bytes 11918..12003\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 3554..3561\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 5265..5272\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 18451..18458\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 11194..11201\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 61857..61864\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 62616..62623\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 64378..64385\nwarning: Unreachable code (dead code). at bytes 93447..93467\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 105165..105172\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 166389..166396\nwarning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1869..1882\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4037..4044\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 18107..18114\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4952..4959\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 16105..16112\nwarning: unnecessary_type_check: Unnecessary type check; the result is always 'false'. at bytes 1300..1317\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 35052..35059\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 986..993\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 2123..2130\n(52 type warning(s); DARTFORGE_WARNINGS=N shows more)\nwarning: verifier: 75 gap(s) fixed; DARTFORGE_JSPROD_FIXES=N shows more\nwarning: verifier: _interceptors.JSArray.of cited in the text and pruned\nwarning: verifier: variable dart._functionRti cited in the text and pruned\nwarning: verifier: function dart._installIdentityEquals cited in the text and pruned\nwarning: verifier: function dart.addRtiResources cited in the text and pruned\nwarning: verifier: function dart.argumentError cited in the text and pruned\nwarning: verifier: function dart.const cited in the text and pruned\nwarning: verifier: function dart.copyProperties cited in the text and pruned\nwarning: verifier: function dart.defineExtensionAccessors cited in the text and pruned\nwarning: verifier: function dart.defineExtensionMethods cited in the text and pruned\nwarning: verifier: function dart.defineLazy cited in the text and pruned\nwarning: verifier: function dart.definePrimitiveHashCode cited in the text and pruned\nwarning: verifier: function dart.dtest cited in the text and pruned\nwarning: verifier: function dart.equals cited in the text and pruned\nwarning: verifier: function dart.fn cited in the text and pruned\nwarning: verifier: function dart.getFields cited in the text and pruned\nwarning: verifier: function dart.getGetters cited in the text and pruned\nwarning: verifier: function dart.getInterceptorForRti cited in the text and pruned\nwarning: verifier: function dart.getMethods cited in the text and pruned\nwarning: verifier: function dart.getThrown cited in the text and pruned\nwarning: verifier: function dart.hashCode cited in the text and pruned\nwarning: pending reference with no element: dart.types\n",
+    "load": [
+      5.474609375,
+      3.93017578125,
+      5.615234375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "compile",
+      "js",
+      "-O2",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/o2/app.js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.669057542,
+    "exit": 0,
+    "stdout": "Compiled 10,159,006 input bytes (5,163,431 characters source) to 33,591 characters JavaScript in 0.29 seconds using 0.000 MB of memory\n",
+    "stderr": "",
+    "load": [
+      5.1962890625,
+      3.89794921875,
+      5.59375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/dev/main.mjs"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.34189187499999996,
+    "exit": 0,
+    "stdout": "hello\n",
+    "stderr": "",
+    "load": [
+      5.1962890625,
+      3.89794921875,
+      5.59375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/ddc/main.mjs"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.139656542,
+    "exit": 0,
+    "stdout": "hello\n",
+    "stderr": "",
+    "load": [
+      5.1962890625,
+      3.89794921875,
+      5.59375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/prod/app.js"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.02635116699999962,
+    "exit": 0,
+    "stdout": "hello\n",
+    "stderr": "",
+    "load": [
+      5.1962890625,
+      3.89794921875,
+      5.59375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/hello/o2/app.js"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.02658762499999945,
+    "exit": 0,
+    "stdout": "hello\n",
+    "stderr": "",
+    "load": [
+      5.1962890625,
+      3.89794921875,
+      5.59375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/40_classes_basico.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.09071283299999955,
+    "exit": 0,
+    "stdout": "Ponto(3, 4)\n3\n4\n7\nPonto(4, 3)\n7\nContador(a, 0)\na=2 (passo 1)\n[1, 2]\ncontador-padrao\nb=15 (passo 5)\n[5, 10, 15]\nContador(b, 0)\ntrue\nOl\u00e1, Ana!\nfalse\n18\ntrue\ntrue\nnull\n3\nOl\u00e1, Ana Maria!\n[Ponto(1, 1), Ponto(2, 2)]\n[2, 4]\n",
+    "stderr": "",
+    "load": [
+      5.1962890625,
+      3.89794921875,
+      5.59375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-build/release/dartforge",
+      "compile-js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/40_classes_basico.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/dev"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.01993829199999997,
+    "exit": 0,
+    "stdout": "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/40_classes_basico.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/dev (2 modules, 3 file(s) rewritten)\n",
+    "stderr": "",
+    "load": [
+      5.1962890625,
+      3.89794921875,
+      5.59375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/snapshots/dartdevc.dart.snapshot",
+      "--modules=es6",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/ddc/app.js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/40_classes_basico.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.16803899999999938,
+    "exit": 0,
+    "stdout": "",
+    "stderr": "",
+    "load": [
+      5.1962890625,
+      3.89794921875,
+      5.59375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-build/release/dartforge-jsprod",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/40_classes_basico.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/prod/app.js"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.1379943749999999,
+    "exit": 0,
+    "stdout": "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/40_classes_basico.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/prod/app.js (53 KB; 1 modules; user 4 KB; runtime 192 -> 192 KB, 0/0 live units)\ncompaction: 183 -> 53 KB\nworld: classes 3/3 instantiated + 0 type only; functions 33/33; 255 selectors; 4 round(s); world 3 ms, emission 26 ms, verifier 11 ms\n",
+    "stderr": "warning: The type cast is unnecessary because the value already has this type. at bytes 11918..12003\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 3554..3561\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 5265..5272\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 18451..18458\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 11194..11201\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 61857..61864\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 62616..62623\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 64378..64385\nwarning: Unreachable code (dead code). at bytes 93447..93467\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 105165..105172\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 166389..166396\nwarning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1869..1882\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4037..4044\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 18107..18114\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4952..4959\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 16105..16112\nwarning: unnecessary_type_check: Unnecessary type check; the result is always 'false'. at bytes 1300..1317\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 35052..35059\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 986..993\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 2123..2130\n(52 type warning(s); DARTFORGE_WARNINGS=N shows more)\nwarning: verifier: 89 gap(s) fixed; DARTFORGE_JSPROD_FIXES=N shows more\nwarning: verifier: variable dart.JsIterator cited in the text and pruned\nwarning: verifier: variable dart._functionRti cited in the text and pruned\nwarning: verifier: function dart._installIdentityEquals cited in the text and pruned\nwarning: verifier: function dart.addRtiResources cited in the text and pruned\nwarning: verifier: function dart.argumentError cited in the text and pruned\nwarning: verifier: function dart.const cited in the text and pruned\nwarning: verifier: function dart.copyProperties cited in the text and pruned\nwarning: verifier: function dart.defineExtensionAccessors cited in the text and pruned\nwarning: verifier: function dart.defineExtensionMethods cited in the text and pruned\nwarning: verifier: function dart.defineLazy cited in the text and pruned\nwarning: verifier: function dart.definePrimitiveHashCode cited in the text and pruned\nwarning: verifier: function dart.dtest cited in the text and pruned\nwarning: verifier: function dart.equals cited in the text and pruned\nwarning: verifier: function dart.fn cited in the text and pruned\nwarning: verifier: function dart.getFields cited in the text and pruned\nwarning: verifier: function dart.getGetters cited in the text and pruned\nwarning: verifier: function dart.getInterceptorForRti cited in the text and pruned\nwarning: verifier: function dart.getMethods cited in the text and pruned\nwarning: verifier: function dart.getMethodsDefaultTypeArgs cited in the text and pruned\nwarning: verifier: function dart.getSetters cited in the text and pruned\nwarning: pending reference with no element: dart.types\n",
+    "load": [
+      5.1962890625,
+      3.89794921875,
+      5.59375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "compile",
+      "js",
+      "-O2",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/o2/app.js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/40_classes_basico.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.6841250829999996,
+    "exit": 0,
+    "stdout": "Compiled 10,161,001 input bytes (5,165,426 characters source) to 37,055 characters JavaScript in 0.30 seconds using 0.000 MB of memory\n",
+    "stderr": "",
+    "load": [
+      5.1962890625,
+      3.89794921875,
+      5.59375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-build/release/dartforge",
+      "compile-js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/40_classes_basico.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/dev"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.019040666000000428,
+    "exit": 0,
+    "stdout": "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/40_classes_basico.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/dev (2 modules, 0 file(s) rewritten)\n",
+    "stderr": "",
+    "load": [
+      5.1962890625,
+      3.89794921875,
+      5.59375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/snapshots/dartdevc.dart.snapshot",
+      "--modules=es6",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/ddc/app.js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/40_classes_basico.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.14435633300000017,
+    "exit": 0,
+    "stdout": "",
+    "stderr": "",
+    "load": [
+      5.1962890625,
+      3.89794921875,
+      5.59375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-build/release/dartforge-jsprod",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/40_classes_basico.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/prod/app.js"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.13570270900000025,
+    "exit": 0,
+    "stdout": "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/40_classes_basico.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/prod/app.js (53 KB; 1 modules; user 4 KB; runtime 192 -> 192 KB, 0/0 live units)\ncompaction: 183 -> 53 KB\nworld: classes 3/3 instantiated + 0 type only; functions 33/33; 255 selectors; 4 round(s); world 3 ms, emission 25 ms, verifier 10 ms\n",
+    "stderr": "warning: The type cast is unnecessary because the value already has this type. at bytes 11918..12003\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 3554..3561\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 5265..5272\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 18451..18458\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 11194..11201\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 61857..61864\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 62616..62623\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 64378..64385\nwarning: Unreachable code (dead code). at bytes 93447..93467\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 105165..105172\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 166389..166396\nwarning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1869..1882\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4037..4044\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 18107..18114\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4952..4959\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 16105..16112\nwarning: unnecessary_type_check: Unnecessary type check; the result is always 'false'. at bytes 1300..1317\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 35052..35059\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 986..993\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 2123..2130\n(52 type warning(s); DARTFORGE_WARNINGS=N shows more)\nwarning: verifier: 89 gap(s) fixed; DARTFORGE_JSPROD_FIXES=N shows more\nwarning: verifier: variable dart.JsIterator cited in the text and pruned\nwarning: verifier: variable dart._functionRti cited in the text and pruned\nwarning: verifier: function dart._installIdentityEquals cited in the text and pruned\nwarning: verifier: function dart.addRtiResources cited in the text and pruned\nwarning: verifier: function dart.argumentError cited in the text and pruned\nwarning: verifier: function dart.const cited in the text and pruned\nwarning: verifier: function dart.copyProperties cited in the text and pruned\nwarning: verifier: function dart.defineExtensionAccessors cited in the text and pruned\nwarning: verifier: function dart.defineExtensionMethods cited in the text and pruned\nwarning: verifier: function dart.defineLazy cited in the text and pruned\nwarning: verifier: function dart.definePrimitiveHashCode cited in the text and pruned\nwarning: verifier: function dart.dtest cited in the text and pruned\nwarning: verifier: function dart.equals cited in the text and pruned\nwarning: verifier: function dart.fn cited in the text and pruned\nwarning: verifier: function dart.getFields cited in the text and pruned\nwarning: verifier: function dart.getGetters cited in the text and pruned\nwarning: verifier: function dart.getInterceptorForRti cited in the text and pruned\nwarning: verifier: function dart.getMethods cited in the text and pruned\nwarning: verifier: function dart.getMethodsDefaultTypeArgs cited in the text and pruned\nwarning: verifier: function dart.getSetters cited in the text and pruned\nwarning: pending reference with no element: dart.types\n",
+    "load": [
+      5.1962890625,
+      3.89794921875,
+      5.59375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "compile",
+      "js",
+      "-O2",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/o2/app.js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/40_classes_basico.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.6956389589999992,
+    "exit": 0,
+    "stdout": "Compiled 10,161,001 input bytes (5,165,426 characters source) to 37,055 characters JavaScript in 0.30 seconds using 0.000 MB of memory\n",
+    "stderr": "",
+    "load": [
+      5.1962890625,
+      3.89794921875,
+      5.59375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "compile",
+      "js",
+      "-O2",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/o2/app.js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/40_classes_basico.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.706187332999999,
+    "exit": 0,
+    "stdout": "Compiled 10,161,001 input bytes (5,165,426 characters source) to 37,055 characters JavaScript in 0.32 seconds using 0.000 MB of memory\n",
+    "stderr": "",
+    "load": [
+      5.1962890625,
+      3.89794921875,
+      5.59375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-build/release/dartforge-jsprod",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/40_classes_basico.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/prod/app.js"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.13682591699999946,
+    "exit": 0,
+    "stdout": "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/40_classes_basico.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/prod/app.js (53 KB; 1 modules; user 4 KB; runtime 192 -> 192 KB, 0/0 live units)\ncompaction: 183 -> 53 KB\nworld: classes 3/3 instantiated + 0 type only; functions 33/33; 255 selectors; 4 round(s); world 3 ms, emission 26 ms, verifier 11 ms\n",
+    "stderr": "warning: The type cast is unnecessary because the value already has this type. at bytes 11918..12003\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 3554..3561\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 5265..5272\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 18451..18458\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 11194..11201\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 61857..61864\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 62616..62623\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 64378..64385\nwarning: Unreachable code (dead code). at bytes 93447..93467\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 105165..105172\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 166389..166396\nwarning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1869..1882\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4037..4044\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 18107..18114\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4952..4959\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 16105..16112\nwarning: unnecessary_type_check: Unnecessary type check; the result is always 'false'. at bytes 1300..1317\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 35052..35059\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 986..993\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 2123..2130\n(52 type warning(s); DARTFORGE_WARNINGS=N shows more)\nwarning: verifier: 89 gap(s) fixed; DARTFORGE_JSPROD_FIXES=N shows more\nwarning: verifier: variable dart.JsIterator cited in the text and pruned\nwarning: verifier: variable dart._functionRti cited in the text and pruned\nwarning: verifier: function dart._installIdentityEquals cited in the text and pruned\nwarning: verifier: function dart.addRtiResources cited in the text and pruned\nwarning: verifier: function dart.argumentError cited in the text and pruned\nwarning: verifier: function dart.const cited in the text and pruned\nwarning: verifier: function dart.copyProperties cited in the text and pruned\nwarning: verifier: function dart.defineExtensionAccessors cited in the text and pruned\nwarning: verifier: function dart.defineExtensionMethods cited in the text and pruned\nwarning: verifier: function dart.defineLazy cited in the text and pruned\nwarning: verifier: function dart.definePrimitiveHashCode cited in the text and pruned\nwarning: verifier: function dart.dtest cited in the text and pruned\nwarning: verifier: function dart.equals cited in the text and pruned\nwarning: verifier: function dart.fn cited in the text and pruned\nwarning: verifier: function dart.getFields cited in the text and pruned\nwarning: verifier: function dart.getGetters cited in the text and pruned\nwarning: verifier: function dart.getInterceptorForRti cited in the text and pruned\nwarning: verifier: function dart.getMethods cited in the text and pruned\nwarning: verifier: function dart.getMethodsDefaultTypeArgs cited in the text and pruned\nwarning: verifier: function dart.getSetters cited in the text and pruned\nwarning: pending reference with no element: dart.types\n",
+    "load": [
+      5.1962890625,
+      3.89794921875,
+      5.59375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/snapshots/dartdevc.dart.snapshot",
+      "--modules=es6",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/ddc/app.js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/40_classes_basico.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.14505770800000128,
+    "exit": 0,
+    "stdout": "",
+    "stderr": "",
+    "load": [
+      5.1962890625,
+      3.89794921875,
+      5.59375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-build/release/dartforge",
+      "compile-js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/40_classes_basico.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/dev"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.01963808300000025,
+    "exit": 0,
+    "stdout": "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/40_classes_basico.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/dev (2 modules, 0 file(s) rewritten)\n",
+    "stderr": "",
+    "load": [
+      5.1962890625,
+      3.89794921875,
+      5.59375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-build/release/dartforge",
+      "compile-js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/40_classes_basico.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/dev"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.019084375000000264,
+    "exit": 0,
+    "stdout": "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/40_classes_basico.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/dev (2 modules, 0 file(s) rewritten)\n",
+    "stderr": "",
+    "load": [
+      5.1962890625,
+      3.89794921875,
+      5.59375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/snapshots/dartdevc.dart.snapshot",
+      "--modules=es6",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/ddc/app.js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/40_classes_basico.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.15212312499999925,
+    "exit": 0,
+    "stdout": "",
+    "stderr": "",
+    "load": [
+      5.1962890625,
+      3.89794921875,
+      5.59375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-build/release/dartforge-jsprod",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/40_classes_basico.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/prod/app.js"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.14605195800000104,
+    "exit": 0,
+    "stdout": "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/40_classes_basico.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/prod/app.js (53 KB; 1 modules; user 4 KB; runtime 192 -> 192 KB, 0/0 live units)\ncompaction: 183 -> 53 KB\nworld: classes 3/3 instantiated + 0 type only; functions 33/33; 255 selectors; 4 round(s); world 4 ms, emission 28 ms, verifier 11 ms\n",
+    "stderr": "warning: The type cast is unnecessary because the value already has this type. at bytes 11918..12003\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 3554..3561\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 5265..5272\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 18451..18458\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 11194..11201\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 61857..61864\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 62616..62623\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 64378..64385\nwarning: Unreachable code (dead code). at bytes 93447..93467\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 105165..105172\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 166389..166396\nwarning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1869..1882\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4037..4044\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 18107..18114\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4952..4959\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 16105..16112\nwarning: unnecessary_type_check: Unnecessary type check; the result is always 'false'. at bytes 1300..1317\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 35052..35059\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 986..993\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 2123..2130\n(52 type warning(s); DARTFORGE_WARNINGS=N shows more)\nwarning: verifier: 89 gap(s) fixed; DARTFORGE_JSPROD_FIXES=N shows more\nwarning: verifier: variable dart.JsIterator cited in the text and pruned\nwarning: verifier: variable dart._functionRti cited in the text and pruned\nwarning: verifier: function dart._installIdentityEquals cited in the text and pruned\nwarning: verifier: function dart.addRtiResources cited in the text and pruned\nwarning: verifier: function dart.argumentError cited in the text and pruned\nwarning: verifier: function dart.const cited in the text and pruned\nwarning: verifier: function dart.copyProperties cited in the text and pruned\nwarning: verifier: function dart.defineExtensionAccessors cited in the text and pruned\nwarning: verifier: function dart.defineExtensionMethods cited in the text and pruned\nwarning: verifier: function dart.defineLazy cited in the text and pruned\nwarning: verifier: function dart.definePrimitiveHashCode cited in the text and pruned\nwarning: verifier: function dart.dtest cited in the text and pruned\nwarning: verifier: function dart.equals cited in the text and pruned\nwarning: verifier: function dart.fn cited in the text and pruned\nwarning: verifier: function dart.getFields cited in the text and pruned\nwarning: verifier: function dart.getGetters cited in the text and pruned\nwarning: verifier: function dart.getInterceptorForRti cited in the text and pruned\nwarning: verifier: function dart.getMethods cited in the text and pruned\nwarning: verifier: function dart.getMethodsDefaultTypeArgs cited in the text and pruned\nwarning: verifier: function dart.getSetters cited in the text and pruned\nwarning: pending reference with no element: dart.types\n",
+    "load": [
+      5.1962890625,
+      3.89794921875,
+      5.59375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "compile",
+      "js",
+      "-O2",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/o2/app.js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/40_classes_basico.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.6957171669999997,
+    "exit": 0,
+    "stdout": "Compiled 10,161,001 input bytes (5,165,426 characters source) to 37,055 characters JavaScript in 0.31 seconds using 0.000 MB of memory\n",
+    "stderr": "",
+    "load": [
+      5.02001953125,
+      3.8828125,
+      5.578125
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/dev/main.mjs"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.14516133400000086,
+    "exit": 0,
+    "stdout": "Ponto(3, 4)\n3\n4\n7\nPonto(4, 3)\n7\nContador(a, 0)\na=2 (passo 1)\n[1, 2]\ncontador-padrao\nb=15 (passo 5)\n[5, 10, 15]\nContador(b, 0)\ntrue\nOl\u00e1, Ana!\nfalse\n18\ntrue\ntrue\nnull\n3\nOl\u00e1, Ana Maria!\n[Ponto(1, 1), Ponto(2, 2)]\n[2, 4]\n",
+    "stderr": "",
+    "load": [
+      5.02001953125,
+      3.8828125,
+      5.578125
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/ddc/main.mjs"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.14018016600000038,
+    "exit": 0,
+    "stdout": "Ponto(3, 4)\n3\n4\n7\nPonto(4, 3)\n7\nContador(a, 0)\na=2 (passo 1)\n[1, 2]\ncontador-padrao\nb=15 (passo 5)\n[5, 10, 15]\nContador(b, 0)\ntrue\nOl\u00e1, Ana!\nfalse\n18\ntrue\ntrue\nnull\n3\nOl\u00e1, Ana Maria!\n[Ponto(1, 1), Ponto(2, 2)]\n[2, 4]\n",
+    "stderr": "",
+    "load": [
+      5.02001953125,
+      3.8828125,
+      5.578125
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/prod/app.js"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.027656084000000192,
+    "exit": 0,
+    "stdout": "Ponto(3, 4)\n3\n4\n7\nPonto(4, 3)\n7\nContador(a, 0)\na=2 (passo 1)\n[1, 2]\ncontador-padrao\nb=15 (passo 5)\n[5, 10, 15]\nContador(b, 0)\ntrue\nOl\u00e1, Ana!\nfalse\n18\ntrue\ntrue\nnull\n3\nOl\u00e1, Ana Maria!\n[Ponto(1, 1), Ponto(2, 2)]\n[2, 4]\n",
+    "stderr": "",
+    "load": [
+      5.02001953125,
+      3.8828125,
+      5.578125
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/40_classes_basico/o2/app.js"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.025816958999998363,
+    "exit": 0,
+    "stdout": "Ponto(3, 4)\n3\n4\n7\nPonto(4, 3)\n7\nContador(a, 0)\na=2 (passo 1)\n[1, 2]\ncontador-padrao\nb=15 (passo 5)\n[5, 10, 15]\nContador(b, 0)\ntrue\nOl\u00e1, Ana!\nfalse\n18\ntrue\ntrue\nnull\n3\nOl\u00e1, Ana Maria!\n[Ponto(1, 1), Ponto(2, 2)]\n[2, 4]\n",
+    "stderr": "",
+    "load": [
+      5.02001953125,
+      3.8828125,
+      5.578125
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/120_convert_json.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.0944770419999994,
+    "exit": 0,
+    "stdout": "1\n2.5\ntrue\nnull\n\"texto\"\n\"com \\\"aspas\\\" e \\\\ barra\"\n\"quebra\\nde linha\\ttab\"\n\"unicode \u00e9 \ud83d\ude00\"\n\"\\u0001\\u001f\"\n[]\n{}\n[1,\"a\",null,true,2.5]\n{\"a\":1,\"b\":[1,2],\"c\":{\"d\":null}}\n{\"chave com \\\"aspas\\\"\":\"v\"}\n[[1,[2,[3]]]]\n{\"n\":-0.5,\"e\":1.5e-7}\n{\"nome\":\"Ana\",\"idade\":30}\n[{\"nome\":\"A\",\"idade\":1},{\"nome\":\"B\",\"idade\":2}]\n{\"p\":{\"nome\":\"C\",\"idade\":3}}\n{\"valor\":2.5}\n[\"custom\"]\n5\nlan\u00e7ou true\n{a: 1, b: [true, null, x], c: {d: 2.5}}\ntrue\n1\ntrue\ntrue\ntrue\nnull\nx\n2.5\ntrue\n[a, b, c]\n[1, 2, 3]\n3\n6\ns\u00f3 string\n42\n-1.5\ntrue\nnull\nescapado \n \t \" \\ \u00e9\n[]\n{}\n[1, 2]\nfundo\nlan\u00e7ou true\nlan\u00e7ou true\n{\n  \"a\": 1,\n  \"b\": [\n    1,\n    2\n  ],\n  \"c\": {}\n}\n[]\n[\n  1,\n  [\n    2,\n    3\n  ]\n]\n{\n\t\"x\": \"y\"\n}\n{\"a\":1}\n{\"k\":\"v\"}\n[7]\n{round: [trip, 1, 2.5, null]}\n[z, a, m]\n{dup: 2}\n15.5\n-0.25\ntrue\n\"\u2028\u2029\"\n\"/\"\n{a: 10}\n[i0, i1]\n",
+    "stderr": "",
+    "load": [
+      5.02001953125,
+      3.8828125,
+      5.578125
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-build/release/dartforge",
+      "compile-js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/120_convert_json.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/dev"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.02001145799999904,
+    "exit": 0,
+    "stdout": "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/120_convert_json.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/dev (2 modules, 3 file(s) rewritten)\n",
+    "stderr": "",
+    "load": [
+      5.02001953125,
+      3.8828125,
+      5.578125
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/snapshots/dartdevc.dart.snapshot",
+      "--modules=es6",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/ddc/app.js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/120_convert_json.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.17482791599999992,
+    "exit": 0,
+    "stdout": "",
+    "stderr": "",
+    "load": [
+      5.02001953125,
+      3.8828125,
+      5.578125
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-build/release/dartforge-jsprod",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/120_convert_json.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/prod/app.js"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.2872359580000001,
+    "exit": 0,
+    "stdout": "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/120_convert_json.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/prod/app.js (153 KB; 1 modules; user 10 KB; runtime 509 -> 509 KB, 0/0 live units)\ncompaction: 476 -> 153 KB\nworld: classes 2/2 instantiated + 0 type only; functions 7/7; 316 selectors; 6 round(s); world 8 ms, emission 95 ms, verifier 39 ms\n",
+    "stderr": "warning: The type cast is unnecessary because the value already has this type. at bytes 11918..12003\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 3554..3561\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 5265..5272\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 18451..18458\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 11194..11201\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 61857..61864\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 62616..62623\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 64378..64385\nwarning: Unreachable code (dead code). at bytes 93447..93467\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 105165..105172\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 166389..166396\nwarning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1869..1882\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4037..4044\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 18107..18114\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4952..4959\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 16105..16112\nwarning: unnecessary_type_check: Unnecessary type check; the result is always 'false'. at bytes 1300..1317\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 35052..35059\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 986..993\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 2123..2130\n(52 type warning(s); DARTFORGE_WARNINGS=N shows more)\nwarning: verifier: 123 gap(s) fixed; DARTFORGE_JSPROD_FIXES=N shows more\nwarning: verifier: class _internal.LateError cited in the text and pruned\nwarning: verifier: class _js_helper.IdentityMap cited in the text and pruned\nwarning: verifier: class _js_helper.InternalMap cited in the text and pruned\nwarning: verifier: class _js_helper.LinkedMap cited in the text and pruned\nwarning: verifier: _native_typed_data.NativeTypedData.new cited in the text and pruned\nwarning: verifier: class collection.HashMap cited in the text and pruned\nwarning: verifier: class collection.LinkedHashMap cited in the text and pruned\nwarning: verifier: variable dart.JsIterator cited in the text and pruned\nwarning: verifier: variable dart._functionRti cited in the text and pruned\nwarning: verifier: function dart._installIdentityEquals cited in the text and pruned\nwarning: verifier: function dart.addRtiResources cited in the text and pruned\nwarning: verifier: function dart.applyMixin cited in the text and pruned\nwarning: verifier: function dart.argumentError cited in the text and pruned\nwarning: verifier: function dart.bind cited in the text and pruned\nwarning: verifier: function dart.const cited in the text and pruned\nwarning: verifier: function dart.copyProperties cited in the text and pruned\nwarning: verifier: function dart.defineExtensionAccessors cited in the text and pruned\nwarning: verifier: function dart.defineExtensionMethods cited in the text and pruned\nwarning: verifier: function dart.defineLazy cited in the text and pruned\nwarning: verifier: function dart.definePrimitiveHashCode cited in the text and pruned\nwarning: pending reference with no element: L$$120_convert_json.Pessoa.__proto__\nwarning: pending reference with no element: _interceptors.JSArray.__proto__\nwarning: pending reference with no element: _interceptors.JSString.__proto__\nwarning: pending reference with no element: _internal.CodeUnits.__proto__\nwarning: pending reference with no element: _internal._CastListBase.__proto__\nwarning: pending reference with no element: _js_helper.CustomHashMap.__proto__\nwarning: pending reference with no element: _js_helper.CustomKeyHashMap.__proto__\nwarning: pending reference with no element: _js_helper.IdentityMap.__proto__\nwarning: pending reference with no element: _js_helper.LinkedMap.__proto__\nwarning: pending reference with no element: _js_helper.StringMatch.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeInt16List.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeInt32List.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeInt8List.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeTypedArrayOfDouble.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeUint16List.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeUint32List.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeUint8ClampedList.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeUint8List.__proto__\nwarning: pending reference with no element: async._BufferingStreamSubscription.__proto__\nwarning: pending reference with no element: async._EventSinkWrapper.__proto__\n",
+    "load": [
+      5.02001953125,
+      3.8828125,
+      5.578125
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "compile",
+      "js",
+      "-O2",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/o2/app.js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/120_convert_json.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.7749045420000016,
+    "exit": 0,
+    "stdout": "Compiled 10,162,386 input bytes (5,166,811 characters source) to 60,854 characters JavaScript in 0.39 seconds using 0.000 MB of memory\n",
+    "stderr": "",
+    "load": [
+      5.02001953125,
+      3.8828125,
+      5.578125
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-build/release/dartforge",
+      "compile-js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/120_convert_json.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/dev"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.01970850000000013,
+    "exit": 0,
+    "stdout": "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/120_convert_json.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/dev (2 modules, 0 file(s) rewritten)\n",
+    "stderr": "",
+    "load": [
+      5.02001953125,
+      3.8828125,
+      5.578125
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/snapshots/dartdevc.dart.snapshot",
+      "--modules=es6",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/ddc/app.js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/120_convert_json.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.15860574999999955,
+    "exit": 0,
+    "stdout": "",
+    "stderr": "",
+    "load": [
+      5.02001953125,
+      3.8828125,
+      5.578125
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-build/release/dartforge-jsprod",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/120_convert_json.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/prod/app.js"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.29065208399999953,
+    "exit": 0,
+    "stdout": "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/120_convert_json.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/prod/app.js (153 KB; 1 modules; user 10 KB; runtime 509 -> 509 KB, 0/0 live units)\ncompaction: 476 -> 153 KB\nworld: classes 2/2 instantiated + 0 type only; functions 7/7; 316 selectors; 6 round(s); world 8 ms, emission 97 ms, verifier 39 ms\n",
+    "stderr": "warning: The type cast is unnecessary because the value already has this type. at bytes 11918..12003\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 3554..3561\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 5265..5272\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 18451..18458\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 11194..11201\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 61857..61864\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 62616..62623\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 64378..64385\nwarning: Unreachable code (dead code). at bytes 93447..93467\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 105165..105172\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 166389..166396\nwarning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1869..1882\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4037..4044\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 18107..18114\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4952..4959\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 16105..16112\nwarning: unnecessary_type_check: Unnecessary type check; the result is always 'false'. at bytes 1300..1317\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 35052..35059\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 986..993\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 2123..2130\n(52 type warning(s); DARTFORGE_WARNINGS=N shows more)\nwarning: verifier: 123 gap(s) fixed; DARTFORGE_JSPROD_FIXES=N shows more\nwarning: verifier: class _internal.LateError cited in the text and pruned\nwarning: verifier: class _js_helper.IdentityMap cited in the text and pruned\nwarning: verifier: class _js_helper.InternalMap cited in the text and pruned\nwarning: verifier: class _js_helper.LinkedMap cited in the text and pruned\nwarning: verifier: _native_typed_data.NativeTypedData.new cited in the text and pruned\nwarning: verifier: class collection.HashMap cited in the text and pruned\nwarning: verifier: class collection.LinkedHashMap cited in the text and pruned\nwarning: verifier: variable dart.JsIterator cited in the text and pruned\nwarning: verifier: variable dart._functionRti cited in the text and pruned\nwarning: verifier: function dart._installIdentityEquals cited in the text and pruned\nwarning: verifier: function dart.addRtiResources cited in the text and pruned\nwarning: verifier: function dart.applyMixin cited in the text and pruned\nwarning: verifier: function dart.argumentError cited in the text and pruned\nwarning: verifier: function dart.bind cited in the text and pruned\nwarning: verifier: function dart.const cited in the text and pruned\nwarning: verifier: function dart.copyProperties cited in the text and pruned\nwarning: verifier: function dart.defineExtensionAccessors cited in the text and pruned\nwarning: verifier: function dart.defineExtensionMethods cited in the text and pruned\nwarning: verifier: function dart.defineLazy cited in the text and pruned\nwarning: verifier: function dart.definePrimitiveHashCode cited in the text and pruned\nwarning: pending reference with no element: L$$120_convert_json.Pessoa.__proto__\nwarning: pending reference with no element: _interceptors.JSArray.__proto__\nwarning: pending reference with no element: _interceptors.JSString.__proto__\nwarning: pending reference with no element: _internal.CodeUnits.__proto__\nwarning: pending reference with no element: _internal._CastListBase.__proto__\nwarning: pending reference with no element: _js_helper.CustomHashMap.__proto__\nwarning: pending reference with no element: _js_helper.CustomKeyHashMap.__proto__\nwarning: pending reference with no element: _js_helper.IdentityMap.__proto__\nwarning: pending reference with no element: _js_helper.LinkedMap.__proto__\nwarning: pending reference with no element: _js_helper.StringMatch.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeInt16List.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeInt32List.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeInt8List.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeTypedArrayOfDouble.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeUint16List.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeUint32List.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeUint8ClampedList.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeUint8List.__proto__\nwarning: pending reference with no element: async._BufferingStreamSubscription.__proto__\nwarning: pending reference with no element: async._EventSinkWrapper.__proto__\n",
+    "load": [
+      5.02001953125,
+      3.8828125,
+      5.578125
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "compile",
+      "js",
+      "-O2",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/o2/app.js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/120_convert_json.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.8974438750000004,
+    "exit": 0,
+    "stdout": "Compiled 10,162,386 input bytes (5,166,811 characters source) to 60,854 characters JavaScript in 0.40 seconds using 0.000 MB of memory\n",
+    "stderr": "",
+    "load": [
+      5.02001953125,
+      3.8828125,
+      5.578125
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "compile",
+      "js",
+      "-O2",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/o2/app.js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/120_convert_json.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.7842125419999988,
+    "exit": 0,
+    "stdout": "Compiled 10,162,386 input bytes (5,166,811 characters source) to 60,854 characters JavaScript in 0.39 seconds using 0.000 MB of memory\n",
+    "stderr": "",
+    "load": [
+      5.02001953125,
+      3.8828125,
+      5.578125
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-build/release/dartforge-jsprod",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/120_convert_json.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/prod/app.js"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.2977801660000008,
+    "exit": 0,
+    "stdout": "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/120_convert_json.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/prod/app.js (153 KB; 1 modules; user 10 KB; runtime 509 -> 509 KB, 0/0 live units)\ncompaction: 476 -> 153 KB\nworld: classes 2/2 instantiated + 0 type only; functions 7/7; 316 selectors; 6 round(s); world 8 ms, emission 100 ms, verifier 40 ms\n",
+    "stderr": "warning: The type cast is unnecessary because the value already has this type. at bytes 11918..12003\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 3554..3561\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 5265..5272\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 18451..18458\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 11194..11201\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 61857..61864\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 62616..62623\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 64378..64385\nwarning: Unreachable code (dead code). at bytes 93447..93467\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 105165..105172\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 166389..166396\nwarning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1869..1882\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4037..4044\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 18107..18114\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4952..4959\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 16105..16112\nwarning: unnecessary_type_check: Unnecessary type check; the result is always 'false'. at bytes 1300..1317\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 35052..35059\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 986..993\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 2123..2130\n(52 type warning(s); DARTFORGE_WARNINGS=N shows more)\nwarning: verifier: 123 gap(s) fixed; DARTFORGE_JSPROD_FIXES=N shows more\nwarning: verifier: class _internal.LateError cited in the text and pruned\nwarning: verifier: class _js_helper.IdentityMap cited in the text and pruned\nwarning: verifier: class _js_helper.InternalMap cited in the text and pruned\nwarning: verifier: class _js_helper.LinkedMap cited in the text and pruned\nwarning: verifier: _native_typed_data.NativeTypedData.new cited in the text and pruned\nwarning: verifier: class collection.HashMap cited in the text and pruned\nwarning: verifier: class collection.LinkedHashMap cited in the text and pruned\nwarning: verifier: variable dart.JsIterator cited in the text and pruned\nwarning: verifier: variable dart._functionRti cited in the text and pruned\nwarning: verifier: function dart._installIdentityEquals cited in the text and pruned\nwarning: verifier: function dart.addRtiResources cited in the text and pruned\nwarning: verifier: function dart.applyMixin cited in the text and pruned\nwarning: verifier: function dart.argumentError cited in the text and pruned\nwarning: verifier: function dart.bind cited in the text and pruned\nwarning: verifier: function dart.const cited in the text and pruned\nwarning: verifier: function dart.copyProperties cited in the text and pruned\nwarning: verifier: function dart.defineExtensionAccessors cited in the text and pruned\nwarning: verifier: function dart.defineExtensionMethods cited in the text and pruned\nwarning: verifier: function dart.defineLazy cited in the text and pruned\nwarning: verifier: function dart.definePrimitiveHashCode cited in the text and pruned\nwarning: pending reference with no element: L$$120_convert_json.Pessoa.__proto__\nwarning: pending reference with no element: _interceptors.JSArray.__proto__\nwarning: pending reference with no element: _interceptors.JSString.__proto__\nwarning: pending reference with no element: _internal.CodeUnits.__proto__\nwarning: pending reference with no element: _internal._CastListBase.__proto__\nwarning: pending reference with no element: _js_helper.CustomHashMap.__proto__\nwarning: pending reference with no element: _js_helper.CustomKeyHashMap.__proto__\nwarning: pending reference with no element: _js_helper.IdentityMap.__proto__\nwarning: pending reference with no element: _js_helper.LinkedMap.__proto__\nwarning: pending reference with no element: _js_helper.StringMatch.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeInt16List.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeInt32List.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeInt8List.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeTypedArrayOfDouble.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeUint16List.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeUint32List.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeUint8ClampedList.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeUint8List.__proto__\nwarning: pending reference with no element: async._BufferingStreamSubscription.__proto__\nwarning: pending reference with no element: async._EventSinkWrapper.__proto__\n",
+    "load": [
+      5.02001953125,
+      3.8828125,
+      5.578125
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/snapshots/dartdevc.dart.snapshot",
+      "--modules=es6",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/ddc/app.js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/120_convert_json.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.1549554999999998,
+    "exit": 0,
+    "stdout": "",
+    "stderr": "",
+    "load": [
+      5.02001953125,
+      3.8828125,
+      5.578125
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-build/release/dartforge",
+      "compile-js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/120_convert_json.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/dev"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.020511334000000048,
+    "exit": 0,
+    "stdout": "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/120_convert_json.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/dev (2 modules, 0 file(s) rewritten)\n",
+    "stderr": "",
+    "load": [
+      5.02001953125,
+      3.8828125,
+      5.578125
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-build/release/dartforge",
+      "compile-js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/120_convert_json.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/dev"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.020507541999998935,
+    "exit": 0,
+    "stdout": "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/120_convert_json.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/dev (2 modules, 0 file(s) rewritten)\n",
+    "stderr": "",
+    "load": [
+      5.02001953125,
+      3.8828125,
+      5.578125
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/snapshots/dartdevc.dart.snapshot",
+      "--modules=es6",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/ddc/app.js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/120_convert_json.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.1667598330000004,
+    "exit": 0,
+    "stdout": "",
+    "stderr": "",
+    "load": [
+      4.93798828125,
+      3.88427734375,
+      5.56884765625
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-build/release/dartforge-jsprod",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/120_convert_json.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/prod/app.js"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.3260242919999996,
+    "exit": 0,
+    "stdout": "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/120_convert_json.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/prod/app.js (153 KB; 1 modules; user 10 KB; runtime 509 -> 509 KB, 0/0 live units)\ncompaction: 476 -> 153 KB\nworld: classes 2/2 instantiated + 0 type only; functions 7/7; 316 selectors; 6 round(s); world 9 ms, emission 117 ms, verifier 44 ms\n",
+    "stderr": "warning: The type cast is unnecessary because the value already has this type. at bytes 11918..12003\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 3554..3561\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 5265..5272\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 18451..18458\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 11194..11201\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 61857..61864\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 62616..62623\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 64378..64385\nwarning: Unreachable code (dead code). at bytes 93447..93467\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 105165..105172\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 166389..166396\nwarning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1869..1882\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4037..4044\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 18107..18114\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4952..4959\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 16105..16112\nwarning: unnecessary_type_check: Unnecessary type check; the result is always 'false'. at bytes 1300..1317\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 35052..35059\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 986..993\nwarning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 2123..2130\n(52 type warning(s); DARTFORGE_WARNINGS=N shows more)\nwarning: verifier: 123 gap(s) fixed; DARTFORGE_JSPROD_FIXES=N shows more\nwarning: verifier: class _internal.LateError cited in the text and pruned\nwarning: verifier: class _js_helper.IdentityMap cited in the text and pruned\nwarning: verifier: class _js_helper.InternalMap cited in the text and pruned\nwarning: verifier: class _js_helper.LinkedMap cited in the text and pruned\nwarning: verifier: _native_typed_data.NativeTypedData.new cited in the text and pruned\nwarning: verifier: class collection.HashMap cited in the text and pruned\nwarning: verifier: class collection.LinkedHashMap cited in the text and pruned\nwarning: verifier: variable dart.JsIterator cited in the text and pruned\nwarning: verifier: variable dart._functionRti cited in the text and pruned\nwarning: verifier: function dart._installIdentityEquals cited in the text and pruned\nwarning: verifier: function dart.addRtiResources cited in the text and pruned\nwarning: verifier: function dart.applyMixin cited in the text and pruned\nwarning: verifier: function dart.argumentError cited in the text and pruned\nwarning: verifier: function dart.bind cited in the text and pruned\nwarning: verifier: function dart.const cited in the text and pruned\nwarning: verifier: function dart.copyProperties cited in the text and pruned\nwarning: verifier: function dart.defineExtensionAccessors cited in the text and pruned\nwarning: verifier: function dart.defineExtensionMethods cited in the text and pruned\nwarning: verifier: function dart.defineLazy cited in the text and pruned\nwarning: verifier: function dart.definePrimitiveHashCode cited in the text and pruned\nwarning: pending reference with no element: L$$120_convert_json.Pessoa.__proto__\nwarning: pending reference with no element: _interceptors.JSArray.__proto__\nwarning: pending reference with no element: _interceptors.JSString.__proto__\nwarning: pending reference with no element: _internal.CodeUnits.__proto__\nwarning: pending reference with no element: _internal._CastListBase.__proto__\nwarning: pending reference with no element: _js_helper.CustomHashMap.__proto__\nwarning: pending reference with no element: _js_helper.CustomKeyHashMap.__proto__\nwarning: pending reference with no element: _js_helper.IdentityMap.__proto__\nwarning: pending reference with no element: _js_helper.LinkedMap.__proto__\nwarning: pending reference with no element: _js_helper.StringMatch.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeInt16List.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeInt32List.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeInt8List.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeTypedArrayOfDouble.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeUint16List.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeUint32List.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeUint8ClampedList.__proto__\nwarning: pending reference with no element: _native_typed_data.NativeUint8List.__proto__\nwarning: pending reference with no element: async._BufferingStreamSubscription.__proto__\nwarning: pending reference with no element: async._EventSinkWrapper.__proto__\n",
+    "load": [
+      4.93798828125,
+      3.88427734375,
+      5.56884765625
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "compile",
+      "js",
+      "-O2",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/o2/app.js",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/120_convert_json.dart"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.8157021249999996,
+    "exit": 0,
+    "stdout": "Compiled 10,162,386 input bytes (5,166,811 characters source) to 60,854 characters JavaScript in 0.42 seconds using 0.000 MB of memory\n",
+    "stderr": "",
+    "load": [
+      4.93798828125,
+      3.88427734375,
+      5.56884765625
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/dev/main.mjs"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.1501627499999998,
+    "exit": 0,
+    "stdout": "1\n2.5\ntrue\nnull\n\"texto\"\n\"com \\\"aspas\\\" e \\\\ barra\"\n\"quebra\\nde linha\\ttab\"\n\"unicode \u00e9 \ud83d\ude00\"\n\"\\u0001\\u001f\"\n[]\n{}\n[1,\"a\",null,true,2.5]\n{\"a\":1,\"b\":[1,2],\"c\":{\"d\":null}}\n{\"chave com \\\"aspas\\\"\":\"v\"}\n[[1,[2,[3]]]]\n{\"n\":-0.5,\"e\":1.5e-7}\n{\"nome\":\"Ana\",\"idade\":30}\n[{\"nome\":\"A\",\"idade\":1},{\"nome\":\"B\",\"idade\":2}]\n{\"p\":{\"nome\":\"C\",\"idade\":3}}\n{\"valor\":2.5}\n[\"custom\"]\n5\nlan\u00e7ou true\n{a: 1, b: [true, null, x], c: {d: 2.5}}\ntrue\n1\ntrue\ntrue\ntrue\nnull\nx\n2.5\ntrue\n[a, b, c]\n[1, 2, 3]\n3\n6\ns\u00f3 string\n42\n-1.5\ntrue\nnull\nescapado \n \t \" \\ \u00e9\n[]\n{}\n[1, 2]\nfundo\nlan\u00e7ou true\nlan\u00e7ou true\n{\n  \"a\": 1,\n  \"b\": [\n    1,\n    2\n  ],\n  \"c\": {}\n}\n[]\n[\n  1,\n  [\n    2,\n    3\n  ]\n]\n{\n\t\"x\": \"y\"\n}\n{\"a\":1}\n{\"k\":\"v\"}\n[7]\n{round: [trip, 1, 2.5, null]}\n[z, a, m]\n{dup: 2}\n15.5\n-0.25\ntrue\n\"\u2028\u2029\"\n\"/\"\n{a: 10}\n[i0, i1]\n",
+    "stderr": "",
+    "load": [
+      4.93798828125,
+      3.88427734375,
+      5.56884765625
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/ddc/main.mjs"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.1472327920000005,
+    "exit": 0,
+    "stdout": "1\n2.5\ntrue\nnull\n\"texto\"\n\"com \\\"aspas\\\" e \\\\ barra\"\n\"quebra\\nde linha\\ttab\"\n\"unicode \u00e9 \ud83d\ude00\"\n\"\\u0001\\u001f\"\n[]\n{}\n[1,\"a\",null,true,2.5]\n{\"a\":1,\"b\":[1,2],\"c\":{\"d\":null}}\n{\"chave com \\\"aspas\\\"\":\"v\"}\n[[1,[2,[3]]]]\n{\"n\":-0.5,\"e\":1.5e-7}\n{\"nome\":\"Ana\",\"idade\":30}\n[{\"nome\":\"A\",\"idade\":1},{\"nome\":\"B\",\"idade\":2}]\n{\"p\":{\"nome\":\"C\",\"idade\":3}}\n{\"valor\":2.5}\n[\"custom\"]\n5\nlan\u00e7ou true\n{a: 1, b: [true, null, x], c: {d: 2.5}}\ntrue\n1\ntrue\ntrue\ntrue\nnull\nx\n2.5\ntrue\n[a, b, c]\n[1, 2, 3]\n3\n6\ns\u00f3 string\n42\n-1.5\ntrue\nnull\nescapado \n \t \" \\ \u00e9\n[]\n{}\n[1, 2]\nfundo\nlan\u00e7ou true\nlan\u00e7ou true\n{\n  \"a\": 1,\n  \"b\": [\n    1,\n    2\n  ],\n  \"c\": {}\n}\n[]\n[\n  1,\n  [\n    2,\n    3\n  ]\n]\n{\n\t\"x\": \"y\"\n}\n{\"a\":1}\n{\"k\":\"v\"}\n[7]\n{round: [trip, 1, 2.5, null]}\n[z, a, m]\n{dup: 2}\n15.5\n-0.25\ntrue\n\"\u2028\u2029\"\n\"/\"\n{a: 10}\n[i0, i1]\n",
+    "stderr": "",
+    "load": [
+      4.93798828125,
+      3.88427734375,
+      5.56884765625
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/prod/app.js"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.03580712499999805,
+    "exit": 0,
+    "stdout": "1\n2.5\ntrue\nnull\n\"texto\"\n\"com \\\"aspas\\\" e \\\\ barra\"\n\"quebra\\nde linha\\ttab\"\n\"unicode \u00e9 \ud83d\ude00\"\n\"\\u0001\\u001f\"\n[]\n{}\n[1,\"a\",null,true,2.5]\n{\"a\":1,\"b\":[1,2],\"c\":{\"d\":null}}\n{\"chave com \\\"aspas\\\"\":\"v\"}\n[[1,[2,[3]]]]\n{\"n\":-0.5,\"e\":1.5e-7}\n{\"nome\":\"Ana\",\"idade\":30}\n[{\"nome\":\"A\",\"idade\":1},{\"nome\":\"B\",\"idade\":2}]\n{\"p\":{\"nome\":\"C\",\"idade\":3}}\n{\"valor\":2.5}\n[\"custom\"]\n5\nlan\u00e7ou true\n{a: 1, b: [true, null, x], c: {d: 2.5}}\ntrue\n1\ntrue\ntrue\ntrue\nnull\nx\n2.5\ntrue\n[a, b, c]\n[1, 2, 3]\n3\n6\ns\u00f3 string\n42\n-1.5\ntrue\nnull\nescapado \n \t \" \\ \u00e9\n[]\n{}\n[1, 2]\nfundo\nlan\u00e7ou true\nlan\u00e7ou true\n{\n  \"a\": 1,\n  \"b\": [\n    1,\n    2\n  ],\n  \"c\": {}\n}\n[]\n[\n  1,\n  [\n    2,\n    3\n  ]\n]\n{\n\t\"x\": \"y\"\n}\n{\"a\":1}\n{\"k\":\"v\"}\n[7]\n{round: [trip, 1, 2.5, null]}\n[z, a, m]\n{dup: 2}\n15.5\n-0.25\ntrue\n\"\u2028\u2029\"\n\"/\"\n{a: 10}\n[i0, i1]\n",
+    "stderr": "",
+    "load": [
+      4.93798828125,
+      3.88427734375,
+      5.56884765625
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-measurements/120_convert_json/o2/app.js"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.033996042000001836,
+    "exit": 0,
+    "stdout": "1\n2.5\ntrue\nnull\n\"texto\"\n\"com \\\"aspas\\\" e \\\\ barra\"\n\"quebra\\nde linha\\ttab\"\n\"unicode \u00e9 \ud83d\ude00\"\n\"\\u0001\\u001f\"\n[]\n{}\n[1,\"a\",null,true,2.5]\n{\"a\":1,\"b\":[1,2],\"c\":{\"d\":null}}\n{\"chave com \\\"aspas\\\"\":\"v\"}\n[[1,[2,[3]]]]\n{\"n\":-0.5,\"e\":1.5e-7}\n{\"nome\":\"Ana\",\"idade\":30}\n[{\"nome\":\"A\",\"idade\":1},{\"nome\":\"B\",\"idade\":2}]\n{\"p\":{\"nome\":\"C\",\"idade\":3}}\n{\"valor\":2.5}\n[\"custom\"]\n5\nlan\u00e7ou true\n{a: 1, b: [true, null, x], c: {d: 2.5}}\ntrue\n1\ntrue\ntrue\ntrue\nnull\nx\n2.5\ntrue\n[a, b, c]\n[1, 2, 3]\n3\n6\ns\u00f3 string\n42\n-1.5\ntrue\nnull\nescapado \n \t \" \\ \u00e9\n[]\n{}\n[1, 2]\nfundo\nlan\u00e7ou true\nlan\u00e7ou true\n{\n  \"a\": 1,\n  \"b\": [\n    1,\n    2\n  ],\n  \"c\": {}\n}\n[]\n[\n  1,\n  [\n    2,\n    3\n  ]\n]\n{\n\t\"x\": \"y\"\n}\n{\"a\":1}\n{\"k\":\"v\"}\n[7]\n{round: [trip, 1, 2.5, null]}\n[z, a, m]\n{dup: 2}\n15.5\n-0.25\ntrue\n\"\u2028\u2029\"\n\"/\"\n{a: 10}\n[i0, i1]\n",
+    "stderr": "",
+    "load": [
+      4.93798828125,
+      3.88427734375,
+      5.56884765625
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node",
+      "--version"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge",
+    "seconds": 0.013621167000000156,
+    "exit": 0,
+    "stdout": "v24.21.0\n",
+    "stderr": "",
+    "load": [
+      4.93798828125,
+      3.88427734375,
+      5.56884765625
+    ]
+  }
+]

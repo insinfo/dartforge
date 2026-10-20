@@ -57,7 +57,7 @@ try {
             Run-Case "$name-aot-build" $Compiler (@('compile-native',$entry,'--optimize')+$common+@('-o',$exe))
             Run-Case "$name-aot-run" $exe $programArgs $marker
         }
-        if($Mode -ne 'aot'){Run-Case "$name-jit-run" $Compiler (@('run',$entry)+$common+@('--')+$programArgs) $marker}
+        if($Mode -ne 'aot'){Run-Case "$name-jit-run" $Compiler (@('run')+$common+@($entry,'--')+$programArgs) $marker}
     }
     Write-Output 'WINDOWS_DESKTOP_MATRIX=PASS'
 } finally {Pop-Location}

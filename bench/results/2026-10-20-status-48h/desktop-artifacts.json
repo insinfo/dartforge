@@ -1,0 +1,17 @@
+[
+  {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-desktop-validation/macos-ui/explorer",
+    "bytes": 25224176,
+    "sha256": "0b37b3cbfb8837b0358b1926a1202a780d2dbe7ee569453b49a9a3d67953cf91"
+  },
+  {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-desktop-validation/linux-arm64-explorer",
+    "bytes": 37619528,
+    "sha256": "900d39ca48a3751bf62e26de6f0e17362a06cbd4c7c74498a05e5c6f253cbe37"
+  },
+  {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-desktop-validation/windows-x64-explorer.exe",
+    "bytes": 37224960,
+    "sha256": "37b939a59b2f45eb129f2bf1aec0ff731d02fcd4fac6f271f29f86c5e6d5260f"
+  }
+]

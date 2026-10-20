@@ -1,0 +1,98 @@
+[
+  {
+    "path": "README.md",
+    "original_sha256": "bc2826707e683f5b4169cd64a4ec33590c21afc805f10b4b0e879a99c5ea365d",
+    "stored_sha256": "bc2826707e683f5b4169cd64a4ec33590c21afc805f10b4b0e879a99c5ea365d",
+    "bytes": 5730
+  },
+  {
+    "path": "bindings.json",
+    "original_sha256": "fded4505ac0c6d462e03bb69eeb0c89b878e0e4b50aa9b58de69a8ba5d9cec99",
+    "stored_sha256": "fded4505ac0c6d462e03bb69eeb0c89b878e0e4b50aa9b58de69a8ba5d9cec99",
+    "bytes": 1134
+  },
+  {
+    "path": "checks.json",
+    "original_sha256": "dbac86c16b8d979952223cc24c869d73e721bc9fe20cfd6f8214885856718538",
+    "stored_sha256": "dbac86c16b8d979952223cc24c869d73e721bc9fe20cfd6f8214885856718538",
+    "bytes": 472
+  },
+  {
+    "path": "commands.json",
+    "original_sha256": "23cff0f6da938a7184c33f55f2f9f1bebc00e0b6b105985948ee3b138711f867",
+    "stored_sha256": "23cff0f6da938a7184c33f55f2f9f1bebc00e0b6b105985948ee3b138711f867",
+    "bytes": 107243
+  },
+  {
+    "path": "desktop-artifacts.json",
+    "original_sha256": "aea40d7d28dbeac8ab311327cdec1da576cfb32046def7aeca8b0e513ee88b4f",
+    "stored_sha256": "aea40d7d28dbeac8ab311327cdec1da576cfb32046def7aeca8b0e513ee88b4f",
+    "bytes": 682
+  },
+  {
+    "path": "explorer-upstream.json",
+    "original_sha256": "749d6bccd1287ee84531c67a4a023be40387ddf259a1c4cb733568314f0abbe0",
+    "stored_sha256": "749d6bccd1287ee84531c67a4a023be40387ddf259a1c4cb733568314f0abbe0",
+    "bytes": 624
+  },
+  {
+    "path": "history.json",
+    "original_sha256": "1f16a042187c0fbf0b785f3380e3c91bf23f1584581af4e72460dc066b6fb207",
+    "stored_sha256": "1f16a042187c0fbf0b785f3380e3c91bf23f1584581af4e72460dc066b6fb207",
+    "bytes": 324251
+  },
+  {
+    "path": "measure-native.py",
+    "original_sha256": "d29417181a5fd6abb67fceb6ae8c2ced5c5d022624e44f24f8ff790cb3ebcbdd",
+    "stored_sha256": "d29417181a5fd6abb67fceb6ae8c2ced5c5d022624e44f24f8ff790cb3ebcbdd",
+    "bytes": 3905
+  },
+  {
+    "path": "measure.py",
+    "original_sha256": "dba6a847c97713725901adb6ae87e728ff37bbe6f21fbc473b4090384b5559ec",
+    "stored_sha256": "dba6a847c97713725901adb6ae87e728ff37bbe6f21fbc473b4090384b5559ec",
+    "bytes": 5458
+  },
+  {
+    "path": "measurements.json",
+    "original_sha256": "4b2a5d957d01a3e55876ece3941acebafb9bec8900c4fa2265dcd1e2ae0b00a9",
+    "stored_sha256": "4b2a5d957d01a3e55876ece3941acebafb9bec8900c4fa2265dcd1e2ae0b00a9",
+    "bytes": 19592
+  },
+  {
+    "path": "native-commands.json",
+    "original_sha256": "2c98479417e1bab1066cfb27bde7f6ec983c21a6a003b6648d08641dd5bb74c8",
+    "stored_sha256": "2c98479417e1bab1066cfb27bde7f6ec983c21a6a003b6648d08641dd5bb74c8",
+    "bytes": 9764
+  },
+  {
+    "path": "native-measurements.json",
+    "original_sha256": "837b3bbda78da706b205e17c5b61c5e083d56c201fb0cb5e9c2e1b48cfbec9d1",
+    "stored_sha256": "837b3bbda78da706b205e17c5b61c5e083d56c201fb0cb5e9c2e1b48cfbec9d1",
+    "bytes": 6517
+  },
+  {
+    "path": "powershell-before.txt",
+    "original_sha256": "03099ee892c47b360632b57293c2b6abeda2400624492a4171d2d08018dffdfd",
+    "stored_sha256": "03099ee892c47b360632b57293c2b6abeda2400624492a4171d2d08018dffdfd",
+    "bytes": 407
+  },
+  {
+    "path": "powershell-validation.json",
+    "original_sha256": "8672ad9f3db187eac25972843569e59680496204b3f22ef58e08609c28f8d44a",
+    "stored_sha256": "8672ad9f3db187eac25972843569e59680496204b3f22ef58e08609c28f8d44a",
+    "bytes": 202
+  },
+  {
+    "path": "ui-history.json",
+    "original_sha256": "42c53760c21d5978d6793d0ad8d3b9b203c1bea575b8347f5ea8b006491ab091",
+    "stored_sha256": "42c53760c21d5978d6793d0ad8d3b9b203c1bea575b8347f5ea8b006491ab091",
+    "bytes": 3718
+  },
+  {
+    "path": "validate-powershell.ps1",
+    "original_sha256": "948c7a0d7e5dc6c1945fefa6f5d300f7c302da323754bcc6bdaa0c4b721ab12f",
+    "stored_sha256": "948c7a0d7e5dc6c1945fefa6f5d300f7c302da323754bcc6bdaa0c4b721ab12f",
+    "bytes": 1665
+  }
+]

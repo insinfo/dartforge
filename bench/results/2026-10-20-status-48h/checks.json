@@ -1,0 +1,12 @@
+{
+  "powershell_syntax_and_argument_order": 0,
+  "powershell_pre_fix_expected_failure": 1,
+  "js_compile_and_output_comparisons": 0,
+  "native_compile_and_checksum_comparisons": 0,
+  "upstream_explorer_compile": 0,
+  "vm_state": "NAME                             STATUS\nUbuntu24.04_arm64                suspended\nWindows11                        suspended\n",
+  "cargo_fmt_all_check": 0,
+  "git_diff_check": 0,
+  "local_markdown_links": 0,
+  "python_script_syntax": 0
+}

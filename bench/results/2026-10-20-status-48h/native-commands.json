@@ -1,0 +1,362 @@
+[
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-explicit-sdk",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart",
+      "--optimize",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/hello-forge"
+    ],
+    "exit": 0,
+    "seconds": 7.968893959000001,
+    "stdout": "",
+    "stderr": "",
+    "load": [
+      4.490234375,
+      3.916015625,
+      5.48291015625
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "compile",
+      "exe",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/hello-dart"
+    ],
+    "exit": 0,
+    "seconds": 0.6961164999999987,
+    "stdout": "Generated: /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/hello-dart\n",
+    "stderr": "",
+    "load": [
+      4.490234375,
+      3.916015625,
+      5.48291015625
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/hello-forge"
+    ],
+    "exit": 0,
+    "seconds": 0.22452545900000054,
+    "stdout": "hello\n",
+    "stderr": "",
+    "load": [
+      4.490234375,
+      3.916015625,
+      5.48291015625
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/hello-dart"
+    ],
+    "exit": 0,
+    "seconds": 0.2475282080000003,
+    "stdout": "hello\n",
+    "stderr": "",
+    "load": [
+      4.490234375,
+      3.916015625,
+      5.48291015625
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/hello-dart"
+    ],
+    "exit": 0,
+    "seconds": 0.018404290999999517,
+    "stdout": "hello\n",
+    "stderr": "",
+    "load": [
+      4.490234375,
+      3.916015625,
+      5.48291015625
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/hello-forge"
+    ],
+    "exit": 0,
+    "seconds": 0.007437124999999156,
+    "stdout": "hello\n",
+    "stderr": "",
+    "load": [
+      4.490234375,
+      3.916015625,
+      5.48291015625
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/hello-forge"
+    ],
+    "exit": 0,
+    "seconds": 0.006529999999999703,
+    "stdout": "hello\n",
+    "stderr": "",
+    "load": [
+      4.490234375,
+      3.916015625,
+      5.48291015625
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/hello-dart"
+    ],
+    "exit": 0,
+    "seconds": 0.010533125000000254,
+    "stdout": "hello\n",
+    "stderr": "",
+    "load": [
+      4.490234375,
+      3.916015625,
+      5.48291015625
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/hello-dart"
+    ],
+    "exit": 0,
+    "seconds": 0.010148875000000501,
+    "stdout": "hello\n",
+    "stderr": "",
+    "load": [
+      4.490234375,
+      3.916015625,
+      5.48291015625
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/hello-forge"
+    ],
+    "exit": 0,
+    "seconds": 0.00549083299999964,
+    "stdout": "hello\n",
+    "stderr": "",
+    "load": [
+      4.490234375,
+      3.916015625,
+      5.48291015625
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/hello-forge"
+    ],
+    "exit": 0,
+    "seconds": 0.00515116699999929,
+    "stdout": "hello\n",
+    "stderr": "",
+    "load": [
+      4.490234375,
+      3.916015625,
+      5.48291015625
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/hello-dart"
+    ],
+    "exit": 0,
+    "seconds": 0.00906516599999918,
+    "stdout": "hello\n",
+    "stderr": "",
+    "load": [
+      4.490234375,
+      3.916015625,
+      5.48291015625
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-explicit-sdk",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/bench.dart",
+      "--optimize",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/bench-forge"
+    ],
+    "exit": 0,
+    "seconds": 10.841639040999999,
+    "stdout": "",
+    "stderr": "",
+    "load": [
+      4.48779296875,
+      3.9345703125,
+      5.47119140625
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "compile",
+      "exe",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/bench.dart",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/bench-dart"
+    ],
+    "exit": 0,
+    "seconds": 0.8396182090000011,
+    "stdout": "Generated: /Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/bench-dart\n",
+    "stderr": "",
+    "load": [
+      4.48779296875,
+      3.9345703125,
+      5.47119140625
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/bench-forge"
+    ],
+    "exit": 0,
+    "seconds": 1.2959650000000025,
+    "stdout": "fib: 6 5 5 6 ms | 2178309\ntrees: 26 39 28 23 ms | 3156655\nnumeric: 120 120 115 109 ms | 752938\nstrings: 46 45 45 43 ms | 2000000\njson: 82 78 75 74 ms | 1253013890\n",
+    "stderr": "",
+    "load": [
+      4.44873046875,
+      3.935546875,
+      5.46240234375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/bench-dart"
+    ],
+    "exit": 0,
+    "seconds": 1.2519520839999991,
+    "stdout": "fib: 16 13 11 10 ms | 2178309\ntrees: 14 11 11 11 ms | 3156655\nnumeric: 95 98 107 107 ms | 752938\nstrings: 47 46 46 46 ms | 2000000\njson: 74 81 76 73 ms | 1253013890\n",
+    "stderr": "",
+    "load": [
+      4.44873046875,
+      3.935546875,
+      5.46240234375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/bench-dart"
+    ],
+    "exit": 0,
+    "seconds": 0.9648594999999993,
+    "stdout": "fib: 9 9 9 9 ms | 2178309\ntrees: 13 11 11 11 ms | 3156655\nnumeric: 99 97 96 95 ms | 752938\nstrings: 45 45 45 45 ms | 2000000\njson: 70 76 74 74 ms | 1253013890\n",
+    "stderr": "",
+    "load": [
+      4.44873046875,
+      3.935546875,
+      5.46240234375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/bench-forge"
+    ],
+    "exit": 0,
+    "seconds": 1.009605582999999,
+    "stdout": "fib: 6 6 6 6 ms | 2178309\ntrees: 21 20 21 21 ms | 3156655\nnumeric: 104 100 100 98 ms | 752938\nstrings: 45 44 45 45 ms | 2000000\njson: 82 75 73 75 ms | 1253013890\n",
+    "stderr": "",
+    "load": [
+      4.44873046875,
+      3.935546875,
+      5.46240234375
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/bench-forge"
+    ],
+    "exit": 0,
+    "seconds": 1.0084146250000003,
+    "stdout": "fib: 5 5 5 5 ms | 2178309\ntrees: 20 20 21 20 ms | 3156655\nnumeric: 106 104 105 102 ms | 752938\nstrings: 46 45 44 44 ms | 2000000\njson: 78 73 71 74 ms | 1253013890\n",
+    "stderr": "",
+    "load": [
+      4.89306640625,
+      4.0361328125,
+      5.48876953125
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/bench-dart"
+    ],
+    "exit": 0,
+    "seconds": 1.0910407499999977,
+    "stdout": "fib: 9 9 9 9 ms | 2178309\ntrees: 14 11 12 12 ms | 3156655\nnumeric: 108 121 121 107 ms | 752938\nstrings: 47 48 47 52 ms | 2000000\njson: 92 84 80 75 ms | 1253013890\n",
+    "stderr": "",
+    "load": [
+      4.89306640625,
+      4.0361328125,
+      5.48876953125
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/bench-dart"
+    ],
+    "exit": 0,
+    "seconds": 1.0089895409999983,
+    "stdout": "fib: 10 9 10 9 ms | 2178309\ntrees: 14 12 12 12 ms | 3156655\nnumeric: 100 99 98 100 ms | 752938\nstrings: 46 47 46 46 ms | 2000000\njson: 81 88 75 74 ms | 1253013890\n",
+    "stderr": "",
+    "load": [
+      4.89306640625,
+      4.0361328125,
+      5.48876953125
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/bench-forge"
+    ],
+    "exit": 0,
+    "seconds": 1.0101975000000003,
+    "stdout": "fib: 6 5 5 6 ms | 2178309\ntrees: 21 21 22 22 ms | 3156655\nnumeric: 106 100 98 98 ms | 752938\nstrings: 45 45 45 46 ms | 2000000\njson: 80 76 72 74 ms | 1253013890\n",
+    "stderr": "",
+    "load": [
+      4.89306640625,
+      4.0361328125,
+      5.48876953125
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/bench-forge"
+    ],
+    "exit": 0,
+    "seconds": 0.9886740000000032,
+    "stdout": "fib: 5 5 5 5 ms | 2178309\ntrees: 20 20 21 20 ms | 3156655\nnumeric: 106 101 98 98 ms | 752938\nstrings: 43 43 43 43 ms | 2000000\njson: 78 72 71 73 ms | 1253013890\n",
+    "stderr": "",
+    "load": [
+      4.89306640625,
+      4.0361328125,
+      5.48876953125
+    ]
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/status-48h-native/bench-dart"
+    ],
+    "exit": 0,
+    "seconds": 0.9635653329999982,
+    "stdout": "fib: 9 9 9 9 ms | 2178309\ntrees: 14 12 12 12 ms | 3156655\nnumeric: 97 96 95 95 ms | 752938\nstrings: 45 45 45 45 ms | 2000000\njson: 71 77 73 70 ms | 1253013890\n",
+    "stderr": "",
+    "load": [
+      4.6611328125,
+      4.001953125,
+      5.46826171875
+    ]
+  }
+]
