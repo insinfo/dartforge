@@ -2,6 +2,26 @@
 
 ## Atualização de 20/10/2026
 
+- O registro das tabelas do SDK montadas no link agora usa o verificador dos
+  getters constantes antes de formar um lote. São 662 registros para uma
+  chamada na fixture real, preservando ordem, CIDs e tabelas vazias; o caminho
+  escalar continua para corpos sem prova ou CIDs divergentes. O mínimo de oito
+  entradas é compartilhado com o emissor do programa. Expandir o lote torna o
+  IR completo idêntico ao anterior, com/sem poda de tabelas; cada IR montado caiu
+  30.861 bytes. Passaram quatro testes novos e 1.006 testes nativos com ignorados,
+  Clippy estrito e docs sem avisos. A fixture coincide com a VM em AOT macOS
+  produção/desenvolvimento/sem poda e JIT macOS, normal/sob estresse; o AOT cruzado
+  passou nas duas condições em Windows x64/Linux ARM64. Explorador e smoke de
+  menus passaram em AOT nos três sistemas; VMs novamente suspensas. A medição
+  local ABBA de processo inteiro teve medianas 6,3143/6,2915 ms, sem ganho de
+  tempo demonstrado. A fixture AOT comum manteve tamanho; sem poda, caiu 16.512
+  bytes. Uma recópia do compilador pelo harness causou recusa de assinatura no
+  macOS; a publicação atômica dos mesmos bytes resolveu e as execuções foram
+  repetidas, preservando as falhas. Sem mudança de runtime, bundles/schema ou
+  permissão de poda; o teste de ausência de backends foi repetido e falhou.
+  Fmt global e aprovação integral seguem pendentes. Evidências:
+  `bench/results/2026-10-20-sdk-table-batches/README.md`.
+
 - O inventário agora observa um footprint finito para `dartforge_object_new_t`
   e `_mt` quando o getter completo e sua tabela constante estão presentes e
   conferidos: corpo sem efeitos, símbolos únicos (inclusive aspas/escapes LLVM),

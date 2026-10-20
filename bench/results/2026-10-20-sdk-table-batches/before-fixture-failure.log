@@ -1,0 +1,42 @@
+   Compiling ring v0.17.14
+   Compiling libz-sys v1.1.29
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+   Compiling flate2 v1.1.10
+   Compiling rustls v0.23.45
+   Compiling dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+   Compiling rustls-webpki v0.103.15
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.12s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 1 test
+
+thread 'pruning::assembled_registration_tests::sdk_batch_threshold_preserves_cid_order_and_every_empty_table' (2933956) panicked at crates/emit_native/src/pruning/assembled_registration_tests.rs:59:17:
+define i32 @main() {
+  call void @df.register.sdk_tables()
+  ret i32 0
+}
+
+; SDK method tables assembled at link time (docs/NATIVO-PODA-DE-TABELAS.md)
+@df.mt.C0$d = private unnamed_addr constant { i64, i64 } { i64 900, i64 0 }
+define ptr @df.mt.C0() {
+b0:
+  ret ptr @df.mt.C0$d
+}
+define void @df.register.sdk_tables() {
+b0:
+  call void @dartforge_register_table(i64 900, ptr @df.mt.C0)
+  ret void
+}
+declare void @dartforge_register_table(i64, ptr)
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test pruning::assembled_registration_tests::sdk_batch_threshold_preserves_cid_order_and_every_empty_table ... FAILED
+
+failures:
+
+failures:
+    pruning::assembled_registration_tests::sdk_batch_threshold_preserves_cid_order_and_every_empty_table
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1005 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

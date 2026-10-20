@@ -1,0 +1,84 @@
+[
+  {
+    "name": "linux-arm64-fixture",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-sdk-table-batches",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/table_batch/main.dart",
+      "--optimize",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--target",
+      "linux-arm64",
+      "--target-bundle",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-table-batches-validation/linux-arm64-fixture"
+    ],
+    "exit": 0,
+    "seconds": 87.050658833,
+    "compiler_sha256": "ff5022413c2cde10722e007fa5cc443ac8d2b513eb29d6d894a33037623557cd",
+    "bytes": 3693648,
+    "sha256": "894e408eb61c734a5f5cb80fdf6dfeccb29f7d645a5dda94b6074528a7bbc668",
+    "environment": {
+      "DARTFORGE_KEEP_IR": "1",
+      "DARTFORGE_PARALLEL_PARTS": "1"
+    }
+  },
+  {
+    "name": "linux-arm64-explorer",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-sdk-table-batches",
+      "compile-native",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+      "--optimize",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--target",
+      "linux-arm64",
+      "--target-bundle",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-table-batches-validation/linux-arm64-explorer",
+      "--packages",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json"
+    ],
+    "exit": 0,
+    "seconds": 221.936502125,
+    "compiler_sha256": "ff5022413c2cde10722e007fa5cc443ac8d2b513eb29d6d894a33037623557cd",
+    "bytes": 37619528,
+    "sha256": "1bbdb20b6860caa5012ff7ff095a848a36aeccfa31691e605d7f123aa395c466",
+    "environment": {
+      "DARTFORGE_KEEP_IR": "1",
+      "DARTFORGE_PARALLEL_PARTS": "1"
+    }
+  },
+  {
+    "name": "linux-arm64-context",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-sdk-table-batches",
+      "compile-native",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/tool/context_menu_retarget_smoke.dart",
+      "--optimize",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--target",
+      "linux-arm64",
+      "--target-bundle",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-table-batches-validation/linux-arm64-context",
+      "--packages",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json"
+    ],
+    "exit": 0,
+    "seconds": 227.686196,
+    "compiler_sha256": "ff5022413c2cde10722e007fa5cc443ac8d2b513eb29d6d894a33037623557cd",
+    "bytes": 36640592,
+    "sha256": "645c1d56b3836d092b3accfe9914bd9e2494741da03ce0fe8b3ee9700ab98bd6",
+    "environment": {
+      "DARTFORGE_KEEP_IR": "1",
+      "DARTFORGE_PARALLEL_PARTS": "1"
+    }
+  }
+]

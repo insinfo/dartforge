@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 
 pub(crate) mod receiver_provenance;
 mod class_reachability;
+pub(crate) mod assembled_registration;
 pub(crate) mod allocation_inventory;
 pub(crate) mod universal_parent;
 pub(crate) mod arc_ports;
@@ -1285,8 +1286,8 @@ pub struct Assembly {
 /// pruned, with the function that returns each one. `prune = false`: all the
 /// pairs (`DARTFORGE_NO_TABLE_PRUNING`). When the program declares
 /// `@df.register.sdk_tables` (`LlvmEmitter::with_tables_registered_at_startup`),
-/// the declaration becomes its definition: one `dartforge_register_table` per
-/// assembled SDK table, in ascending cid order — the lazy registration of
+/// the declaration becomes its definition: scalar registrations, or a verified
+/// batch for at least eight assembled SDK tables, in ascending cid order — the lazy registration of
 /// `dartforge_object_new_t` is then never the first one, and the inline
 /// allocation of production has no registration test. Every assembled table is
 /// registered, live or not (a dead one is empty), so `DARTFORGE_NO_TABLE_PRUNING`
@@ -1388,6 +1389,9 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
         }
         exit.push_str(l);
     }
+    // Keep the actual generated table fragment available for the callback
+    // witness; a declaration-only SDK summary is not a body certificate.
+    let tables_start = exit.len();
     // The tables of the summaries.
     exit.push_str("\n; SDK method tables assembled at link time (docs/NATIVO-PODA-DE-TABELAS.md)\n");
     let mut declare: Vec<String> = Vec::new();
@@ -1421,14 +1425,8 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
     if registration_declared {
         registrations.sort();
         registrations.dedup();
-        writeln!(exit, "define void @{REGISTRATION}() {{\nb0:").unwrap();
-        for (cid, function) in &registrations {
-            writeln!(exit, "  call void @dartforge_register_table(i64 {cid}, ptr {function})").unwrap();
-        }
-        exit.push_str("  ret void\n}\n");
-        if declared_set.insert("dartforge_register_table".to_string()) {
-            exit.push_str("declare void @dartforge_register_table(i64, ptr)\n");
-        }
+        let tables_end = exit.len();
+        assembled_registration::emit(&mut exit, REGISTRATION, &registrations, tables_start..tables_end, &mut declared_set);
     }
     arc_ports::assemble(&mut exit, &all, &reachability, prune, &mut declared_set)?;
     st.time = t0.elapsed();
@@ -2509,3 +2507,6 @@ mod declared_field_summary_tests {
 
 #[cfg(test)]
 mod hir_summary_tests;
+
+#[cfg(test)]
+mod assembled_registration_tests;

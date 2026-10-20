@@ -1,0 +1,19 @@
+{
+  "command": [
+    "python3",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/scripts/validate-native-desktop.py",
+    "--compiler",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-sdk-table-batches",
+    "--ui-root",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui",
+    "--sdk",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "--out",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-table-batches-validation/macos-ui",
+    "--mode",
+    "aot"
+  ],
+  "exit": 0,
+  "stdout": "{\"name\": \"explorer-aot-build\", \"command\": [\"/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-sdk-table-batches\", \"compile-native\", \"/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart\", \"--optimize\", \"--sdk\", \"/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib\", \"--packages\", \"/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json\", \"-o\", \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-table-batches-validation/macos-ui/explorer\"], \"exit\": 0, \"passed\": true, \"seconds\": 236.147}\n{\"name\": \"explorer-aot-run\", \"command\": [\"/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-table-batches-validation/macos-ui/explorer\", \"/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer\", \"--lang=pt\", \"--frames=2\", \"--cpu\"], \"exit\": 0, \"passed\": true, \"seconds\": 1.922}\n{\"name\": \"context-smoke-aot-build\", \"command\": [\"/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-sdk-table-batches\", \"compile-native\", \"/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/tool/context_menu_retarget_smoke.dart\", \"--optimize\", \"--sdk\", \"/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib\", \"--packages\", \"/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json\", \"-o\", \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-table-batches-validation/macos-ui/context-smoke\"], \"exit\": 0, \"passed\": true, \"seconds\": 219.081}\n{\"name\": \"context-smoke-aot-run\", \"command\": [\"/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-table-batches-validation/macos-ui/context-smoke\", \"--cpu\"], \"exit\": 0, \"passed\": true, \"seconds\": 6.837}\n",
+  "stderr": ""
+}

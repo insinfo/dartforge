@@ -1,0 +1,5 @@
+from pathlib import Path
+import subprocess,os,json
+root=Path('/Volumes/ssd_dock/MyRustProjects/dartforge');prefix='/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64';out=root/'target/sdk-table-batches-validation/macos-ui'
+env=os.environ.copy();env.update(DARTFORGE_LLVM_DIR=prefix,DARTFORGE_GENERATOR='clang',DARTFORGE_NATIVE_CACHE=str(root/'target/rpo-native-cache'),DARTFORGE_KEEP_IR='1',DARTFORGE_PARALLEL_PARTS='1',SDKROOT='/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk',MACOSX_DEPLOYMENT_TARGET='15.0');env['PATH']=prefix+'/bin:'+env['PATH']
+command=['python3',str(root/'scripts/validate-native-desktop.py'),'--compiler',str(root/'target/test-tools/dartforge-sdk-table-batches'),'--ui-root','/Volumes/ssd_dock/MyProjectsDart/dart_ui','--sdk','/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib','--out',str(out),'--mode','aot'];p=subprocess.run(command,env=env,cwd=root,capture_output=True,text=True);record=dict(command=command,exit=p.returncode,stdout=p.stdout,stderr=p.stderr);Path('/tmp/forge-sdk-table-batches/runtime/macos-ui-result.json').write_text(json.dumps(record,indent=2)+'\n');print(json.dumps(record));assert p.returncode==0

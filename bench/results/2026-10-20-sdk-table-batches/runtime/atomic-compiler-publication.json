@@ -1,0 +1,10 @@
+{
+  "sha256": "ff5022413c2cde10722e007fa5cc443ac8d2b513eb29d6d894a33037623557cd",
+  "exit": 1,
+  "stdout": "",
+  "stderr": "error: unknown command: --version\n",
+  "probe": [
+    "--version"
+  ],
+  "expected_exit": 1
+}

@@ -1,0 +1,28 @@
+[
+  {
+    "name": "linux-arm64-fixture",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-sdk-table-batches",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/table_batch/main.dart",
+      "--optimize",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--target",
+      "linux-arm64",
+      "--target-bundle",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-table-batches-validation/linux-arm64-fixture"
+    ],
+    "exit": -9,
+    "seconds": 0.007319875000000002,
+    "compiler_sha256": "ff5022413c2cde10722e007fa5cc443ac8d2b513eb29d6d894a33037623557cd",
+    "bytes": null,
+    "sha256": null,
+    "environment": {
+      "DARTFORGE_KEEP_IR": "1",
+      "DARTFORGE_PARALLEL_PARTS": "1"
+    }
+  }
+]

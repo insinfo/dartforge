@@ -6,7 +6,7 @@
 use std::collections::{BTreeSet, HashMap};
 use serde_json::{Value, json};
 
-mod table_getters;
+pub(in crate::pruning) mod table_getters;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Abi { result: String, parameters: Vec<String> }

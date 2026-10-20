@@ -1,0 +1,32 @@
+[
+  {
+    "path": "target/sdk-table-batches-validation/.df_tmp/linux-arm64-fixture.ll",
+    "sdk_batch_count": 662,
+    "sdk_registration_calls": 1
+  },
+  {
+    "path": "target/sdk-table-batches-validation/.df_tmp/windows-x64-fixture.ll",
+    "sdk_batch_count": 662,
+    "sdk_registration_calls": 1
+  },
+  {
+    "path": "target/sdk-table-batches-validation/.df_tmp/linux-arm64-explorer.ll",
+    "sdk_batch_count": 662,
+    "sdk_registration_calls": 1
+  },
+  {
+    "path": "target/sdk-table-batches-validation/.df_tmp/windows-x64-explorer.ll",
+    "sdk_batch_count": 662,
+    "sdk_registration_calls": 1
+  },
+  {
+    "path": "target/sdk-table-batches-validation/.df_tmp/linux-arm64-context.ll",
+    "sdk_batch_count": 662,
+    "sdk_registration_calls": 1
+  },
+  {
+    "path": "target/sdk-table-batches-validation/.df_tmp/windows-x64-context.ll",
+    "sdk_batch_count": 662,
+    "sdk_registration_calls": 1
+  }
+]

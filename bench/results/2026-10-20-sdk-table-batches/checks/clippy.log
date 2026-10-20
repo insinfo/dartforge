@@ -1,0 +1,13 @@
+    Checking ring v0.17.14
+   Compiling rustls v0.23.45
+    Checking libz-sys v1.1.29
+   Compiling dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Checking flate2 v1.1.10
+    Checking rustls-webpki v0.103.15
+    Checking ureq v3.4.2
+    Checking dartforge-cli v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli)
+    Checking dartforge-jit v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/jit)
+    Checking dartforge-runtime-static v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime_static)
+    Checking dartforge-differential v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/differential)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.37s

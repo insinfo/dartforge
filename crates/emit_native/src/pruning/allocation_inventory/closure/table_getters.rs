@@ -12,8 +12,11 @@ fn symbol(name: &str) -> bool {
 // Quoted LLVM names may spell the same symbol with hex escapes. Count those
 // definitions too; a differently printed alias must not evade uniqueness.
 fn defined_name(line: &str) -> Option<String> {
-    let names = super::global_references(line);
-    let raw = names.first()?;
+    canonical_symbol(crate::pruning::cited(line).next()?)
+}
+
+/// Normalize an LLVM symbol already stripped of its optional quotes.
+pub(in crate::pruning) fn canonical_symbol(raw: &str) -> Option<String> {
     let mut bytes = Vec::new();
     let mut index = 0;
     while index < raw.len() {
@@ -63,7 +66,7 @@ fn table(line: &str, name: &str) -> Option<u32> {
 
 /// Accept only the emitter's exact constant-return body and complete table.
 /// Unique public definitions and private data prevent cross-module replacement.
-pub(super) fn observe(modules: &[(&str, &str)]) -> HashMap<String, u32> {
+pub(in crate::pruning) fn observe(modules: &[(&str, &str)]) -> HashMap<String, u32> {
     // Production SDK tables are emitted later by the linker assembler. Avoid
     // building a source index when this snapshot has no getter definitions.
     if !modules

@@ -1,0 +1,13 @@
+{
+  "command": [
+    "prlctl",
+    "exec",
+    "Ubuntu24.04_arm64",
+    "/bin/bash",
+    "/media/psf/ssd_dock/MyRustProjects/dartforge/target/sdk-table-batches-validation/linux-launch.sh"
+  ],
+  "exit": 0,
+  "seconds": 2.00002,
+  "stdout": "fixture-normal 0\nfixture-stress 0\nexplorer-aot 0\ncontext-aot 0\n{\"artifacts\": {\"fixture\": {\"bytes\": 3693648, \"sha256\": \"894e408eb61c734a5f5cb80fdf6dfeccb29f7d645a5dda94b6074528a7bbc668\"}, \"explorer\": {\"bytes\": 37619528, \"sha256\": \"1bbdb20b6860caa5012ff7ff095a848a36aeccfa31691e605d7f123aa395c466\"}, \"context\": {\"bytes\": 36640592, \"sha256\": \"645c1d56b3836d092b3accfe9914bd9e2494741da03ce0fe8b3ee9700ab98bd6\"}}, \"runs\": [{\"name\": \"fixture-normal\", \"command\": [\"/home/isaque/.cache/dartforge/sdk-table-batches/fixture\"], \"exit\": 0, \"seconds\": 0.004220542003167793, \"stdout\": \"parent=45\\nchild=45\\n\", \"stderr\": \"\", \"gc_stress\": false}, {\"name\": \"fixture-stress\", \"command\": [\"/home/isaque/.cache/dartforge/sdk-table-batches/fixture\"], \"exit\": 0, \"seconds\": 0.0038847910036565736, \"stdout\": \"parent=45\\nchild=45\\n\", \"stderr\": \"\", \"gc_stress\": true}, {\"name\": \"explorer-aot\", \"command\": [\"/home/isaque/.cache/dartforge/sdk-table-batches/explorer\", \"/home/isaque/projects/dart_ui/examples/file_explorer\", \"--lang=pt\", \"--frames=2\", \"--backend=wayland\", \"--presentation=wayland-opengl\"], \"exit\": 0, \"seconds\": 0.11229408399958629, \"stdout\": \"\", \"stderr\": \"\", \"gc_stress\": false}, {\"name\": \"context-aot\", \"command\": [\"/home/isaque/.cache/dartforge/sdk-table-batches/context\", \"--backend=wayland\", \"--presentation=wayland-opengl\"], \"exit\": 0, \"seconds\": 1.5034445420023985, \"stdout\": \"CONTEXT_RETARGET=PASS backend=wayland\\n\", \"stderr\": \"\", \"gc_stress\": false}]}\n",
+  "stderr": ""
+}

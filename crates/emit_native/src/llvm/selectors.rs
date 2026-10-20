@@ -263,7 +263,7 @@ impl LlvmEmitter<'_> {
         }).collect();
         // Amortize the array and loop overhead for larger program startups.
         // Generated table getters are pure and return their own embedded CID.
-        if !module.sdk_library && tables.len() >= 8 {
+        if !module.sdk_library && tables.len() >= crate::pruning::assembled_registration::BATCH_MIN {
             let array = format!("df.table_batch.{record}");
             let pointers = tables.iter().map(|(_, symbol, _)| format!("ptr @{symbol}")).collect::<Vec<_>>().join(", ");
             writeln!(self.out, "@{array} = private unnamed_addr constant [{} x ptr] [{pointers}], align 8", tables.len()).unwrap();

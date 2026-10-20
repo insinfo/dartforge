@@ -1,0 +1,17 @@
+   Compiling ring v0.17.14
+   Compiling libz-sys v1.1.29
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+   Compiling flate2 v1.1.10
+   Compiling rustls v0.23.45
+   Compiling dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+   Compiling rustls-webpki v0.103.15
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.64s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 4 tests
+test pruning::assembled_registration_tests::unproved_callbacks_or_mismatched_embedded_cids_keep_scalar_registration ... ok
+test pruning::assembled_registration_tests::absent_startup_declaration_does_not_add_a_batch_or_registration ... ok
+test pruning::assembled_registration_tests::batch_storage_avoids_escaped_symbol_collisions_and_reuses_runtime_declarations ... ok
+test pruning::assembled_registration_tests::sdk_batch_threshold_preserves_cid_order_and_every_empty_table ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 1002 filtered out; finished in 0.01s

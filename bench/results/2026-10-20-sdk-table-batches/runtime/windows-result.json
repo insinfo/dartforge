@@ -1,0 +1,22 @@
+{
+  "command": [
+    "prlctl",
+    "exec",
+    "Windows11",
+    "--current-user",
+    "powershell.exe",
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-OutputFormat",
+    "Text",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    "\\\\Mac\\ssd_dock\\MyRustProjects\\dartforge\\target\\sdk-table-batches-validation\\windows-run.ps1"
+  ],
+  "exit": 0,
+  "seconds": 4.223362792,
+  "stdout": "fixture-normal 0\nfixture-stress 0\nexplorer-aot 0\ncontext-aot 0\n{\"artifacts\":{\"explorer\":{\"bytes\":37224960,\"sha256\":\"0657463fe5284e415c5c5a54a12c13636161e94b1eda8cc374002ec5a6c34aba\"},\"context\":{\"bytes\":36343296,\"sha256\":\"63507fa922407335c9e43883cdd1713f925f784288562954de604837efaeea10\"},\"fixture\":{\"bytes\":3606528,\"sha256\":\"49139d8283569648147e8490e496df7c11f08102691ed1d824240da1f4c42d01\"}},\"runs\":[{\"seconds\":0.0998868,\"exit\":0,\"name\":\"fixture-normal\",\"stdout\":\"parent=45\\nchild=45\\n\",\"exe\":\"C:\\\\Users\\\\isaque.neves\\\\AppData\\\\Local\\\\DartForgeSDKTableBatches\\\\fixture.exe\",\"gc_stress\":false,\"stderr\":\"\",\"args\":[]},{\"seconds\":0.0332746,\"exit\":0,\"name\":\"fixture-stress\",\"stdout\":\"parent=45\\nchild=45\\n\",\"exe\":\"C:\\\\Users\\\\isaque.neves\\\\AppData\\\\Local\\\\DartForgeSDKTableBatches\\\\fixture.exe\",\"gc_stress\":true,\"stderr\":\"\",\"args\":[]},{\"seconds\":1.2097765999999999,\"exit\":0,\"name\":\"explorer-aot\",\"stdout\":\"\",\"exe\":\"C:\\\\Users\\\\isaque.neves\\\\AppData\\\\Local\\\\DartForgeSDKTableBatches\\\\explorer.exe\",\"gc_stress\":false,\"stderr\":\"\",\"args\":[\"C:\\\\tools\\\\ui\\\\examples\\\\file_explorer\",\"--lang=pt\",\"--frames=2\",\"--backend=win32\",\"--presentation=direct3d11\"]},{\"seconds\":1.7495197999999998,\"exit\":0,\"name\":\"context-aot\",\"stdout\":\"CONTEXT_RETARGET=PASS backend=win32\\n\",\"exe\":\"C:\\\\Users\\\\isaque.neves\\\\AppData\\\\Local\\\\DartForgeSDKTableBatches\\\\context.exe\",\"gc_stress\":false,\"stderr\":\"\",\"args\":[\"--backend=win32\",\"--presentation=direct3d11\"]}]}\n",
+  "stderr": ""
+}

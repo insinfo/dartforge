@@ -1038,3 +1038,24 @@ esses corpos só serão gerados em `assemble`. A identidade de uma declaração 
 substitui o corpo ausente. Startup/imagens/helpers, poda estrangeira e aprovação
 integral continuam pendentes; não há ganho de desempenho/tamanho demonstrado.
 Evidências: [footprints de tabelas](../bench/results/2026-10-20-table-allocation-footprints/README.md).
+
+
+## Registro em lote do fragmento efetivamente montado (20/10/2026)
+
+O `assemble` reutiliza agora o verificador de getters no fragmento de tabelas
+que acabou de gerar. Não presume o corpo pela declaração do SDK. Com pelo menos
+oito entradas, todas devem ter corpo constante, armazenamento completo e CID
+coincidente com a chamada escalar original; caso contrário, conserva o caminho
+escalar. O limite é compartilhado com o emissor do programa. Mantém a ordenação
+por CID/nome, a deduplicação, as tabelas vazias e a política de pares quando a
+poda está desativada. O nome do vetor evita colisões, inclusive escapes LLVM.
+
+Na fixture real, 662 chamadas viraram uma. As 662 identidades e a ordem foram
+conferidas; expandir a chamada e remover seu vetor torna o IR montado inteiro
+idêntico nos dois modos, com redução de 30.861 bytes. A mudança passa no AOT do
+explorador/menus nos três sistemas e na fixture normal/sob estresse de GC. A
+observação de tempo do processo inteiro não demonstrou aceleração. O registro
+continua expondo métodos; isto não fornece prova de invocação, imagem ou universo
+fechado de classes. A reprodução ainda mantém seis definições estrangeiras e o
+teste de ausência falha. Evidências:
+[SDK no link](../bench/results/2026-10-20-sdk-table-batches/README.md).

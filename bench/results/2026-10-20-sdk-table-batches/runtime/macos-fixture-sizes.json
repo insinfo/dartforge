@@ -1,0 +1,44 @@
+[
+  {
+    "profile": "production",
+    "before": {
+      "path": "target/sdk-table-batches-validation/before-production",
+      "bytes": 3425568,
+      "sha256": "0278b3450112119625a25a4dbecaa754b8727db7e1827d47cc44cb00a996b738"
+    },
+    "after": {
+      "path": "target/sdk-table-batches-validation/after-production",
+      "bytes": 3425568,
+      "sha256": "b43e0f9da70e6332572f4097993cbea619b4a90b5250da0dd47ec6480ca88c0b"
+    },
+    "difference": 0
+  },
+  {
+    "profile": "development",
+    "before": {
+      "path": "target/sdk-table-batches-validation/before-development",
+      "bytes": 79760,
+      "sha256": "6e3171cae75c3450ae2ea9d138188fd98c8734414d281247ac1671cd20afff8d"
+    },
+    "after": {
+      "path": "target/sdk-table-batches-validation/after-development",
+      "bytes": 79760,
+      "sha256": "ec0337bfe3a7a752756aa0a5c50b7be95801bc624a569fe2da3f98f0342e95f1"
+    },
+    "difference": 0
+  },
+  {
+    "profile": "unpruned",
+    "before": {
+      "path": "target/sdk-table-batches-validation/before-unpruned",
+      "bytes": 10428368,
+      "sha256": "f182173047688ed73f26dcbd0cfa21d02486650bfeb3a20b499723febfa8911c"
+    },
+    "after": {
+      "path": "target/sdk-table-batches-validation/after-unpruned",
+      "bytes": 10411856,
+      "sha256": "16c324e42db5e6f5011590b2368b08b679cba0075a65a7d12b47ff32a059f6a9"
+    },
+    "difference": -16512
+  }
+]

@@ -1,0 +1,84 @@
+[
+  {
+    "name": "windows-x64-fixture",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-sdk-table-batches",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/table_batch/main.dart",
+      "--optimize",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--target",
+      "windows-x64",
+      "--target-bundle",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/windows-x64",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-table-batches-validation/windows-x64-fixture.exe"
+    ],
+    "exit": 0,
+    "seconds": 84.784568666,
+    "compiler_sha256": "ff5022413c2cde10722e007fa5cc443ac8d2b513eb29d6d894a33037623557cd",
+    "bytes": 3606528,
+    "sha256": "49139d8283569648147e8490e496df7c11f08102691ed1d824240da1f4c42d01",
+    "environment": {
+      "DARTFORGE_KEEP_IR": "1",
+      "DARTFORGE_PARALLEL_PARTS": "1"
+    }
+  },
+  {
+    "name": "windows-x64-explorer",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-sdk-table-batches",
+      "compile-native",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+      "--optimize",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--target",
+      "windows-x64",
+      "--target-bundle",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/windows-x64",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-table-batches-validation/windows-x64-explorer.exe",
+      "--packages",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json"
+    ],
+    "exit": 0,
+    "seconds": 206.114277708,
+    "compiler_sha256": "ff5022413c2cde10722e007fa5cc443ac8d2b513eb29d6d894a33037623557cd",
+    "bytes": 37224960,
+    "sha256": "0657463fe5284e415c5c5a54a12c13636161e94b1eda8cc374002ec5a6c34aba",
+    "environment": {
+      "DARTFORGE_KEEP_IR": "1",
+      "DARTFORGE_PARALLEL_PARTS": "1"
+    }
+  },
+  {
+    "name": "windows-x64-context",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-sdk-table-batches",
+      "compile-native",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/tool/context_menu_retarget_smoke.dart",
+      "--optimize",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--target",
+      "windows-x64",
+      "--target-bundle",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/windows-x64",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-table-batches-validation/windows-x64-context.exe",
+      "--packages",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json"
+    ],
+    "exit": 0,
+    "seconds": 211.159688667,
+    "compiler_sha256": "ff5022413c2cde10722e007fa5cc443ac8d2b513eb29d6d894a33037623557cd",
+    "bytes": 36343296,
+    "sha256": "63507fa922407335c9e43883cdd1713f925f784288562954de604837efaeea10",
+    "environment": {
+      "DARTFORGE_KEEP_IR": "1",
+      "DARTFORGE_PARALLEL_PARTS": "1"
+    }
+  }
+]

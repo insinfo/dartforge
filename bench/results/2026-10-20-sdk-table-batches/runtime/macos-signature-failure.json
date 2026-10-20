@@ -1,0 +1,65 @@
+[
+  {
+    "path": "/Users/isaque/Library/Logs/DiagnosticReports/dartforge-sdk-table-batches-2026-10-20-055628.ips",
+    "sha256": "1a3e944a1b5461ba9d04a6441a7c2207b85d082cf5d3ac80f205d1dfa16e4d91",
+    "exception": {
+      "codes": "0x0000000000000000, 0x0000000000000000",
+      "rawCodes": [
+        0,
+        0
+      ],
+      "type": "EXC_CRASH",
+      "signal": "SIGKILL (Code Signature Invalid)"
+    },
+    "termination": {
+      "flags": 66,
+      "code": 1,
+      "namespace": "CODESIGNING",
+      "indicator": "Taskgated Invalid Signature"
+    },
+    "pid": 98869,
+    "captureTime": "2026-10-20 05:56:27.1476 -0300"
+  },
+  {
+    "path": "/Users/isaque/Library/Logs/DiagnosticReports/dartforge-sdk-table-batches-2026-10-20-055632.0002.ips",
+    "sha256": "391c0f838b4768c6118fb814207623203dd6ff2897bb92c5cfabdf5f987efbd9",
+    "exception": {
+      "codes": "0x0000000000000000, 0x0000000000000000",
+      "rawCodes": [
+        0,
+        0
+      ],
+      "type": "EXC_CRASH",
+      "signal": "SIGKILL (Code Signature Invalid)"
+    },
+    "termination": {
+      "flags": 66,
+      "code": 1,
+      "namespace": "CODESIGNING",
+      "indicator": "Taskgated Invalid Signature"
+    },
+    "pid": 98897,
+    "captureTime": "2026-10-20 05:56:32.1039 -0300"
+  },
+  {
+    "path": "/Users/isaque/Library/Logs/DiagnosticReports/dartforge-sdk-table-batches-2026-10-20-055632.ips",
+    "sha256": "10294fd0b28e82409ad32c596961b02c7ccd85151131cbf84cf5c390e910f751",
+    "exception": {
+      "codes": "0x0000000000000000, 0x0000000000000000",
+      "rawCodes": [
+        0,
+        0
+      ],
+      "type": "EXC_CRASH",
+      "signal": "SIGKILL (Code Signature Invalid)"
+    },
+    "termination": {
+      "flags": 66,
+      "code": 1,
+      "namespace": "CODESIGNING",
+      "indicator": "Taskgated Invalid Signature"
+    },
+    "pid": 98891,
+    "captureTime": "2026-10-20 05:56:31.9408 -0300"
+  }
+]

@@ -1,0 +1,24 @@
+[
+  {
+    "profile": "production",
+    "ordered_getters": 662,
+    "matching_embedded_cids": 662,
+    "normalized_identical": true,
+    "before_bytes": 741154,
+    "after_bytes": 710293,
+    "saved_bytes": 30861,
+    "before_sha256": "e4803dac7ac7b24855cbc6290e89b1df34416b5a507d726568d1f8ba93ec1df3",
+    "after_sha256": "9b57ef82cfddc8d15e9f157b31c18d755e6c14b67dba1d2957a10fd846808f46"
+  },
+  {
+    "profile": "unpruned",
+    "ordered_getters": 662,
+    "matching_embedded_cids": 662,
+    "normalized_identical": true,
+    "before_bytes": 3559419,
+    "after_bytes": 3528558,
+    "saved_bytes": 30861,
+    "before_sha256": "b8197b43c38dd5af0a40989e89bfcf5b48ce7af961a07ca1cb088bd14064f61c",
+    "after_sha256": "80c320370cd3b909348611bf91229f5682baa00fa95fa5f357276f33063b932a"
+  }
+]
