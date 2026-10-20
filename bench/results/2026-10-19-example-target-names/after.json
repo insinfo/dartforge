@@ -1,0 +1,242 @@
+[
+  {
+    "package": "dartforge-frontend",
+    "name": "memory_frontend",
+    "source": "crates/frontend/examples/memory_frontend.rs"
+  },
+  {
+    "package": "dartforge-frontend",
+    "name": "syntax",
+    "source": "crates/frontend/examples/syntax.rs"
+  },
+  {
+    "package": "dartforge-types",
+    "name": "compare_types",
+    "source": "crates/types/examples/compare_types.rs"
+  },
+  {
+    "package": "dartforge-types",
+    "name": "dump_types",
+    "source": "crates/types/examples/dump_types.rs"
+  },
+  {
+    "package": "dartforge-types",
+    "name": "memory_types",
+    "source": "crates/types/examples/memory_types.rs"
+  },
+  {
+    "package": "dartforge-types",
+    "name": "record_corpus",
+    "source": "crates/types/examples/record_corpus.rs"
+  },
+  {
+    "package": "dartforge-types",
+    "name": "warnings",
+    "source": "crates/types/examples/warnings.rs"
+  },
+  {
+    "package": "dartforge-build",
+    "name": "plan",
+    "source": "crates/build/examples/plan.rs"
+  },
+  {
+    "package": "dartforge-ng-generator",
+    "name": "check-sass",
+    "source": "crates/ng_generator/examples/check-sass.rs"
+  },
+  {
+    "package": "dartforge-ng-generator",
+    "name": "ng_oracle",
+    "source": "crates/ng_generator/examples/oracle.rs"
+  },
+  {
+    "package": "dartforge-sass",
+    "name": "check",
+    "source": "crates/sass/examples/check.rs"
+  },
+  {
+    "package": "dartforge-sass",
+    "name": "compile",
+    "source": "crates/sass/examples/compile.rs"
+  },
+  {
+    "package": "dartforge-dev",
+    "name": "measure",
+    "source": "crates/dev/examples/measure.rs"
+  },
+  {
+    "package": "dartforge-dev",
+    "name": "measure_generation",
+    "source": "crates/dev/examples/measure_generation.rs"
+  },
+  {
+    "package": "dartforge-emit-js",
+    "name": "debug_ctor",
+    "source": "crates/emit_js/examples/debug_ctor.rs"
+  },
+  {
+    "package": "dartforge-emit-js",
+    "name": "emit_corpus",
+    "source": "crates/emit_js/examples/emit_corpus.rs"
+  },
+  {
+    "package": "dartforge-emit-js",
+    "name": "memory_emit_js",
+    "source": "crates/emit_js/examples/memory_emit_js.rs"
+  },
+  {
+    "package": "dartforge-emit-native",
+    "name": "arc_audit_pipeline",
+    "source": "crates/emit_native/examples/arc_audit_pipeline.rs"
+  },
+  {
+    "package": "dartforge-emit-native",
+    "name": "arc_field_allocation",
+    "source": "crates/emit_native/examples/arc_field_allocation.rs"
+  },
+  {
+    "package": "dartforge-emit-native",
+    "name": "arc_field_keepalive",
+    "source": "crates/emit_native/examples/arc_field_keepalive.rs"
+  },
+  {
+    "package": "dartforge-emit-native",
+    "name": "arc_foreign_unwind",
+    "source": "crates/emit_native/examples/arc_foreign_unwind.rs"
+  },
+  {
+    "package": "dartforge-emit-native",
+    "name": "arc_guarded_returns",
+    "source": "crates/emit_native/examples/arc_guarded_returns.rs"
+  },
+  {
+    "package": "dartforge-emit-native",
+    "name": "arc_keepalive_pending",
+    "source": "crates/emit_native/examples/arc_keepalive_pending.rs"
+  },
+  {
+    "package": "dartforge-emit-native",
+    "name": "arc_list_literal",
+    "source": "crates/emit_native/examples/arc_list_literal.rs"
+  },
+  {
+    "package": "dartforge-emit-native",
+    "name": "arc_list_storage",
+    "source": "crates/emit_native/examples/arc_list_storage.rs"
+  },
+  {
+    "package": "dartforge-emit-native",
+    "name": "arc_local_fields",
+    "source": "crates/emit_native/examples/arc_local_fields.rs"
+  },
+  {
+    "package": "dartforge-emit-native",
+    "name": "arc_loop_cleanup",
+    "source": "crates/emit_native/examples/arc_loop_cleanup.rs"
+  },
+  {
+    "package": "dartforge-emit-native",
+    "name": "arc_mortal_slots",
+    "source": "crates/emit_native/examples/arc_mortal_slots.rs"
+  },
+  {
+    "package": "dartforge-emit-native",
+    "name": "arc_native_port_owned",
+    "source": "crates/emit_native/examples/arc_native_port_owned.rs"
+  },
+  {
+    "package": "dartforge-emit-native",
+    "name": "arc_simd_boxes",
+    "source": "crates/emit_native/examples/arc_simd_boxes.rs"
+  },
+  {
+    "package": "dartforge-emit-native",
+    "name": "arc_source_return",
+    "source": "crates/emit_native/examples/arc_source_return.rs"
+  },
+  {
+    "package": "dartforge-emit-native",
+    "name": "arc_strong_slots",
+    "source": "crates/emit_native/examples/arc_strong_slots.rs"
+  },
+  {
+    "package": "dartforge-emit-native",
+    "name": "arc_typed_scalar_return",
+    "source": "crates/emit_native/examples/arc_typed_scalar_return.rs"
+  },
+  {
+    "package": "dartforge-emit-native",
+    "name": "arc_zeroed_instance",
+    "source": "crates/emit_native/examples/arc_zeroed_instance.rs"
+  },
+  {
+    "package": "dartforge-emit-native",
+    "name": "inspect_linked_images",
+    "source": "crates/emit_native/examples/inspect_linked_images.rs"
+  },
+  {
+    "package": "dartforge-formatter",
+    "name": "oracle",
+    "source": "crates/formatter/examples/oracle.rs"
+  },
+  {
+    "package": "dartforge-formatter",
+    "name": "parser_sweep",
+    "source": "crates/formatter/examples/parser_sweep.rs"
+  },
+  {
+    "package": "dartforge-parity",
+    "name": "analyze_project",
+    "source": "crates/parity/examples/analyze_project.rs"
+  },
+  {
+    "package": "dartforge-parity",
+    "name": "generate_codes",
+    "source": "crates/parity/examples/generate_codes.rs"
+  },
+  {
+    "package": "dartforge-parity",
+    "name": "probe_files",
+    "source": "crates/parity/examples/probe_files.rs"
+  },
+  {
+    "package": "dartforge-emit-js-production",
+    "name": "composition",
+    "source": "crates/emit_js_production/examples/composition.rs"
+  },
+  {
+    "package": "dartforge-emit-js-production",
+    "name": "exp_modules",
+    "source": "crates/emit_js_production/examples/exp_modules.rs"
+  },
+  {
+    "package": "dartforge-lsp",
+    "name": "diagnostics_latency",
+    "source": "crates/lsp/examples/diagnostics_latency.rs"
+  },
+  {
+    "package": "dartforge-lsp",
+    "name": "features_latency",
+    "source": "crates/lsp/examples/features_latency.rs"
+  },
+  {
+    "package": "dartforge-lsp",
+    "name": "lsp_memory",
+    "source": "crates/lsp/examples/lsp_memory.rs"
+  },
+  {
+    "package": "dartforge-lsp",
+    "name": "references_latency",
+    "source": "crates/lsp/examples/references_latency.rs"
+  },
+  {
+    "package": "dartforge-lsp",
+    "name": "semantic_session",
+    "source": "crates/lsp/examples/semantic_session.rs"
+  },
+  {
+    "package": "dartforge-lsp",
+    "name": "workspace_memory",
+    "source": "crates/lsp/examples/workspace_memory.rs"
+  }
+]

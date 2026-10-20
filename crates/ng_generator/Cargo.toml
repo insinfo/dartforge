@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 publish = false
 
+[[example]]
+name = "ng_oracle"
+path = "examples/oracle.rs"
+
 [lints]
 workspace = true
 

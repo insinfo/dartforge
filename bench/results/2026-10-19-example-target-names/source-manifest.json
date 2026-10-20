@@ -1,0 +1,18 @@
+[
+  {
+    "path": "CONTRIBUTING.md",
+    "sha256": "f278da82d3a08e6a9669bc143f4eb0120fadb20e92b27eea470474bfe840753d"
+  },
+  {
+    "path": "ESTADO.md",
+    "sha256": "abe97ef84788c21a05e662fb02de416203b225d9f679f1ef710a14e72fca6cbe"
+  },
+  {
+    "path": "crates/ng_generator/Cargo.toml",
+    "sha256": "c2e598d0aac7871efdbca269d8f9a994e45dcd8639b2645d58c5e6263be5294d"
+  },
+  {
+    "path": "crates/ng_generator/examples/oracle.rs",
+    "sha256": "68b87adf8d27aa621ae5d99026550c84b9f49230f77d11597d30510d0f4d767c"
+  }
+]

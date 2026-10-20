@@ -1,0 +1,617 @@
+warning: output filename collision at /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/examples/oracle
+  |
+  = note: the example target `oracle` in package `dartforge-ng-generator v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/ng_generator)` has the same output filename as the example target `oracle` in package `dartforge-formatter v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/formatter)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+warning: output filename collision at /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/examples/oracle.dSYM
+  |
+  = note: the example target `oracle` in package `dartforge-ng-generator v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/ng_generator)` has the same output filename as the example target `oracle` in package `dartforge-formatter v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/formatter)`
+  = note: this may become a hard error in the future; see <https://github.com/rust-lang/cargo/issues/6313>
+  = help: consider changing their names to be unique or compiling them separately
+   Compiling ring v0.17.14
+   Compiling libz-sys v1.1.29
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+   Compiling object v0.39.1
+   Compiling llvm-sys v221.1.0
+   Compiling dartforge-llvm v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/llvm)
+   Compiling dartforge-jit v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/jit)
+   Compiling flate2 v1.1.10
+   Compiling rustls v0.23.45
+   Compiling dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+   Compiling rustls-webpki v0.103.15
+   Compiling ureq v3.4.2
+   Compiling dartforge-cli v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli)
+warning: linker stderr: ld64.lld: /opt/homebrew/lib/libzstd.dylib has version 27.0.0, which is newer than target minimum of 15.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-llvm` (lib test) generated 1 warning
+warning: linker stderr: ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_common.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(error_private.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(fse_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(entropy_common.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(fse_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(hist.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(huf_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(xxhash.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress_literals.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress_sequences.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress_superblock.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_double_fast.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_fast.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_lazy.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_ldm.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_opt.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_preSplit.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstdmt_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(pool.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(huf_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_ddict.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_decompress_block.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_v05.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_v06.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_v07.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-llvm` (test "cross_objects") generated 1 warning
+warning: `dartforge-llvm` (test "image_sections") generated 1 warning (1 duplicate)
+warning: `dartforge-jit` (bin "dartforge-run-ir") generated 1 warning (1 duplicate)
+   Compiling dartforge-differential v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/differential)
+warning: linker stderr: ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_common.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(error_private.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(fse_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(entropy_common.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(fse_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(hist.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(huf_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(xxhash.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress_literals.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress_sequences.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress_superblock.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_double_fast.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_fast.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_lazy.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_ldm.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_opt.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_preSplit.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstdmt_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(pool.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(huf_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_ddict.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_decompress_block.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_v05.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_v06.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_v07.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libblake3-95b90383f2838080.rlib(a1edd97dd51cd48d-blake3_neon.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-jit` (test "plain_sdk_residency") generated 1 warning
+warning: `dartforge-jit` (test "async_frame_reload") generated 1 warning (1 duplicate)
+warning: linker stderr: ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libblake3-95b90383f2838080.rlib(a1edd97dd51cd48d-blake3_neon.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_common.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(error_private.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(fse_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(entropy_common.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(fse_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(hist.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(huf_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(xxhash.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress_literals.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress_sequences.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress_superblock.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_double_fast.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_fast.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_lazy.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_ldm.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_opt.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_preSplit.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstdmt_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(pool.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(huf_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_ddict.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_decompress_block.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_v05.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_v06.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_v07.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-jit` (test "execution") generated 1 warning
+warning: `dartforge-jit` (lib test) generated 1 warning (1 duplicate)
+warning: `dartforge-jit` (test "hot_reload") generated 1 warning (1 duplicate)
+warning: `dartforge-jit` (test "callback_retention") generated 1 warning (1 duplicate)
+warning: `dartforge-jit` (test "persistent_session") generated 1 warning (1 duplicate)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10m 29s
+     Running unittests src/lib.rs (target/debug/deps/dartforge_abi-74ccb0e4b0fd9aa9)
+
+running 2 tests
+test tests::target_layouts_do_not_confuse_handles_and_pointers ... ok
+test tests::scalar_contracts_and_target_rejections ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/native_call.rs (target/debug/deps/native_call-607ce2ddd4edfc3e)
+
+running 1 test
+test llvm_scalar_declaration_links_and_calls_c ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.45s
+
+     Running unittests src/lib.rs (target/debug/deps/dartforge_analysis-f43b2d165de1fbe6)
+
+running 153 tests
+test a_context::tests::super_in_instance_method_is_valid ... ok
+test a_context::tests::super_in_static_context ... ok
+test a_context::tests::await_in_late_local ... ok
+test a_context::tests::super_in_non_late_field_and_in_initializer ... ok
+test a_context::tests::super_in_extension_and_extension_type ... ok
+test a_context::tests::await_for_outside_async ... ok
+test a_context::tests::literal_type_arguments ... ok
+test a_doc::tests::inside_fenced_block_does_not_count ... ok
+test a_doc::tests::new_in_a_block_comment_reference ... ok
+test c2_syntactic::tests::main_that_is_not_a_function ... ok
+test c2_syntactic::tests::jumps_outside_loop ... ok
+test a_doc::tests::missing_and_format ... ok
+test analyzer_tree::tests::annotation_name_and_annotation ... ok
+test analyzer_tree::tests::param_list_with_parens ... ok
+test analyzer_tree::tests::expression_body_with_semicolon ... ok
+test analyzer_tree::tests::field_variable_list ... ok
+test a_doc::tests::oracle_example ... ok
+test c2_syntactic::tests::rethrow_outside_and_inside_catch ... ok
+test c2_syntactic::tests::labels ... ok
+test c2_syntactic::tests::pattern_shapes ... ok
+test c2_syntactic::tests::return_with_value_in_generator ... ok
+test c2_syntactic::tests::unnecessary_final_and_late_final ... ok
+test c2_syntactic::tests::unused_label_and_member_label ... ok
+test clauses::tests::mixin_without_the_on_constraint ... ok
+test clauses::tests::forbidden_type_with_alias_and_bounds ... ok
+test clauses::tests::imported_legacy_class_may_be_used_as_mixin_in_current_code ... ok
+test clauses::tests::enum_as_superinterface ... ok
+test clauses::tests::clause_that_does_not_name_a_class ... ok
+test clauses::tests::nullable_type_in_clause ... ok
+test clauses::tests::class_alias_as_mixin ... ok
+test clauses::tests::mixin_that_inherits_and_factory_only_superclass ... ok
+test duplicates::tests::same_named_declarations_merge_members ... ok
+test duplicates::tests::getter_and_setter_do_not_collide ... ok
+test clauses::tests::mixin_class_with_constructor_or_supertype ... ok
+test duplicates::tests::top_level_members_and_locals ... ok
+test enums::tests::constant_in_augmentation_completes_base_enum ... ok
+test duplicates::tests::unary_and_binary_minus_coexist ... ok
+test enums::tests::empty_enum_matches_the_3_6_oracle ... ok
+test externals::tests::abstract_field_without_initializer_reports_nothing ... ok
+test externals::tests::abstract_field_initializers_match_oracle ... ok
+test externals::tests::external_without_initializer_and_static_field_report_nothing ... ok
+test externals::tests::three_shapes_match_recorded_oracle ... ok
+test initialization::tests::constructor_with_three_fields_uses_3_plus_variant ... ok
+test initialization::tests::enum_index_uses_own_diagnostic ... ok
+test initialization::tests::constructors_with_non_final_non_nullable_fields_from_oracle ... ok
+test initialization::tests::constructors_initialize_fields_by_parameter_or_list ... ok
+test initialization::tests::primary_constructor_reports_on_class_name_like_3_13_oracle ... ok
+test initialization::tests::partial_list_and_nullable_follow_same_rule ... ok
+test clauses::tests::repeated_and_superclass ... ok
+test initialization::tests::three_sources_from_official_corpus ... ok
+test initialization::tests::static_with_generative_constructor_not_reported ... ok
+test initialization::tests::secondary_constructors_match_3_6_oracle ... ok
+test initialization::tests::non_final_non_nullable_instance_fields_from_oracle ... ok
+test language_version::tests::formats ... ok
+test initialization::tests::top_level_static_instance_and_exceptions_from_oracle ... ok
+test lints::pubspec::dependency_cache_tests::warm_dependency_lookups_preserve_mode_and_owned_results ... ok
+test lints::regexp_vm::tests::vm_errors_and_valid_patterns ... ok
+test lints::rules10::tests::cascades_on_lists ... ok
+test lints::rules10::tests::for_each_final ... ok
+test lints::rules10::tests::classes ... ok
+test lints::rules3::tests::expressions ... ok
+test lints::rules3::tests::declarations ... ok
+test lints::rules3::tests::library_names ... ok
+test lints::rules11::tests::flutter_style_todo ... ok
+test lints::rules2::tests::declarations ... ok
+test lints::rules4::tests::functions_in_variables ... ok
+test lints::rules4::tests::names_and_parameters ... ok
+test lints::rules5::tests::constructor_order ... ok
+test clauses::tests::on_constraint_of_applied_mixin ... ok
+test lints::rules5::tests::parameters_and_declarations ... ok
+test lints::rules5::tests::raw_strings_and_end_of_file ... ok
+test lints::rules4::tests::expressions ... ok
+test lints::rules2::tests::prefixes ... ok
+test clauses::tests::supertype_of_itself ... ok
+test lints::rules2::tests::expressions_and_statements ... ok
+test lints::rules6::tests::null_for_void ... ok
+test lints::rules6::tests::flow_in_finally ... ok
+test lints::rules7::tests::escapes ... ok
+test lints::rules6::tests::declarations ... ok
+test lints::rules8::tests::directive_order ... ok
+test lints::rules8::tests::literals_in_conditions ... ok
+test lints::rules8::tests::assignments ... ok
+test lints::rules6::tests::statements_and_expressions ... ok
+test lints::rules7::tests::lines ... ok
+test lints::rules7::tests::quotes ... ok
+test lints::rules8::tests::body_on_same_line ... ok
+test lints::rules8::tests::unnecessary_const ... ok
+test lints::rules9::tests::initializing_formals ... ok
+test lints::rules8::tests::null_initializers ... ok
+test lints::rules9::tests::unnecessary_final ... ok
+test lints::rules9::tests::getters_and_setters ... ok
+test lints::rules::tests::directives_and_typedefs ... ok
+test lints::rules9::tests::equality_and_hash ... ok
+test lints::rules8::tests::constructors ... ok
+test lints::rules::tests::name_shapes ... ok
+test lints::strings::tests::adjacent_literals_and_interpolation ... ok
+test lints::strings::tests::comments_outside_strings ... ok
+test lints::rules::tests::flow_statements ... ok
+test lints::rules::tests::names ... ok
+test lints::walk::tests::ancestor_stack ... ok
+test locals::tests::catch_variables ... ok
+test locals::tests::duplicate_pattern_and_parameter_annotation ... ok
+test locals::tests::refutable_case_reference_anchor_and_hoisting ... ok
+test locals::tests::redeclaration_in_same_scope ... ok
+test locals::tests::shared_patterns_and_for_update ... ok
+test locals::tests::shadow_and_closure ... ok
+test locals::tests::skipped_fragment_citing_the_name_does_not_report ... ok
+test locals::tests::reads_and_writes ... ok
+test members::tests::recovery_constructor_does_not_report ... ok
+test members::tests::field_formals_outside_constructor ... ok
+test members::tests::setters ... ok
+test members::tests::fields ... ok
+test members::tests::built_in_identifier_as_name ... ok
+test members::tests::conflicting_type_parameters ... ok
+test members::tests::initializer_list ... ok
+test members::tests::factory_with_another_name ... ok
+test meta::tests::members_of_decl_without_members ... ok
+test members::tests::return_in_generative_constructor ... ok
+test members::tests::typedef_referencing_itself ... ok
+test members::tests::object_members_and_abstract_in_extensions ... ok
+test natives::tests::clause_and_body_like_the_oracle ... ok
+test non_dart::options::tests::lint_rules_section ... ok
+test non_dart::options::tests::analyzer_section ... ok
+test non_dart::manifest::tests::broken_xml_does_not_report ... ok
+test non_dart::options::tests::quoted_list_formats ... ok
+test non_dart::manifest::tests::features_permissions_and_activities ... ok
+test non_dart::pubspec::tests::name_and_fields ... ok
+test non_dart::pubspec::tests::dependencies ... ok
+test members::tests::this_without_access ... ok
+test non_dart::manifest::tests::no_touchscreen ... ok
+test non_dart::options::tests::include_and_syntax ... ok
+test modifiers::tests::modifiers_from_another_library ... ok
+test non_dart::tests::message_with_arguments ... ok
+test non_dart::pubspec::tests::platforms_and_workspace ... ok
+test non_dart::yaml::tests::flow_and_types ... ok
+test non_dart::yaml::tests::key_and_value_positions ... ok
+test phases::tests::built_in_word_as_type ... ok
+test non_dart::yaml::tests::syntax_error ... ok
+test operators::tests::minus_accepts_zero_or_one_parameter ... ok
+test operators::tests::real_operators_from_the_corpus ... ok
+test operators::tests::optional_and_index_return ... ok
+test phases::tests::colon_as_default_separator ... ok
+test phases::tests::direction_in_literal_and_in_comment ... ok
+test phases::tests::identical_consecutive_pair_is_duplicate ... ok
+test todos::tests::unfolds_the_block ... ok
+test todos::tests::what_does_not_match ... ok
+test todos::tests::oracle_table ... ok
+test private_decls::tests::pragma_makes_used ... ok
+test lints::pubspec::dependency_cache_tests::misses_and_eviction_preserve_uncached_results ... ok
+test private_decls::tests::matches_oracle_except_operator ... ok
+test private_decls::tests::values_public_typedef_and_single_constructor ... ok
+test publication::tests::verified_assignment_is_published_without_publishing_unverified_errors ... ok
+test clauses::tests::class_as_mixin_follows_the_oracle ... ok
+
+test result: ok. 153 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running unittests src/lib.rs (target/debug/deps/dartforge_build-fba8aeba45bb3a1d)
+
+running 54 tests
+test command_line::tests::define_normalizes_and_keeps_the_rest ... ok
+test client::tests::incomplete_build_result_is_not_success ... ok
+test client::tests::handshake_load_and_build_queries_on_the_same_channel ... ok
+test client::tests::invalid_query_gets_error_without_ending_action ... ok
+test client::tests::post_processor_inputs_and_deletions ... ok
+test command_line::tests::filter_with_escape_and_glob ... ok
+test client::tests::handshake_rejects_executors_without_build_service ... ok
+test client::tests::builder_extensions_and_new_round ... ok
+test command_line::tests::json_like_dart ... ok
+test config::tests::key_normalization ... ok
+test equivalent::tests::ngcomponents_scss_builder ... ok
+test config::tests::unreadable_build_yaml_is_an_error ... ok
+test config::tests::unknown_key_is_an_error ... ok
+test config::tests::keys_by_profile ... ok
+test config::tests::sass_builder_build_yaml ... ok
+test executor::service_tests::buildstep_glob_revalidates_generated_output_in_memory ... ok
+test extensions::tests::capture ... ok
+test extensions::tests::exact ... ok
+test equivalent::tests::shapes_that_are_not_recognized ... ok
+test extensions::tests::suffix ... ok
+test glob::tests::any_ranges_options ... ok
+test extensions::tests::validations ... ok
+test executor::service_tests::phase_visibility_and_the_actions_own_output ... ok
+test glob::tests::case_on_windows ... ok
+test glob::tests::directory_pruning ... ok
+test glob::tests::literals_and_stars ... ok
+test executor_deps::tests::diagnoses_what_the_cache_lacks ... ok
+test glob::tests::syntax_errors ... ok
+test native_executor::tests::depfile_round_trip_with_spaces ... ok
+test native_executor::tests::sdk_libraries_referenced_in_the_executable ... ok
+test natives::i18n::tests::long_getter_breaks_after_the_arrow ... ok
+test executor::service_tests::post_processor_anchor_writes_only_new_assets ... ok
+test natives::i18n::tests::names_like_i18n ... ok
+test packages::tests::scc_cycle ... ok
+test oracle::tests::reads_the_build_dart ... ok
+test packages::tests::scc_dependencies_first ... ok
+test packages::tests::scc_several_starts_in_dart_order ... ok
+test plan::tests::relative_script_import ... ok
+test triggers::tests::directives ... ok
+test executor::service_tests::unlisted_dependency_is_readable_through_the_package_filter ... ok
+test native_executor::tests::missing_executor_dependencies ... ok
+test triggers::tests::firing ... ok
+test triggers::tests::name_validation ... ok
+test triggers::tests::top_level_metadata ... ok
+test value::tests::override_by_key_in_order ... ok
+test value::tests::real_like_dart ... ok
+test vm::tests::dart_literal_escapes_interpolation ... ok
+test vm::tests::depfile_with_escaped_spaces ... ok
+test vm::tests::absolute_package_config_with_the_executor ... ok
+test persistence::tests::state_round_trip_and_checked_blob ... ok
+test executor_deps::tests::completes_from_cache_with_transitive_dependencies ... ok
+test packages::tests::scc_matches_graphs_2_3_2_component_and_visit_order ... ok
+test packages::tests::scc_deep_chain_uses_an_explicit_stack ... ok
+test client::tests::hung_action_exhausts_the_deadline ... ok
+
+test result: ok. 54 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s
+
+     Running tests/corpus.rs (target/debug/deps/corpus-1c761dceaec0647b)
+
+running 6 tests
+test sass_release_css_on_demand_without_support ... ok
+test injected_dart_executor_runs_and_reuses_actions ... ok
+test corpus_builders_plan_and_scoreboard ... ok
+test state_saved_across_processes ... ok
+test corpus_builders_incremental_equals_from_scratch ... ok
+test corpus_builders_determinism ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.95s
+
+     Running tests/corpus_selection.rs (target/debug/deps/corpus_selection-418ae4427a39d0f1)
+
+running 6 tests
+test execution_requires_no_pending_or_different_outputs ... ok
+test missing_or_empty_corpus_fails ... ok
+test empty_filters_fail ... ok
+test unknown_or_partially_unknown_filters_fail ... ok
+test selects_sorted_planned_cases_and_excludes_the_no_builder_control ... ok
+test missing_configuration_fails_instead_of_skipping_a_case ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/detection.rs (target/debug/deps/detection-421a1c2ab6c3166d)
+
+running 5 tests
+test resolved_build_runner_preserves_the_explicit_engine_trigger ... ok
+test only_absence_is_ignored_while_unreadable_configuration_requires_validation ... ok
+test malformed_yaml_and_invalid_definition_shapes_require_validation ... ok
+test empty_sections_nested_options_and_other_documents_do_not_create_an_engine ... ok
+test builder_definitions_in_resolved_dependencies_accept_equivalent_yaml_forms ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/native_executor.rs (target/debug/deps/native_executor-e9768ede547ae306)
+
+running 1 test
+test corpus_builders_through_the_native_executor ... FAILED
+
+failures:
+
+---- corpus_builders_through_the_native_executor stdout ----
+| built_value | 0 | 2 | 0 | 1320 | 0.1 | 2× no fallback: the native compilation of the builder executor failed: |
+built_value: 2× full reason:
+no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build')
+| cadeia_configuracao | 0 | 22 | 0 | 7 | 0.2 | 21× no fallback: the native compilation of the builder executor failed:; 1× post-processor: output only with the Dart executor |
+cadeia_configuracao: 21× full reason:
+no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build')
+cadeia_configuracao/01-entrada-alterada: 44 ms, 2 actions run
+cadeia_configuracao/02-arquivo-novo: 35 ms, 5 actions run
+cadeia_configuracao/03-opcao-global-alterada: 86 ms, 20 actions run
+| drift | 0 | 12 | 0 | 7 | 0.1 | 12× no fallback: the native compilation of the builder executor failed: |
+drift: 12× full reason:
+no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build')
+| freezed | 0 | 3 | 0 | 9 | 0.1 | 3× no fallback: the native compilation of the builder executor failed: |
+freezed: 3× full reason:
+no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build')
+freezed/01-corpo-de-getter: 1 ms, 3 actions run
+freezed/02-campo-novo: 1 ms, 3 actions run
+freezed/03-arquivo-novo: 4 ms, 5 actions run
+| i18n | 3 | 0 | 0 | 6 | 0.3 |  |
+| json_serializable | 0 | 2 | 0 | 8 | 0.1 | 2× no fallback: the native compilation of the builder executor failed: |
+json_serializable: 2× full reason:
+no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build')
+json_serializable/01-corpo-de-metodo: 0 ms, 2 actions run
+json_serializable/02-campo-novo: 0 ms, 2 actions run
+json_serializable/03-arquivo-novo: 1 ms, 2 actions run
+| mockito | 0 | 2 | 0 | 8 | 0.1 | 2× no fallback: the native compilation of the builder executor failed: |
+mockito: 2× full reason:
+no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build')
+| riverpod_generator | 0 | 2 | 0 | 9 | 0.3 | 2× no fallback: the native compilation of the builder executor failed: |
+riverpod_generator: 2× full reason:
+no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build')
+| sass_builder | 6 | 0 | 0 | 15 | 0.3 |  |
+sass_builder/01-parcial-alterada: 4 ms, 3 actions run
+sass_builder/02-propriedade-alterada: 2 ms, 1 actions run
+sass_builder/03-arquivo-novo: 2 ms, 1 actions run
+| sass_builder_compressed | 6 | 0 | 0 | 9 | 0.2 |  |
+### corpus/builders through the native executor — equal/pending/different
+
+| case | equal | pending | different | clean (ms) | no change (ms) | reasons |
+|---|---|---|---|---|---|---|
+| built_value | 0 | 2 | 0 | 1320 | 0.1 | 2× no fallback: the native compilation of the builder executor failed: |
+| cadeia_configuracao | 0 | 22 | 0 | 7 | 0.2 | 21× no fallback: the native compilation of the builder executor failed:; 1× post-processor: output only with the Dart executor |
+| drift | 0 | 12 | 0 | 7 | 0.1 | 12× no fallback: the native compilation of the builder executor failed: |
+| freezed | 0 | 3 | 0 | 9 | 0.1 | 3× no fallback: the native compilation of the builder executor failed: |
+| i18n | 3 | 0 | 0 | 6 | 0.3 |  |
+| json_serializable | 0 | 2 | 0 | 8 | 0.1 | 2× no fallback: the native compilation of the builder executor failed: |
+| mockito | 0 | 2 | 0 | 8 | 0.1 | 2× no fallback: the native compilation of the builder executor failed: |
+| riverpod_generator | 0 | 2 | 0 | 9 | 0.3 | 2× no fallback: the native compilation of the builder executor failed: |
+| sass_builder | 6 | 0 | 0 | 15 | 0.3 |  |
+| sass_builder_compressed | 6 | 0 | 0 | 9 | 0.2 |  |
+
+thread 'corpus_builders_through_the_native_executor' (2355232) panicked at crates/build/tests/native_executor.rs:211:5:
+built_value: pending corpus_built_value|lib/modelos.built_value.g.part (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+built_value: pending corpus_built_value|lib/modelos.g.dart (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending apoio_cadeia|lib/pronto.linhas.txt (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending apoio_cadeia|lib/pronto.palavras.txt (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/cadeia.carimbo.txt (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/entrada/alfa.linhas.txt (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/entrada/alfa.maiusculas.txt (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/entrada/alfa.palavras.txt (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/entrada/ignorar_gama.linhas.txt (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/entrada/ignorar_gama.maiusculas.txt (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/entrada/ignorar_gama.palavras.txt (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/entrada/notas.rascunho.resumo (post-processor: output only with the Dart executor)
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/entrada/sub/beta.linhas.txt (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/entrada/sub/beta.maiusculas.txt (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/entrada/sub/beta.palavras.txt (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/espelho/alfa.espelho.linhas.txt (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/espelho/alfa.espelho.maiusculas.txt (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/espelho/alfa.espelho.palavras.txt (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/espelho/alfa.espelho.txt (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/espelho/sub/beta.espelho.linhas.txt (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/espelho/sub/beta.espelho.maiusculas.txt (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/espelho/sub/beta.espelho.palavras.txt (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/espelho/sub/beta.espelho.txt (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+cadeia_configuracao: pending corpus_cadeia_configuracao|lib/indice.g.txt (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+drift: pending corpus_drift|lib/banco.dart.drift_elements.json (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+drift: pending corpus_drift|lib/banco.dart.drift_module.json (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+drift: pending corpus_drift|lib/banco.dart.types.temp.dart (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+drift: pending corpus_drift|lib/banco.drift.g.part (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+drift: pending corpus_drift|lib/banco.g.dart (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+drift: pending corpus_drift|lib/consultas.drift.drift_elements.json (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+drift: pending corpus_drift|lib/consultas.drift.drift_module.json (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+drift: pending corpus_drift|lib/consultas.drift.types.temp.dart (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+drift: pending corpus_drift|lib/consultas.drift_prep.json (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+drift: pending corpus_drift|lib/consultas.expr.temp.dart (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+drift: pending corpus_drift|lib/consultas.expr.temp.dart.drift_elements.json (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+drift: pending corpus_drift|lib/consultas.expr.temp.dart.drift_module.json (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+freezed: pending corpus_freezed|lib/modelos.freezed.dart (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+freezed: pending corpus_freezed|lib/modelos.g.dart (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+freezed: pending corpus_freezed|lib/modelos.json_serializable.g.part (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+json_serializable: pending corpus_json_serializable|lib/modelos.g.dart (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+json_serializable: pending corpus_json_serializable|lib/modelos.json_serializable.g.part (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+mockito: pending corpus_mockito|test/mocks/servico_test.mocks.dart (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+mockito: pending corpus_mockito|test/mocks/sub/repositorio_test.mocks.dart (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+riverpod_generator: pending corpus_riverpod_generator|lib/provedores.g.dart (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+riverpod_generator: pending corpus_riverpod_generator|lib/provedores.riverpod.g.part (no fallback: the native compilation of the builder executor failed:
+error: `dartforge compile-native` requires the native backend: build with `cargo build -p dartforge-cli --features native` (set DARTFORGE_CLANG to LLVM 22)
+ (there is no .dart_tool/build; run 'dart run build_runner build'))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    corpus_builders_through_the_native_executor
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.45s
+
+error: test failed, to rerun pass `-p dartforge-build --test native_executor`

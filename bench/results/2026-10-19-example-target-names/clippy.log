@@ -1,0 +1,13 @@
+    Blocking waiting for file lock on build directory
+   Compiling libc v0.2.189
+    Checking getrandom v0.2.17
+    Checking errno v0.3.14
+    Checking getrandom v0.4.3
+    Checking rustix v1.1.5
+    Checking rand_core v0.6.4
+    Checking rand_chacha v0.3.1
+    Checking rand v0.8.8
+    Checking tempfile v3.27.0
+    Checking dartforge-sass v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/sass)
+    Checking dartforge-ng-generator v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/ng_generator)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6m 44s

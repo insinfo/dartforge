@@ -37,9 +37,13 @@ Ignored tests have additional prerequisites: Node, the Dart source SDK, resolved
 corpus dependencies, and a current native compiler for builder integrations.
 `DARTFORGE_COMPILER` selects that compiler; its default is
 `target/release/dartforge`. For a debug compiler, build
-`cargo build --locked -p dartforge-cli --features jit` and set
-`DARTFORGE_COMPILER` to the resulting `target/debug/dartforge` (or the executable
-in your custom target directory). Keep LLVM tools on PATH when runtime SDK
+`cargo build --locked -p dartforge-cli --features jit` and copy the executable
+to `target/test-tools/dartforge` (`dartforge.exe` on Windows), creating that
+directory first. Set `DARTFORGE_COMPILER` to the absolute copied path. A default
+workspace test build can replace `target/debug/dartforge` with a CLI without
+the native feature, so that path is not a stable external compiler for builder
+tests. A compiler built in a separate target directory also avoids replacement.
+Keep LLVM tools on PATH when runtime SDK
 support libraries need to be built; selecting a prefix for Cargo does not add
 runtime tools to the caller's PATH.
 

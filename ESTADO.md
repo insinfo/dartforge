@@ -2,6 +2,16 @@
 
 ## Atualização de 19/10/2026
 
+- O exemplo Angular usa o alvo Cargo `ng_oracle`, eliminando a colisão de
+  executável/dSYM com o `oracle` do formatador. Metadados conferidos: 48 exemplos
+  sem nomes duplicados; ambos compilaram juntos e executaram independentemente.
+  A fixture do formatador coincidiu com Dart 3.6.2 (1/1), e Clippy estrito do
+  gerador passou. A suíte ampla parou no corpus de builders porque a CLI padrão
+  substituiu o compilador externo por uma versão sem backend nativo. As
+  instruções agora preservam uma cópia separada; a rodada foi retomada com um
+  compilador nativo recém-montado e ainda não tem aprovação global.
+  Evidências: `bench/results/2026-10-19-example-target-names/README.md`.
+
 - Compactação RELR Linux opcional (`DARTFORGE_PACK_RELR=1`), com dependência de
   versão glibc e cache separado apenas para o SDK compartilhado afetado.
   Ligação controlada do explorador com os mesmos 47 insumos: 37.624.936 para

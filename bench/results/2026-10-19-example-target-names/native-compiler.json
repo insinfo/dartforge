@@ -1,0 +1,14 @@
+{
+  "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/dartforge",
+  "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge",
+  "sha256": "0945d0980bc86c875156713f4b00c28f1063d40d2442a602730a05c76ffcfbcd",
+  "build_command": [
+    "cargo",
+    "build",
+    "--locked",
+    "-p",
+    "dartforge-cli",
+    "--features",
+    "native"
+  ]
+}

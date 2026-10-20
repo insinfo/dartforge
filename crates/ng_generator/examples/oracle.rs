@@ -8,7 +8,7 @@
 //! compiles all the same.
 //!
 //! ```text
-//! cargo run -p dartforge-ng-generator --example oracle -- C:/MyDartProjects/new_sali/frontend
+//! cargo run -p dartforge-ng-generator --example ng_oracle -- C:/MyDartProjects/new_sali/frontend
 //! ```
 use dartforge_elements::config::PackageConfig;
 use dartforge_elements::generated::{GenerationBuilder, from_build_runner};
@@ -22,7 +22,7 @@ use std::path::PathBuf;
 fn main() -> std::process::ExitCode {
     let mut args = std::env::args().skip(1);
     let Some(root) = args.next().map(PathBuf::from) else {
-        eprintln!("usage: oracle <project root> [--list] [--all] [--dump <dir>]");
+        eprintln!("usage: ng_oracle <project root> [--list] [--all] [--dump <dir>]");
         return std::process::ExitCode::FAILURE;
     };
     // Absolute path: the URIs of `package_config.json` are absolute, and

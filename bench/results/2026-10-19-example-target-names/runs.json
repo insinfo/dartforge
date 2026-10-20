@@ -1,0 +1,38 @@
+[
+  {
+    "label": "build",
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "-p",
+      "dartforge-ng-generator",
+      "-p",
+      "dartforge-formatter",
+      "--examples"
+    ],
+    "exit": 0,
+    "expected_exit": 0
+  },
+  {
+    "label": "ng-usage",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/examples/ng_oracle"
+    ],
+    "exit": 1,
+    "expected_exit": 1
+  },
+  {
+    "label": "formatter",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/examples/oracle",
+      "--dart",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "--cache",
+      "/tmp/dartforge-example-target-names/cache",
+      "/tmp/dartforge-example-target-names/main.dart"
+    ],
+    "exit": 0,
+    "expected_exit": 0
+  }
+]
