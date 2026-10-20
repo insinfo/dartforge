@@ -1,0 +1,38 @@
+[
+  {
+    "command": [
+      "cargo",
+      "fmt",
+      "--all",
+      "--",
+      "--check"
+    ],
+    "exit": 1,
+    "bytes": 15803449,
+    "sha256": "7f0bb57dea706ec7d59934d503874e0626536fdb9aed67b6e296f29015e99c8d"
+  },
+  {
+    "command": [
+      "rustfmt",
+      "--edition",
+      "2024",
+      "--check",
+      "crates/emit_native/src/pruning/allocation_inventory/register_read.rs",
+      "crates/emit_native/src/pruning/allocation_inventory/closure/stack_read_tests.rs",
+      "crates/emit_native/src/pruning/allocation_inventory/imports/tests/read_only.rs"
+    ],
+    "exit": 0,
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "command": [
+      "git",
+      "diff",
+      "--check"
+    ],
+    "exit": 0,
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+]

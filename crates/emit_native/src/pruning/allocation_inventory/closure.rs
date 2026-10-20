@@ -250,7 +250,15 @@ fn analyze_body(definition: &mut Definition, body: &[&str], byte_globals: &BTree
             definition.unknown.insert("multiple_instructions_or_embedded_effect".into());
         }
         if opcode == "call" {
-            if let Some((symbol, abi, arguments)) = signature(operation) {
+            let stack_read = super::register_read::parse(operation).map(|argument| (
+                super::register_read::SYMBOL.into(),
+                Abi { result: "i64".into(), parameters: vec!["metadata".into()] },
+                vec![argument.into()],
+            ));
+            if stack_read.is_some() {
+                definition.exposures.insert("machine_register_read".into());
+            }
+            if let Some((symbol, abi, arguments)) = stack_read.or_else(|| signature(operation)) {
                 let call = Call {symbol, abi, arguments};
                 let table_allocation = table_getters::allocation(&call, getters).is_some();
                 for (index, argument) in call.arguments.iter().enumerate() {
@@ -378,6 +386,9 @@ fn close(mut definitions: Vec<Definition>, globals: Vec<Value>, getters: &HashMa
             if definitions[index].native_tls_lookup && call.symbol == "llvm.threadlocal.address.p0" {
                 continue;
             }
+            if super::register_read::call(&call.symbol, &call.abi.result, &call.abi.parameters, &call.arguments) {
+                continue;
+            }
             if let Some(cid) = table_getters::allocation(&call, getters)
                 && canonical.get(&call.symbol) == Some(&call.abi)
             {
@@ -454,3 +465,6 @@ mod context_lookup_tests;
 
 #[cfg(test)]
 mod read_only_tests;
+
+#[cfg(test)]
+mod stack_read_tests;

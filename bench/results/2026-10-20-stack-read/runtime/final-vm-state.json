@@ -1,0 +1,12 @@
+{
+  "command": [
+    "prlctl",
+    "list",
+    "-a",
+    "-o",
+    "name,status"
+  ],
+  "exit": 0,
+  "stdout": "NAME                             STATUS\nUbuntu24.04_arm64                suspended\nWindows11                        suspended\n",
+  "stderr": ""
+}

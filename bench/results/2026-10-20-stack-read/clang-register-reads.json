@@ -1,0 +1,36 @@
+[
+  {
+    "command": [
+      "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+      "-target",
+      "aarch64-apple-darwin",
+      "-x",
+      "ir",
+      "-c",
+      "/tmp/forge-stack-read/read-sp.ll",
+      "-o",
+      "/tmp/forge-stack-read/read-sp.o"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": "warning: overriding the module target triple with arm64-apple-macosx27.0.0 [-Woverride-module]\n1 warning generated.\n",
+    "source_sha256": "fe8ca6c0d967fcc025b688941282189cebcc3326b66503087c0f1002b170ee86"
+  },
+  {
+    "command": [
+      "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+      "-target",
+      "x86_64-unknown-linux-gnu",
+      "-x",
+      "ir",
+      "-c",
+      "/tmp/forge-stack-read/read-rsp.ll",
+      "-o",
+      "/tmp/forge-stack-read/read-rsp.o"
+    ],
+    "exit": 0,
+    "stdout": "",
+    "stderr": "warning: overriding the module target triple with x86_64-unknown-linux-gnu [-Woverride-module]\n1 warning generated.\n",
+    "source_sha256": "af7d96f3420c89d0bc69045019970f7e71d221fb452c13fd19f3a7ae7d1913a7"
+  }
+]

@@ -1,0 +1,19 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+ Documenting dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+ Documenting dartforge-differential v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/differential)
+error: this URL is not a hyperlink
+ --> crates/emit_native/src/pruning/allocation_inventory/register_read.rs:3:5
+  |
+3 | //! https://llvm.org/docs/LangRef.html#llvm-read-register-llvm-read-volatile-register-llvm-write-register-and-llvm-write-volatile-register-intrinsics
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: bare URLs are not automatically turned into clickable links
+  = note: `-D rustdoc::bare-urls` implied by `-D warnings`
+  = help: to override `-D warnings` add `#[allow(rustdoc::bare_urls)]`
+help: use an automatic link instead
+  |
+3 | //! <https://llvm.org/docs/LangRef.html#llvm-read-register-llvm-read-volatile-register-llvm-write-register-and-llvm-write-volatile-register-intrinsics>
+  |     +                                                                                                                                                 +
+
+error: could not document `dartforge-emit-native`
+warning: build failed, waiting for other jobs to finish...

@@ -1,0 +1,14 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "dartforge-emit-native",
+    "--lib",
+    "stack_read",
+    "--",
+    "--include-ignored"
+  ],
+  "exit": 101
+}

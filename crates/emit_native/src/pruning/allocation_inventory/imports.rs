@@ -135,6 +135,15 @@ fn intrinsic(call: &Call) -> bool {
     call.abi.result == ty && call.abi.parameters == [ty, ty]
 }
 
+fn stack_read(call: &Call) -> bool {
+    super::register_read::call(
+        &call.symbol,
+        &call.abi.result,
+        &call.abi.parameters,
+        &call.arguments,
+    )
+}
+
 impl Inventory {
     /// Missing, stale or malformed inventories expose no optimization facts.
     /// The compiler-owned cache must stay immutable for the duration of linking.
@@ -248,12 +257,11 @@ impl Inventory {
                     .is_some_and(|cs| !ordered(cs) || cs.iter().any(|cid| *cid > i32::MAX as u32))
                 || f.calls.iter().any(|c| {
                     c.symbol.is_empty()
-                        || !c.abi.valid()
-                        || !super::closure::arguments_match(
+                        || !(stack_read(c) || c.abi.valid() && super::closure::arguments_match(
                             &c.abi.result,
                             &c.abi.parameters,
                             &c.arguments,
-                        )
+                        ))
                 })
                 || f.dependencies.iter().collect::<HashSet<_>>().len() != f.dependencies.len()
             {
@@ -276,6 +284,9 @@ impl Inventory {
                     {
                         edges[index].push(targets[0])
                     }
+                    // An allocation-neutral machine address is not a proved
+                    // scalar/Ref boundary, even if its exposure flag is absent.
+                    None if stack_read(call) => pure_calls[index] = false,
                     None if intrinsic(call) => {}
                     _ => pure_calls[index] = false,
                 }

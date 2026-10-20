@@ -1,0 +1,26 @@
+[
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory.rs",
+    "sha256": "3d4f03049db6f505603594b5d583957872c22dc28d8d094db484cca4590ee82c"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/closure.rs",
+    "sha256": "2ed12b0b072f94319ba387ec95e1aa11a39d2c36dbcc50f94f006b321fc25e22"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/imports.rs",
+    "sha256": "047f5ba2ffbd04447f319209a05aed7adb97779334fb23f3c5082a2dac18c348"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/imports/tests/read_only.rs",
+    "sha256": "6079c3a865239b776a673857eaaef88a22f94bacccca5261f37a943f58cb3661"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/register_read.rs",
+    "sha256": "2cf18015985b920de5fb76b3bea32b6fff4d9fd70337d2719cd310b3f826f022"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/closure/stack_read_tests.rs",
+    "sha256": "7b5d7a966cd3c848ad36cf10eed51b533801ff1cc84a40322114fd44259f8854"
+  }
+]

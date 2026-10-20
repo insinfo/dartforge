@@ -1,0 +1,25 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.99s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 2 tests
+test pruning::allocation_inventory::closure::stack_read_tests::stack_read_preserves_the_exact_metadata_call_and_exposure ... FAILED
+test pruning::allocation_inventory::closure::stack_read_tests::stack_read_does_not_generalize_registers_abi_writes_or_shadowed_names ... ok
+
+failures:
+
+---- pruning::allocation_inventory::closure::stack_read_tests::stack_read_preserves_the_exact_metadata_call_and_exposure stdout ----
+
+thread 'pruning::allocation_inventory::closure::stack_read_tests::stack_read_preserves_the_exact_metadata_call_and_exposure' (3177620) panicked at crates/emit_native/src/pruning/allocation_inventory/closure/stack_read_tests.rs:14:9:
+assertion `left == right` failed
+  left: Null
+ right: Array []
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    pruning::allocation_inventory::closure::stack_read_tests::stack_read_preserves_the_exact_metadata_call_and_exposure
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 1034 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

@@ -8,6 +8,7 @@ pub(crate) mod publication;
 pub(crate) mod imports;
 pub(crate) mod images;
 mod integrity_io;
+mod register_read;
 
 use super::{AllocationRecord, AllocationState, Summary};
 use std::collections::HashMap;

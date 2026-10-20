@@ -2,6 +2,24 @@
 
 ## Atualização de 20/10/2026
 
+- O inventário representa agora explicitamente a leitura LLVM do ponteiro de
+  pilha (`sp`/`rsp`, i64 e um metadado inline exato), com footprint vazio da
+  operação e exposição de registrador. Metadados gerais, outras formas e
+  definições que sombreiam o intrínseco continuam sem prova. O consumidor valida
+  a exceção de ABI e recusa entradas/imports/nós mesmo sem a marca de exposição.
+  A regressão positiva falhou antes; passaram quatro testes novos, 1.038 nativos
+  com ignorados, Clippy estrito e docs sem avisos. Clang aceitou os dois formatos.
+  No SDK real, 27.067 funções ganharam registro explícito da chamada e 17.929
+  perderam a marca genérica de ABI desconhecida. Mesmas identidades/digests de
+  corpos, módulos e globais; comparação exaustiva das demais observações. As
+  closures de alocação conhecidas continuam 649: ainda faltam as provas dos
+  outros efeitos dos helpers. Fixture AOT/JIT macOS passou normal/sob estresse;
+  três IRs montados idênticos. VMs mantidas suspensas, sem nova matriz de hóspedes.
+  Gate original de ausência de backends repetido e ainda falha; ambos os modos
+  mantêm seis definições estrangeiras. Fmt global e aprovação integral continuam
+  pendentes; sem ganho de desempenho/tamanho alegado. Evidências:
+  `bench/results/2026-10-20-stack-read/README.md`.
+
 - O verificador canônico empresta agora chaves JSON sem escapes do buffer de
   entrada, evitando uma String por chave; escapes preservam cópia decodificada
   própria durante a leitura de valores aninhados. Sem alterar ordenação,

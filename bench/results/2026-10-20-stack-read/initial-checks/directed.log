@@ -1,0 +1,11 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.37s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 4 tests
+test pruning::allocation_inventory::closure::stack_read_tests::stack_read_preserves_the_exact_metadata_call_and_exposure ... ok
+test pruning::allocation_inventory::closure::stack_read_tests::stack_read_does_not_generalize_registers_abi_writes_or_shadowed_names ... ok
+test pruning::allocation_inventory::imports::tests::read_only::stack_read_metadata_is_not_a_general_published_abi_type ... ok
+test pruning::allocation_inventory::imports::tests::read_only::stack_read_footprints_never_authorize_machine_addresses_as_imports ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 1034 filtered out; finished in 0.02s
