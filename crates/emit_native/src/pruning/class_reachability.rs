@@ -229,8 +229,10 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
             Some(body) if body.params.iter().all(|(_, _, ty)| scalar_entry_type(*ty)) => {}
             None if imports.is_some_and(|inventory| inventory.entry(symbol)) => {}
             _ => {
+                let detail = imports.and_then(|inventory| inventory.entry_obligations(symbol))
+                    .map(|detail| format!(": {detail}")).unwrap_or_default();
                 return Err(format!(
-                    "entry root {symbol} has an unproved body or input ABI"
+                    "entry root {symbol} has an unproved body or input ABI{detail}"
                 ));
             }
         }

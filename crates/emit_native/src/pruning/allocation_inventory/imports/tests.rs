@@ -811,3 +811,6 @@ fn llvm_scalar_results_are_not_managed_reference_or_packet_certificates() {
 
 #[path = "tests/frame_names.rs"]
 mod frame_names;
+
+#[path = "tests/startup_diagnostics.rs"]
+mod startup_diagnostics;

@@ -959,3 +959,22 @@ de subtipo, com registro amplo/restrito e GC normal/sob estresse. A primeira
 entrada do SDK continua sem prova de imagem/helpers; a poda estrangeira e a
 aprovação integral permanecem pendentes. Evidências:
 [metadados de frame](../bench/results/2026-10-20-frame-display-metadata/README.md).
+
+## Diagnóstico das obrigações de startup (20/10/2026)
+
+Com `DARTFORGE_TRACE_CLASS_REACHABILITY=1`, uma entrada importada recusada passa
+agora a mostrar as obrigações do inventário verificado e os destinos de helpers.
+As listas são ordenadas, exibem até três itens e informam o total quando maior.
+O diagnóstico distingue destino ausente/ambíguo, definição/ABI não provada e
+footprint de alocação desconhecido. Mesmo um footprint vazio não autoriza a
+chamada posterior pelo runtime: ABI de invocação, valores recebidos, substituição
+do binding e raízes de execução continuam exigindo provas próprias.
+
+Os textos são observações, sem participação na autorização de entradas/chamadas,
+na reescrita dos resumos ou no conjunto de classes ativas. Entradas já aceitas
+não apresentam diagnóstico de rejeição. O teste de integração exige que uma
+reavaliação recusada descarte o certificado anterior. A reprodução real expõe os
+helpers de IndexError, LateError e StackOverflowError em `_internal`; o IR e as
+seis definições de backends estrangeiros permanecem iguais. Não há nova permissão
+de poda nem aprovação integral. Evidências:
+[obrigações de startup](../bench/results/2026-10-20-startup-obligations/README.md).

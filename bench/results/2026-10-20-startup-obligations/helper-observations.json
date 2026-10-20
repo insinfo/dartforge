@@ -1,0 +1,984 @@
+{
+  "scope": "Observations only; helper runtime invocation ABI, values and allocation closure are not certified",
+  "source": "target/rpo-native-cache/sdk/9734c45007553b208736fb763b877f68/allocation-inventory.json",
+  "source_sha256": "9b906271ae5dc05295790533375730e61b822312953454a4811bc6f62900414b",
+  "cache_key": "9734c45007553b208736fb763b877f68",
+  "compiler": "6dac614564fa6c91921ac031a22a71434071da529e077ce00b31a5ddfe29d717",
+  "helpers": [
+    {
+      "module": "dart:_internal",
+      "startup": "df.register.dart$3a_internal",
+      "name": "_dartforgeIndexError",
+      "target": "df.dart$3a_internal.._dartforgeIndexError",
+      "abi": {
+        "parameters": [
+          "i64",
+          "i64",
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_image_or_function_address:df.s.92a43bf7d6c723e94d77aa16abe4a92a",
+        "global_or_function_address_argument:df.mt.dart$3acore.IndexError",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_t",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:_internal",
+      "startup": "df.register.dart$3a_internal",
+      "name": "_dartforgeLateError",
+      "target": "df.dart$3a_internal.._dartforgeLateError",
+      "abi": {
+        "parameters": [
+          "i64",
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_image_or_function_address:df.s.19c39fb4b1f366d0e04dd338688dbd5a",
+        "global_image_or_function_address:df.s.4b454616ab7d76444b1dfd9d05f7a52c",
+        "global_image_or_function_address:df.s.4b6ab09e90a9a87628fbd990becd6cfb",
+        "global_image_or_function_address:df.s.be09365f45294834fb006bfa06148134",
+        "global_image_or_function_address:df.s.e4580cb71421ced319815fdf8b4305ad",
+        "global_or_function_address_argument:df.mt.dart$3a_internal.LateError",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_mt",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "runtime_native_selector_or_helper_obligation:dartforge_string_join_typed",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:_internal",
+      "startup": "df.register.dart$3a_internal",
+      "name": "_dartforgeStackOverflowError",
+      "target": "df.dart$3a_internal.._dartforgeStackOverflowError",
+      "abi": {
+        "parameters": [],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:core",
+      "startup": "df.register.dart$3acore",
+      "name": "_dartforgeTypeError",
+      "target": "df.dart$3acore.._dartforgeTypeError",
+      "abi": {
+        "parameters": [
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_image_or_function_address:df.s.edaf1bd3d1c2ffcc44df55829c002f26",
+        "global_or_function_address_argument:df.mt.dart$3acore._TypeError",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_mt",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:core",
+      "startup": "df.register.dart$3acore",
+      "name": "_dartforgeAssertionError",
+      "target": "df.dart$3acore.._dartforgeAssertionError",
+      "abi": {
+        "parameters": [
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_or_function_address_argument:df.mt.dart$3acore.AssertionError",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_mt",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:core",
+      "startup": "df.register.dart$3acore",
+      "name": "_dartforgeRangeError",
+      "target": "df.dart$3acore.._dartforgeRangeError",
+      "abi": {
+        "parameters": [
+          "i64",
+          "i64",
+          "i64",
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_image_or_function_address:df.s.88bfa8e7c9bf8d689d1e28ca72d2f36a",
+        "global_or_function_address_argument:df.mt.dart$3acore.RangeError",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_mt",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:core",
+      "startup": "df.register.dart$3acore",
+      "name": "_dartforgeStateError",
+      "target": "df.dart$3acore.._dartforgeStateError",
+      "abi": {
+        "parameters": [
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_or_function_address_argument:df.mt.dart$3acore.StateError",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_mt",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:core",
+      "startup": "df.register.dart$3acore",
+      "name": "_dartforgeFormatError",
+      "target": "df.dart$3acore.._dartforgeFormatError",
+      "abi": {
+        "parameters": [
+          "i64",
+          "i64",
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_or_function_address_argument:df.mt.dart$3acore.FormatException",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_mt",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:core",
+      "startup": "df.register.dart$3acore",
+      "name": "_dartforgeUnsupportedError",
+      "target": "df.dart$3acore.._dartforgeUnsupportedError",
+      "abi": {
+        "parameters": [
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_image_or_function_address:df.s.edaf1bd3d1c2ffcc44df55829c002f26",
+        "global_or_function_address_argument:df.mt.dart$3acore.UnsupportedError",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_mt",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:core",
+      "startup": "df.register.dart$3acore",
+      "name": "_dartforgeArgumentError",
+      "target": "df.dart$3acore.._dartforgeArgumentError",
+      "abi": {
+        "parameters": [
+          "i64",
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_or_function_address_argument:df.mt.dart$3acore.ArgumentError",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_mt",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:core",
+      "startup": "df.register.dart$3acore",
+      "name": "_dartforgeCallError",
+      "target": "df.dart$3acore.._dartforgeCallError",
+      "abi": {
+        "parameters": [
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_or_function_address_argument:df.mt.dart$3a_internal.Symbol",
+        "global_or_function_address_argument:df.mt.dart$3acore.NoSuchMethodError",
+        "global_or_function_address_argument:df.mt.dart$3acore._Invocation",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_mt",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_t",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_definition_or_abi:dfc.ba3d7ba122e58ab3.get",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:core",
+      "startup": "df.register.dart$3acore",
+      "name": "_dartforgeNoSuchMethod",
+      "target": "df.dart$3acore.._dartforgeNoSuchMethod",
+      "abi": {
+        "parameters": [
+          "i64",
+          "i64",
+          "i64",
+          "i64",
+          "i64",
+          "i64",
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_image_or_function_address:df.s.9b95d23b914d5e6bf2a7ab4247bfd44b",
+        "global_image_or_function_address:df.s.edaf1bd3d1c2ffcc44df55829c002f26",
+        "global_or_function_address_argument:df.mt.dart$3a_compact_hash._Map",
+        "global_or_function_address_argument:df.mt.dart$3a_internal.Symbol",
+        "global_or_function_address_argument:df.mt.dart$3acore._Invocation",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_list_new",
+        "runtime_native_selector_or_helper_obligation:dartforge_native_Internal_makeFixedListUnmodifiable",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_mt",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_t",
+        "runtime_native_selector_or_helper_obligation:dartforge_rti_set",
+        "runtime_native_selector_or_helper_obligation:dartforge_safepoint",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "runtime_native_selector_or_helper_obligation:dartforge_string_join_typed",
+        "runtime_native_selector_or_helper_obligation:llvm.expect.i8",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:core",
+      "startup": "df.register.dart$3acore",
+      "name": "_dartforgeEmptyStackTrace",
+      "target": "df.dart$3acore.._dartforgeEmptyStackTrace",
+      "abi": {
+        "parameters": [],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:core",
+      "startup": "df.register.dart$3acore",
+      "name": "_dartforgeSetBaseUri",
+      "target": "df.dart$3acore.._dartforgeSetBaseUri",
+      "abi": {
+        "parameters": [
+          "i64"
+        ],
+        "result": "void"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_gc_global_root",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:_compact_hash",
+      "startup": "df.register.dart$3a_compact_hash",
+      "name": "_dartforgeRebuildCopiedIndex",
+      "target": "df.dart$3a_compact_hash.._dartforgeRebuildCopiedIndex",
+      "abi": {
+        "parameters": [
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_safepoint",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "runtime_native_selector_or_helper_obligation:llvm.expect.i8",
+        "unresolved_raw_memory_allocation",
+        "unsupported_opcode:switch"
+      ]
+    },
+    {
+      "module": "dart:_compact_hash",
+      "startup": "df.register.dart$3a_compact_hash",
+      "name": "_dartforgeFillMap",
+      "target": "df.dart$3a_compact_hash.._dartforgeFillMap",
+      "abi": {
+        "parameters": [
+          "i64",
+          "i64"
+        ],
+        "result": "void"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_rti_as_with_context",
+        "runtime_native_selector_or_helper_obligation:dartforge_safepoint",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "runtime_native_selector_or_helper_obligation:llvm.expect.i8",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:_compact_hash",
+      "startup": "df.register.dart$3a_compact_hash",
+      "name": "_dartforgeFillList",
+      "target": "df.dart$3a_compact_hash.._dartforgeFillList",
+      "abi": {
+        "parameters": [
+          "i64",
+          "i64"
+        ],
+        "result": "void"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_safepoint",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "runtime_native_selector_or_helper_obligation:llvm.expect.i8",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:_compact_hash",
+      "startup": "df.register.dart$3a_compact_hash",
+      "name": "_dartforgeFillSet",
+      "target": "df.dart$3a_compact_hash.._dartforgeFillSet",
+      "abi": {
+        "parameters": [
+          "i64",
+          "i64"
+        ],
+        "result": "void"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_safepoint",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "runtime_native_selector_or_helper_obligation:llvm.expect.i8",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:async",
+      "startup": "df.register.dart$3aasync",
+      "name": "_dartforgeLoadLibrary",
+      "target": "df.dart$3aasync.._dartforgeLoadLibrary",
+      "abi": {
+        "parameters": [],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_or_function_address_argument:df.mt.dart$3aasync._Future",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_mt",
+        "runtime_native_selector_or_helper_obligation:dartforge_rti_set",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:isolate",
+      "startup": "df.register.dart$3aisolate",
+      "name": "_dartforgeSendPort",
+      "target": "df.dart$3aisolate.._dartforgeSendPort",
+      "abi": {
+        "parameters": [
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_or_function_address_argument:df.mt.dart$3aisolate._SendPort",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_t",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:isolate",
+      "startup": "df.register.dart$3aisolate",
+      "name": "_dartforgePortAndCapabilities",
+      "target": "df.dart$3aisolate.._dartforgePortAndCapabilities",
+      "abi": {
+        "parameters": [
+          "i64",
+          "i64",
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_or_function_address_argument:df.mt.dart$3aisolate._Capability",
+        "global_or_function_address_argument:df.mt.dart$3aisolate._SendPort",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_list_new",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_t",
+        "runtime_native_selector_or_helper_obligation:dartforge_rti_set",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:isolate",
+      "startup": "df.register.dart$3aisolate",
+      "name": "_dartforgeReadyMessage",
+      "target": "df.dart$3aisolate.._dartforgeReadyMessage",
+      "abi": {
+        "parameters": [
+          "i64",
+          "i64",
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_or_function_address_argument:df.mt.dart$3aisolate._Capability",
+        "global_or_function_address_argument:df.mt.dart$3aisolate._SendPort",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_list_new",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_t",
+        "runtime_native_selector_or_helper_obligation:dartforge_rti_set",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:isolate",
+      "startup": "df.register.dart$3aisolate",
+      "name": "_dartforgeStartIsolate",
+      "target": "df.dart$3aisolate.._dartforgeStartIsolate",
+      "abi": {
+        "parameters": [
+          "i64",
+          "i64"
+        ],
+        "result": "void"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_image_or_function_address:df.dart$3aisolate.._dartforgeStartIsolate$clo0$e51f2221f",
+        "global_image_or_function_address:df.dart$3aisolate.._dartforgeStartIsolate$clo0$e51f2221f$ent",
+        "global_image_or_function_address:df.s.edaf1bd3d1c2ffcc44df55829c002f26",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_rti_set",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:isolate",
+      "startup": "df.register.dart$3aisolate",
+      "name": "_dartforgeDescribeError",
+      "target": "df.dart$3aisolate.._dartforgeDescribeError",
+      "abi": {
+        "parameters": [
+          "i64",
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_image_or_function_address:df.s.edaf1bd3d1c2ffcc44df55829c002f26",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_list_new",
+        "runtime_native_selector_or_helper_obligation:dartforge_rti_set",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:ffi",
+      "startup": "df.register.dart$3affi",
+      "name": "_dartforgeCompoundCreated",
+      "target": "df.dart$3affi.._dartforgeCompoundCreated",
+      "abi": {
+        "parameters": [
+          "i64",
+          "i64",
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_image_or_function_address:df.s.bf6814ca02ab322b3b10b1be7905d3ad",
+        "global_image_or_function_address:df.s.d7da78293dd508c48fd259060ebecb2b",
+        "global_image_or_function_address:df.s.f818767c45b789ff78d65635464fa037",
+        "global_or_function_address_argument:df.mt.dart$3acore.RangeError",
+        "global_or_function_address_argument:df.mt.dart$3atyped_data._Uint8List",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_exception_throw",
+        "runtime_native_selector_or_helper_obligation:dartforge_native_DartForge_ffi_compound_of_type",
+        "runtime_native_selector_or_helper_obligation:dartforge_native_DartForge_ffi_size_of",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_t",
+        "runtime_native_selector_or_helper_obligation:dartforge_rti_as_with_context",
+        "runtime_native_selector_or_helper_obligation:dartforge_rti_object_type",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "runtime_native_selector_or_helper_obligation:dartforge_string_join_typed",
+        "runtime_native_selector_or_helper_obligation:dartforge_typed_new_t",
+        "unresolved_raw_memory_allocation",
+        "unsupported_opcode:switch"
+      ]
+    },
+    {
+      "module": "dart:ffi",
+      "startup": "df.register.dart$3affi",
+      "name": "_dartforgeFromFunction",
+      "target": "df.dart$3affi.._dartforgeFromFunction",
+      "abi": {
+        "parameters": [
+          "i64",
+          "i64",
+          "i64",
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_or_function_address_argument:df.mt.dart$3affi.Pointer",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_native_DartForge_ffi_callback_new",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_t",
+        "runtime_native_selector_or_helper_obligation:dartforge_rti_object_type",
+        "runtime_native_selector_or_helper_obligation:dartforge_rti_set",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:ffi",
+      "startup": "df.register.dart$3affi",
+      "name": "_dartforgeCallableLocal",
+      "target": "df.dart$3affi.._dartforgeCallableLocal",
+      "abi": {
+        "parameters": [
+          "i64",
+          "i64",
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_or_function_address_argument:df.mt.dart$3affi.Pointer",
+        "global_or_function_address_argument:df.mt.dart$3affi._NativeCallableIsolateLocal",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_native_DartForge_ffi_callback_keep",
+        "runtime_native_selector_or_helper_obligation:dartforge_native_DartForge_ffi_callback_new",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_mt",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_t",
+        "runtime_native_selector_or_helper_obligation:dartforge_rti_object_type",
+        "runtime_native_selector_or_helper_obligation:dartforge_rti_set",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:ffi",
+      "startup": "df.register.dart$3affi",
+      "name": "_dartforgeCallableListener",
+      "target": "df.dart$3affi.._dartforgeCallableListener",
+      "abi": {
+        "parameters": [
+          "i64",
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_image_or_function_address:df.dart$3affi.._dartforgeCallableListener$clo0$e794c4aaf",
+        "global_image_or_function_address:df.dart$3affi.._dartforgeCallableListener$clo0$e794c4aaf$ent",
+        "global_image_or_function_address:df.s.4190e5fdcaa24e5740cf05b3524873d4",
+        "global_image_or_function_address:df.s.cab6f2579ac09c1809a0c370c36e2043",
+        "global_or_function_address_argument:df.mt.dart$3affi.Pointer",
+        "global_or_function_address_argument:df.mt.dart$3affi._NativeCallableListener",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_native_DartForge_ffi_callback_new",
+        "runtime_native_selector_or_helper_obligation:dartforge_native_SendPort_get_id",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_mt",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_t",
+        "runtime_native_selector_or_helper_obligation:dartforge_rti_object_type",
+        "runtime_native_selector_or_helper_obligation:dartforge_rti_set",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "runtime_native_selector_or_helper_obligation:dartforge_string_join_typed",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:ffi",
+      "startup": "df.register.dart$3affi",
+      "name": "_dartforgeCallableSync",
+      "target": "df.dart$3affi.._dartforgeCallableSync",
+      "abi": {
+        "parameters": [
+          "i64",
+          "i64",
+          "i64",
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_image_or_function_address:df.dart$3affi.._dartforgeCallableSync$clo0$e1df4b000",
+        "global_image_or_function_address:df.dart$3affi.._dartforgeCallableSync$clo0$e1df4b000$ent",
+        "global_image_or_function_address:df.s.0be5405f82b235cbf20ee09e7239bca9",
+        "global_image_or_function_address:df.s.25f0355b5af0aa8b54ceafcd9baec84a",
+        "global_image_or_function_address:df.s.4190e5fdcaa24e5740cf05b3524873d4",
+        "global_image_or_function_address:df.s.c625b0ca754e490b6669aeb8e1eaee11",
+        "global_image_or_function_address:df.s.c756f8d034a8b61f2f320e2b10a20da0",
+        "global_or_function_address_argument:df.mt.dart$3acore.ArgumentError",
+        "global_or_function_address_argument:df.mt.dart$3acore.StateError",
+        "global_or_function_address_argument:df.mt.dart$3affi.Pointer",
+        "global_or_function_address_argument:df.mt.dart$3affi._NativeCallableSync",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_exception_peek_ref",
+        "runtime_native_selector_or_helper_obligation:dartforge_exception_throw",
+        "runtime_native_selector_or_helper_obligation:dartforge_native_DartForge_ffi_callback_sync_new",
+        "runtime_native_selector_or_helper_obligation:dartforge_native_SendPort_get_id",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_mt",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_t",
+        "runtime_native_selector_or_helper_obligation:dartforge_rti_object_type",
+        "runtime_native_selector_or_helper_obligation:dartforge_rti_set",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "runtime_native_selector_or_helper_obligation:dartforge_string_join_typed",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:ffi",
+      "startup": "df.register.dart$3affi",
+      "name": "_dartforgeArray",
+      "target": "df.dart$3affi.._dartforgeArray",
+      "abi": {
+        "parameters": [
+          "i64",
+          "i64",
+          "i64",
+          "i64",
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_or_function_address_argument:df.mt.dart$3affi.Array",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_mt",
+        "runtime_native_selector_or_helper_obligation:dartforge_rti_set",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:ffi",
+      "startup": "df.register.dart$3affi",
+      "name": "_dartforgePointer",
+      "target": "df.dart$3affi.._dartforgePointer",
+      "abi": {
+        "parameters": [
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_or_function_address_argument:df.mt.dart$3affi.Pointer",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_t",
+        "runtime_native_selector_or_helper_obligation:dartforge_rti_set",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:io",
+      "startup": "df.register.dart$3aio",
+      "name": "_dartforgeOSError",
+      "target": "df.dart$3aio.._dartforgeOSError",
+      "abi": {
+        "parameters": [
+          "i64",
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_or_function_address_argument:df.mt.dart$3aio.OSError",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_mt",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:io",
+      "startup": "df.register.dart$3aio",
+      "name": "_dartforgeListingEntry",
+      "target": "df.dart$3aio.._dartforgeListingEntry",
+      "abi": {
+        "parameters": [
+          "i64",
+          "i64",
+          "i64"
+        ],
+        "result": "void"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_image_or_function_address:df.s.3890d0b4826ff2876df9605c863deca1",
+        "global_or_function_address_argument:df.mt.dart$3aio._File",
+        "global_or_function_address_argument:df.mt.dart$3aio._Link",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_mt",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:io",
+      "startup": "df.register.dart$3aio",
+      "name": "_dartforgeListingError",
+      "target": "df.dart$3aio.._dartforgeListingError",
+      "abi": {
+        "parameters": [
+          "i64",
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_image_or_function_address:df.s.7d3db4fdbd1d05a534e2c14d43224199",
+        "global_or_function_address_argument:df.mt.dart$3aio.FileSystemException",
+        "global_or_function_address_argument:df.mt.dart$3aio.PathAccessException",
+        "global_or_function_address_argument:df.mt.dart$3aio.PathExistsException",
+        "global_or_function_address_argument:df.mt.dart$3aio.PathNotFoundException",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_mt",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:io",
+      "startup": "df.register.dart$3aio",
+      "name": "_dartforgeStartIo",
+      "target": "df.dart$3aio.._dartforgeStartIo",
+      "abi": {
+        "parameters": [
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_image_or_function_address:df.dart$3aio._Platform._nativeScript$3d$clo0$e1609b1e9",
+        "global_image_or_function_address:df.dart$3aio._Platform._nativeScript$3d$clo0$e1609b1e9$ent",
+        "global_or_function_address_argument:df.dart$3aio.._uriBaseClosure$tear",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_rti_set",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "runtime_native_selector_or_helper_obligation:dartforge_tearoff",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:io",
+      "startup": "df.register.dart$3aio",
+      "name": "_dartforgeStartFailure",
+      "target": "df.dart$3aio.._dartforgeStartFailure",
+      "abi": {
+        "parameters": [
+          "i64",
+          "i64",
+          "i64"
+        ],
+        "result": "void"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:io",
+      "startup": "df.register.dart$3aio",
+      "name": "_dartforgeDatagram",
+      "target": "df.dart$3aio.._dartforgeDatagram",
+      "abi": {
+        "parameters": [
+          "i64",
+          "i64",
+          "i64",
+          "i64",
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_or_function_address_argument:df.mt.dart$3aio.Datagram",
+        "global_or_function_address_argument:df.mt.dart$3aio._InternetAddress",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_mt",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:io",
+      "startup": "df.register.dart$3aio",
+      "name": "_dartforgeResourcesMessage",
+      "target": "df.dart$3aio.._dartforgeResourcesMessage",
+      "abi": {
+        "parameters": [
+          "i64",
+          "i64",
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_or_function_address_argument:df.mt.dart$3aio._SocketControlMessageImpl",
+        "global_or_function_address_argument:df.mt.dart$3atyped_data._Uint8List",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_mt",
+        "runtime_native_selector_or_helper_obligation:dartforge_rti_as_with_context",
+        "runtime_native_selector_or_helper_obligation:dartforge_safepoint",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "runtime_native_selector_or_helper_obligation:dartforge_typed_new_t",
+        "runtime_native_selector_or_helper_obligation:llvm.expect.i8",
+        "unresolved_raw_memory_allocation",
+        "unsupported_opcode:switch"
+      ]
+    },
+    {
+      "module": "dart:io",
+      "startup": "df.register.dart$3aio",
+      "name": "_dartforgeMessageResources",
+      "target": "df.dart$3aio.._dartforgeMessageResources",
+      "abi": {
+        "parameters": [
+          "i64",
+          "i64",
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_or_function_address_argument:df.mt.dart$3aio._ResourceHandleImpl",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_list_append",
+        "runtime_native_selector_or_helper_obligation:dartforge_list_new",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_t",
+        "runtime_native_selector_or_helper_obligation:dartforge_rti_as_with_context",
+        "runtime_native_selector_or_helper_obligation:dartforge_rti_set",
+        "runtime_native_selector_or_helper_obligation:dartforge_safepoint",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "runtime_native_selector_or_helper_obligation:llvm.expect.i8",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:io",
+      "startup": "df.register.dart$3aio",
+      "name": "_dartforgeResourceDescriptor",
+      "target": "df.dart$3aio.._dartforgeResourceDescriptor",
+      "abi": {
+        "parameters": [
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_rti_as_with_context",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    },
+    {
+      "module": "dart:io",
+      "startup": "df.register.dart$3aio",
+      "name": "_dartforgeResourceFile",
+      "target": "df.dart$3aio.._dartforgeResourceFile",
+      "abi": {
+        "parameters": [
+          "i64"
+        ],
+        "result": "i64"
+      },
+      "transitive_classes": null,
+      "unknown_obligations": [
+        "global_image_or_function_address:df.s.edaf1bd3d1c2ffcc44df55829c002f26",
+        "global_or_function_address_argument:df.mt.dart$3aio._FileResourceInfo",
+        "global_or_function_address_argument:df.mt.dart$3aio._RandomAccessFile",
+        "global_or_function_address_argument:df.mt.dart$3aio._RandomAccessFileOpsImpl",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_native_File_SetPointer",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_mt",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_t",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    }
+  ]
+}

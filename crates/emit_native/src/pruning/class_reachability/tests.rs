@@ -2383,3 +2383,17 @@ mod storage_tests;
 
 #[path = "tests/frame_metadata.rs"]
 mod frame_metadata;
+
+#[test]
+fn imported_helper_rejection_explains_the_target_without_publishing_classes() {
+    let ir = "@name = private constant [1 x i8] c\"h\"\ndefine void @df.register.dart$3atest() {\n call void @dartforge_register_helper(ptr @name, i64 1, ptr @helper_target)\n ret void\n}\ndefine i64 @helper_target() { ret i64 0 }\n";
+    let (_directory, summary, inventory) = checked_scalar_sdk(ir);
+    let mut module = fixture();
+    assert!(audit(&mut module, &[]).is_ok());
+    module.sdk_records.push("df.register.dart$3atest".into());
+    module.imported_allocation_inventory = Some(inventory);
+    let reason = audit(&mut module, &[&summary]).err().unwrap();
+    assert!(reason.contains("entry root df.register.dart$3atest has an unproved body or input ABI"));
+    assert!(reason.contains("helper_target\": allocation footprint observed; invocation coverage unproved"), "{reason}");
+    assert!(module.closed_class_tables.is_none());
+}

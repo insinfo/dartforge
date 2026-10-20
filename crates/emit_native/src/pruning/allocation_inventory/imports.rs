@@ -14,6 +14,7 @@ use std::path::Path;
 mod bitcode_tests;
 mod registry;
 mod tables;
+mod diagnostics;
 
 const SCOPE: &str =
     "allocation closure only; import pruning and native/registry exposure remain unverified";
@@ -94,6 +95,7 @@ pub(crate) struct Inventory {
     clean_source_images: usize,
     table_declarations: HashMap<String, u32>,
     metadata_startups: HashSet<String>,
+    entry_obligations: HashMap<String, String>,
 }
 fn digest(text: &str) -> bool {
     text.len() == 64
@@ -399,6 +401,7 @@ impl Inventory {
         let metadata_startups =
             registry::metadata_startups(&raw.functions, &summaries, &by_key, &byte_contents);
         let known_allocations = allocations.iter().filter(|c| c.is_some()).count();
+        let entry_obligations = diagnostics::startup_obligations(&raw.functions, &by_key);
         let mut facts = HashMap::new();
         for (index, f) in raw.functions.into_iter().enumerate() {
             let unique = by_key[f.key.as_str()].len() == 1;
@@ -429,6 +432,7 @@ impl Inventory {
             clean_source_images,
             table_declarations,
             metadata_startups,
+            entry_obligations,
         })
     }
 
@@ -554,6 +558,12 @@ impl Inventory {
     /// Startup-only metadata publication is not an ordinary pure Dart call.
     pub(crate) fn entry(&self, symbol: &str) -> bool {
         self.call(symbol, &[], Type::Void) || self.metadata_startups.contains(symbol)
+    }
+    /// Explain a rejected imported startup using the verified snapshot only.
+    /// Diagnostic observations never grant call or allocation capabilities.
+    pub(crate) fn entry_obligations(&self, symbol: &str) -> Option<&str> {
+        if self.entry(symbol) { return None; }
+        self.entry_obligations.get(symbol).map(String::as_str)
     }
     /// Discharge only edges owned by certified metadata startup bodies. Other
     /// uses of the runtime API remain visible and require their own proof.

@@ -1,0 +1,57 @@
+[
+  {
+    "path": "target/startup-diagnostics-validation/after-development",
+    "bytes": 78352,
+    "sha256": "1df376590f462e311a2ac362d3c66a2a4502b1e066c0675db76e0756e07de467"
+  },
+  {
+    "path": "target/startup-diagnostics-validation/after-development.contracts.json",
+    "bytes": 732,
+    "sha256": "7c921725313f455b7d953f777662684877f46c14cf47726aee723a13fa29cdde"
+  },
+  {
+    "path": "target/startup-diagnostics-validation/after-production",
+    "bytes": 3425568,
+    "sha256": "a062731bf2da7147e5e8c52a1c6067420a41216878970edab0746f1e637c9295"
+  },
+  {
+    "path": "target/startup-diagnostics-validation/after-production.contracts.json",
+    "bytes": 730,
+    "sha256": "1644fe6894a93369118281a5b56baf7ea60eece97d7a9bf5fd168e6c25634465"
+  },
+  {
+    "path": "target/startup-diagnostics-validation/libdfsdk_eacde4365a47a3bd.dylib",
+    "bytes": 41883248,
+    "sha256": "9c79f8306e1d3e2abf74d2ccfd4f502ea34f483bea3dd80afda1e9462708ddaa"
+  },
+  {
+    "path": "target/startup-diagnostics-validation/platform-closed.ll",
+    "bytes": 167162,
+    "sha256": "567750f78d076192e9b366708f5e9de2ce96760164cca5efd4cfd7dbc8d3b459"
+  },
+  {
+    "path": "target/startup-diagnostics-validation/platform-closed.ll.contracts.json",
+    "bytes": 613,
+    "sha256": "a08b17668a3d0cf11e937238d2f1379415b5b65b7951dbea1371e8482eab2ffd"
+  },
+  {
+    "path": "target/startup-diagnostics-validation/platform-default.ll",
+    "bytes": 167162,
+    "sha256": "567750f78d076192e9b366708f5e9de2ce96760164cca5efd4cfd7dbc8d3b459"
+  },
+  {
+    "path": "target/startup-diagnostics-validation/platform-default.ll.contracts.json",
+    "bytes": 614,
+    "sha256": "51e2a5006da3dfde8a5a3be8ac1ac38c9e6d6174249b90a69a5471633f1b6fcb"
+  },
+  {
+    "path": "target/test-tools/dartforge-frame-name",
+    "bytes": 197753984,
+    "sha256": "dce40a8e27ad983e795b7568c2e25697f89681dc6748ec312f2f57441424f720"
+  },
+  {
+    "path": "target/test-tools/dartforge-startup-diagnostics",
+    "bytes": 197782128,
+    "sha256": "3f7410e6be7ded155f9e436a8b74aedf169fe22d422b26c0cddf4a9da95bb2d0"
+  }
+]

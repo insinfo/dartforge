@@ -1,0 +1,26 @@
+[
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/imports.rs",
+    "sha256": "f3dfe1e57e46a5b7624dea0752c0fde8a3481e26923e26613f61261f691086c8"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/imports/diagnostics.rs",
+    "sha256": "0f043fa97316c23b9ec2dea0c9cfcafa20b2eff849082c49395608828af440bf"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/imports/tests.rs",
+    "sha256": "88cbd845d664897ae1382e370ab75a88fa470b573b537988324c93d405d0dbde"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/imports/tests/startup_diagnostics.rs",
+    "sha256": "e34b969f06e42e7e7a54d0c2a4b7afa4f2af6fde135f1900284856c50947166b"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/class_reachability.rs",
+    "sha256": "90342cc813c51083ed0e178fd7e1906a0cf0ba5bbf10902961ab9f561afde967"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/class_reachability/tests.rs",
+    "sha256": "550e2d870958d6309a0f4e1eee71de3c3fdf4be418adb927212f1844dc7f8c9c"
+  }
+]

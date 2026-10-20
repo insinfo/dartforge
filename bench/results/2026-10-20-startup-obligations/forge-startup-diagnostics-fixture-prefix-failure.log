@@ -1,0 +1,22 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.33s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 4 tests
+test pruning::allocation_inventory::imports::tests::startup_diagnostics::local_helper_resolution_does_not_use_an_unrelated_global_body ... ok
+
+thread 'pruning::allocation_inventory::imports::tests::startup_diagnostics::certified_metadata_and_pure_entries_have_no_rejection_diagnostic' (2781897) panicked at crates/emit_native/src/pruning/allocation_inventory/imports/tests/startup_diagnostics.rs:79:9:
+assertion failed: inventory.entry("df.register.dart$3atest")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test pruning::allocation_inventory::imports::tests::startup_diagnostics::large_startup_diagnostics_are_deterministic_and_bound_the_target_list ... ok
+test pruning::allocation_inventory::imports::tests::startup_diagnostics::certified_metadata_and_pure_entries_have_no_rejection_diagnostic ... FAILED
+test pruning::allocation_inventory::imports::tests::startup_diagnostics::helper_diagnostics_distinguish_definitions_and_allocation_coverage ... ok
+
+failures:
+
+failures:
+    pruning::allocation_inventory::imports::tests::startup_diagnostics::certified_metadata_and_pure_entries_have_no_rejection_diagnostic
+
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 985 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

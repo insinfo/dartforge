@@ -1,0 +1,170 @@
+[
+  {
+    "source": "/tmp/forge-startup-diagnostics-checks/checks.json",
+    "stored": "checks.json",
+    "original_bytes": 1603,
+    "original_sha256": "82256b5f78b0e2a368e2df89eb7e0847d23b015dae3b5528b5781cd8c0e54031",
+    "stored_sha256": "82256b5f78b0e2a368e2df89eb7e0847d23b015dae3b5528b5781cd8c0e54031"
+  },
+  {
+    "source": "/tmp/forge-startup-diagnostics-checks/directed.log",
+    "stored": "directed.log",
+    "original_bytes": 996,
+    "original_sha256": "8f82c54f04dbe1d264f622ded80621d9b6f1a06cecefd634efb71852ec080a8e",
+    "stored_sha256": "922f81dca499439e1a3bffabff1b3ae4761ebb229b3dbd069b5d48072135ac77"
+  },
+  {
+    "source": "/tmp/forge-startup-diagnostics-checks/clippy.log",
+    "stored": "clippy.log",
+    "original_bytes": 376,
+    "original_sha256": "8b8bdbe9d6083932ae525809e483fc9b9d7c39086468cc8697ff4be6357db482",
+    "stored_sha256": "8b8bdbe9d6083932ae525809e483fc9b9d7c39086468cc8697ff4be6357db482"
+  },
+  {
+    "source": "/tmp/forge-startup-diagnostics-checks/feature-clippy.log",
+    "stored": "feature-clippy.log",
+    "original_bytes": 178,
+    "original_sha256": "8d8727eddf1581350c2e1f20cb692eca61b4b32b95396518c0da4c4f31495af2",
+    "stored_sha256": "8d8727eddf1581350c2e1f20cb692eca61b4b32b95396518c0da4c4f31495af2"
+  },
+  {
+    "source": "/tmp/forge-startup-diagnostics-checks/doc.log",
+    "stored": "doc.log",
+    "original_bytes": 528,
+    "original_sha256": "089952db6709646fe3e31f05c1f8296ff1437bc0b143f17687f4042c285599a4",
+    "stored_sha256": "089952db6709646fe3e31f05c1f8296ff1437bc0b143f17687f4042c285599a4"
+  },
+  {
+    "source": "/tmp/forge-startup-diagnostics-checks/runtime-metadata.log",
+    "stored": "runtime-metadata.log",
+    "original_bytes": 400,
+    "original_sha256": "b945a905954a25f148902453c93add868f79ee199282949fcd041a87d2600645",
+    "stored_sha256": "9aa8a30d83db8cda2704232a066c036c8844fb1c882a997cf5fc66c37a1a2e6c"
+  },
+  {
+    "source": "/tmp/forge-startup-diagnostics-checks/compiler.log",
+    "stored": "compiler.log",
+    "original_bytes": 6636,
+    "original_sha256": "e0b935909e1de9d9747ed782eb37af886c170f4036020e50079d4a55f730c815",
+    "stored_sha256": "e0b935909e1de9d9747ed782eb37af886c170f4036020e50079d4a55f730c815"
+  },
+  {
+    "source": "/tmp/forge-startup-diagnostics-checks/native-lib.log",
+    "stored": "native-lib.log",
+    "original_bytes": 104780,
+    "original_sha256": "ddb2ec660891d7050c83d116aebc06f6898971c7993c0eeb66f07c054a25f447",
+    "stored_sha256": "773e439a248f7c61d7e2ec45ca33438258f8e94d5147d64e979198209e951748"
+  },
+  {
+    "source": "/tmp/forge-startup-diagnostics-checks/scoped-fmt.log",
+    "stored": "scoped-fmt.log",
+    "original_bytes": 0,
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+  },
+  {
+    "source": "/tmp/forge-startup-diagnostics-checks/fmt.json",
+    "stored": "fmt.json",
+    "original_bytes": 117,
+    "original_sha256": "41b05c6646da37b55a39e1bcc415dfbce2cd2895e63214a8dfbf4232e6ca0b78",
+    "stored_sha256": "41b05c6646da37b55a39e1bcc415dfbce2cd2895e63214a8dfbf4232e6ca0b78"
+  },
+  {
+    "source": "/tmp/forge-startup-diagnostics-checks/fmt-excerpt.txt",
+    "stored": "fmt-excerpt.txt",
+    "original_bytes": 3013,
+    "original_sha256": "cfbdfbe7dbfb86837ac4a8287bf24d8a508d82170c8c432d110cc6ec5c3b74ab",
+    "stored_sha256": "cfbdfbe7dbfb86837ac4a8287bf24d8a508d82170c8c432d110cc6ec5c3b74ab"
+  },
+  {
+    "source": "/tmp/forge-startup-diagnostics-checks.py",
+    "stored": "validate-checks.py",
+    "original_bytes": 2021,
+    "original_sha256": "e7860a7e559153ac75cc3d01f3a921b26ebede24cb53da9c49f477decedd15e1",
+    "stored_sha256": "e7860a7e559153ac75cc3d01f3a921b26ebede24cb53da9c49f477decedd15e1"
+  },
+  {
+    "source": "/tmp/forge-startup-diagnostics-runtime/static-startup.dart",
+    "stored": "static-startup.dart",
+    "original_bytes": 682,
+    "original_sha256": "516168bdc81347e6347008b5872fae104c691c6e5bc36ca44b01c824107d8cd8",
+    "stored_sha256": "516168bdc81347e6347008b5872fae104c691c6e5bc36ca44b01c824107d8cd8"
+  },
+  {
+    "source": "/tmp/forge-startup-diagnostics-runtime/validate-runtime.py",
+    "stored": "validate-runtime.py",
+    "original_bytes": 2805,
+    "original_sha256": "3c3dd65a5d5cd3fee0d7ca1b4e330ba391ce7663b9849510302ccdaa049f8d63",
+    "stored_sha256": "3c3dd65a5d5cd3fee0d7ca1b4e330ba391ce7663b9849510302ccdaa049f8d63"
+  },
+  {
+    "source": "/tmp/forge-startup-diagnostics-runtime/after-runtime.json",
+    "stored": "after-runtime.json",
+    "original_bytes": 7870,
+    "original_sha256": "2d4abc2cca2d73d1810396565a4c10fdbc4408de0a7c9c127ba67dc25baabcfc",
+    "stored_sha256": "2d4abc2cca2d73d1810396565a4c10fdbc4408de0a7c9c127ba67dc25baabcfc"
+  },
+  {
+    "source": "/tmp/forge-startup-diagnostics-runtime/validate-platform.py",
+    "stored": "validate-platform.py",
+    "original_bytes": 1725,
+    "original_sha256": "41dc22d59885ce9fbbadbd26bb661edcc50ee909cb08f031c83809c415dc7157",
+    "stored_sha256": "41dc22d59885ce9fbbadbd26bb661edcc50ee909cb08f031c83809c415dc7157"
+  },
+  {
+    "source": "/tmp/forge-startup-diagnostics-runtime/platform-reproduction.json",
+    "stored": "platform-reproduction.json",
+    "original_bytes": 3833,
+    "original_sha256": "996cb2d2df35a0310835a44f16b9eb9da8ae4838f208a1f5cef328ae0aefc530",
+    "stored_sha256": "996cb2d2df35a0310835a44f16b9eb9da8ae4838f208a1f5cef328ae0aefc530"
+  },
+  {
+    "source": "/tmp/forge-startup-diagnostics-runtime/source-bindings.json",
+    "stored": "source-bindings.json",
+    "original_bytes": 1041,
+    "original_sha256": "6f3fad3c9619531a1a626b0dcfbd52792967801dc67df912bca9c9dd544c4b0c",
+    "stored_sha256": "6f3fad3c9619531a1a626b0dcfbd52792967801dc67df912bca9c9dd544c4b0c"
+  },
+  {
+    "source": "/tmp/forge-startup-diagnostics-runtime/helper-observations.json",
+    "stored": "helper-observations.json",
+    "original_bytes": 38127,
+    "original_sha256": "92a669774145e3eb84e3eb0ff0a3fdfc3c516822f6a9f755375831729697a60c",
+    "stored_sha256": "92a669774145e3eb84e3eb0ff0a3fdfc3c516822f6a9f755375831729697a60c"
+  },
+  {
+    "source": "/tmp/forge-startup-diagnostics-runtime/inspect-bindings.py",
+    "stored": "inspect-bindings.py",
+    "original_bytes": 1857,
+    "original_sha256": "67e2af1d8c616fc58ee294058430f0bd16b631d3a1ca9900dbf966598d2ae474",
+    "stored_sha256": "67e2af1d8c616fc58ee294058430f0bd16b631d3a1ca9900dbf966598d2ae474"
+  },
+  {
+    "source": "/tmp/forge-startup-diagnostics-runtime/ir-comparison.json",
+    "stored": "ir-comparison.json",
+    "original_bytes": 594,
+    "original_sha256": "784b488f6c98adcaa60f8b108683acc92906eb04586c69b150fba3c57dfd1e28",
+    "stored_sha256": "784b488f6c98adcaa60f8b108683acc92906eb04586c69b150fba3c57dfd1e28"
+  },
+  {
+    "source": "/tmp/forge-startup-diagnostics-initial.log",
+    "stored": "forge-startup-diagnostics-initial.log",
+    "original_bytes": 1630,
+    "original_sha256": "9624acdd0b51aea8b943ef8bf85cfa784e43fb51fd779c83d870a185b8f6f1ea",
+    "stored_sha256": "9624acdd0b51aea8b943ef8bf85cfa784e43fb51fd779c83d870a185b8f6f1ea"
+  },
+  {
+    "source": "/tmp/forge-startup-diagnostics-test-build-failure.log",
+    "stored": "forge-startup-diagnostics-test-build-failure.log",
+    "original_bytes": 1252,
+    "original_sha256": "0d9a10a2bcf5724e8861542c686ef44f94fc05df27712fee9f8af31a08328fd4",
+    "stored_sha256": "0d9a10a2bcf5724e8861542c686ef44f94fc05df27712fee9f8af31a08328fd4"
+  },
+  {
+    "source": "/tmp/forge-startup-diagnostics-fixture-prefix-failure.log",
+    "stored": "forge-startup-diagnostics-fixture-prefix-failure.log",
+    "original_bytes": 1629,
+    "original_sha256": "5bc1e0969706481f7ef90919e96e342f754724338ea50d1685f466b3ccd7df73",
+    "stored_sha256": "5bc1e0969706481f7ef90919e96e342f754724338ea50d1685f466b3ccd7df73"
+  }
+]

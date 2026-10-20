@@ -2,6 +2,22 @@
 
 ## Atualização de 20/10/2026
 
+- A rejeição de startup importado mostra agora as obrigações verificadas e os
+  destinos de helpers, com ordem determinística e até três itens por lista.
+  Distingue destino ausente/ambíguo, definição/ABI não provada e alocação
+  desconhecida; footprint vazio continua sem autorizar invocação pelo runtime.
+  A reprodução real identifica os helpers de IndexError, LateError e
+  StackOverflowError em `_internal`, preservando o registro amplo. Passaram
+  989 testes nativos com ignorados, Clippy estrito e docs sem avisos. Os dois
+  modos da reprodução conservaram IR idêntico e seis definições estrangeiras;
+  a fixture de runtime coincidiu com a VM em AOT de produção/desenvolvimento
+  e JIT macOS, normal/sob estresse de GC. O censo observacional do SDK anterior
+  registra 41 helpers distintos, todos com alocação transitiva desconhecida;
+  isso não é certificado de invocação. Sem mudança de permissão de poda,
+  protocolo do inventário ou runtime, nova matriz Windows/Linux ou ganho
+  medido. Fmt global e aprovação integral permanecem pendentes. Evidências:
+  `bench/results/2026-10-20-startup-obligations/README.md`.
+
 - O certificado de inicialização reconhece agora apenas o par reservado de CID
   e rótulo `_AsyncFrame`, sem tratá-lo como classe nominal ou layout fixo.
   Declarações nominais, tabelas, layouts e relações de subtipo conflitantes em
