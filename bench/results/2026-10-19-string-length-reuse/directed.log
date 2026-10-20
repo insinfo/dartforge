@@ -116,4 +116,3 @@ test optimize::string_lengths::tests::loop_carried_string_identity_is_never_hois
 test optimize::string_lengths::tests::loop_prefix_is_hoisted_and_dominating_reads_are_reused ... ok
 
 test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 922 filtered out; finished in 0.02s
-

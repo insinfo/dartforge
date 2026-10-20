@@ -73,3 +73,6 @@ No general compiler-speed gain, binary-size improvement, class-pruning
 authorization or File Explorer desktop regression matrix is claimed here.
 Executables, full IR and SDK artifacts remain in ignored target/scratch paths;
 the checked-in fixture/scripts and recorded hashes support reproducing them.
+
+Stored directed/native-library logs have only their extra trailing blank line removed.
+`log-normalization.json` preserves original and stored digests; scratch originals remain unchanged.

@@ -1,0 +1,16 @@
+[
+  {
+    "stored": "directed.log",
+    "original": "/tmp/forge-string-length-isolated.log",
+    "original_sha256": "6a8c6cc55acd7f448e167b748181f0598727a323e1bc06a5116e46f82ccbd135",
+    "stored_sha256": "43478b21bce6a13f163bdcc043564772c92a86b7a030d8478e89011bc24c49af",
+    "change": "Remove only blank lines at EOF; original scratch log unchanged."
+  },
+  {
+    "stored": "native-lib.log",
+    "original": "/tmp/forge-string-length-reuse/native-lib.log",
+    "original_sha256": "5354e0143f74fe6f1529cb99de838a430464963890ebca69704d8288ac166537",
+    "stored_sha256": "7c2c794b45b125a951fee69f716cd3629912b88ce2cb2dd83f84547ed38732f8",
+    "change": "Remove only blank lines at EOF; original scratch log unchanged."
+  }
+]
